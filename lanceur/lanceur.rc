@@ -1,0 +1,33 @@
+// Ressources de « Fabrique.exe » : icône, version, éditeur, manifeste. version.h (VERSION_N 1,0,0,0 et VERSION_T "1.0.0") est écrit par construire.py.
+#pragma code_page(65001)
+#include <winver.h>
+#include "version.h"
+
+1 ICON "icone.ico"
+1 24 "lanceur.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION VERSION_N
+PRODUCTVERSION VERSION_N
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040C04B0"
+    BEGIN
+      VALUE "CompanyName", "StudioKids"
+      VALUE "FileDescription", "Fabrique"
+      VALUE "FileVersion", VERSION_T
+      VALUE "InternalName", "Fabrique"
+      VALUE "LegalCopyright", "StudioKids"
+      VALUE "OriginalFilename", "Fabrique.exe"
+      VALUE "ProductName", "Fabrique"
+      VALUE "ProductVersion", VERSION_T
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x040C, 0x04B0
+  END
+END
