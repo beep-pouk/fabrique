@@ -21,11 +21,11 @@ Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et doc
 
 ### Vérifié
 
-- Suite : 43 tests verts (`outils_dev	ester.py`), dont le parcours de la fenêtre sans fenêtre visible, la sonnette, et 5 captures de référence (`fabrique	ests\captures` : 100 %, 125 %, 150 %, 2560 × 1440) regardées une à une.
-- **Recette J1 : tout vert, 16 points** (`python outils_deverifier.py --jalon J1 --publier`, 17/11 0 h 11 ; rapport `docs\VERIF_J1_PC.md`, non suivi) : construction vérifiée et publiée ; recette d'installation en bac à sable de bout en bout (refus, installation comme RT la première fois, lancement sans rien sur le chemin en 4,2 s, sauvegarde du soir rattrapée, contrôles du banc, fenêtre fermée / revenue / quittée / relancée, sauvegarde puis restauration, noyau tué puis relancé par la fenêtre en 30 s, programme jamais écrit, mise à jour 0.1.0 → 0.1.1, désinstallation : il ne reste que les données, aucune console) ; **dossier « Bramble Studio » identique avant et après** ; **« DONNEES » identique** hormis 4 fichiers que Bramble Studio réécrit lui-même en tournant (`etat.json`, `etat.txt`, `studio.db-shm`, `studio.db-wal`).
+- Suite : 43 tests verts (`outils_dev\tester.py`), dont le parcours de la fenêtre sans fenêtre visible, la sonnette, et 5 captures de référence (`fabrique\tests\captures` : 100 %, 125 %, 150 %, 2560 × 1440) regardées une à une.
+- **Recette J1 : tout vert, 16 points** (`python outils_dev\verifier.py --jalon J1 --publier`, 17/11 0 h 11 ; rapport `docs\VERIF_J1_PC.md`, non suivi) : construction vérifiée et publiée ; recette d'installation en bac à sable de bout en bout (refus, installation comme RT la première fois, lancement sans rien sur le chemin en 4,2 s, sauvegarde du soir rattrapée, contrôles du banc, fenêtre fermée / revenue / quittée / relancée, sauvegarde puis restauration, noyau tué puis relancé par la fenêtre en 30 s, programme jamais écrit, mise à jour 0.1.0 → 0.1.1, désinstallation : il ne reste que les données, aucune console) ; **dossier « Bramble Studio » identique avant et après** ; **« DONNEES » identique** hormis 4 fichiers que Bramble Studio réécrit lui-même en tournant (`etat.json`, `etat.txt`, `studio.db-shm`, `studio.db-wal`).
 - Vraie fenêtre (plateforme Windows) regardée par capture sur un noyau de développement : nette, Cascadia Mono présente ; un défaut vu et corrigé (« Mettre à jour » visible sans version proposée).
-- Publié : `D:\StudioKids\FABRIQUEersions\Fabrique 0.1.0 - Installation.exe` + `versions.json`.
-- Rangé : `OUTILSabrique_maquettes` → `OUTILS\_old6-11_fabrique_maquettes` (rien d'effacé ; commit local du dépôt racine, ces chemins seulement).
+- Publié : `D:\StudioKids\FABRIQUE\versions\Fabrique 0.1.0 - Installation.exe` + `versions.json`.
+- Rangé : `OUTILS\fabrique_maquettes` → `OUTILS\_old\2026-11_fabrique_maquettes` (rien d'effacé ; commit local du dépôt racine, ces chemins seulement).
 - Non vérifié : les notifications Windows à l'œil (codées, testées sans fenêtre), le son (aucun écran ne lit de vidéo à J1), un Windows neuf, l'échelle réglée dans Windows (simulée par `QT_SCALE_FACTOR`).
 
 ### Choix faits sans demander (les plus prudents)
@@ -56,11 +56,11 @@ Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et doc
 
 ### Ce qui attend RT
 
-1. **Installer Fabrique** (la première fois, son clic) : double-cliquer `D:\StudioKids\FABRIQUEersions\Fabrique 0.1.0 - Installation.exe`, garder le dossier proposé (`D:\StudioKids\FABRIQUE`), cocher ou non « icône sur le Bureau » et « démarrer avec Windows », Installer. Windows peut avertir (signature maison) : « Informations complémentaires » → « Exécuter quand même ». Bramble Studio reste tel quel.
+1. **Installer Fabrique** (la première fois, son clic) : double-cliquer `D:\StudioKids\FABRIQUE\versions\Fabrique 0.1.0 - Installation.exe`, garder le dossier proposé (`D:\StudioKids\FABRIQUE`), cocher ou non « icône sur le Bureau » et « démarrer avec Windows », Installer. Windows peut avertir (signature maison) : « Informations complémentaires » → « Exécuter quand même ». Bramble Studio reste tel quel.
 2. **Créer le dépôt GitHub privé `fabrique`** (compte `beep-pouk`, sans README) : `gh` n'est pas sur le PC et la consigne interdit de saisir des identifiants. Le dépôt local a déjà son `origin` : la session suivante fera `git push -u origin main`.
 
 ### À reprendre (demain)
 
 - Pousser dès que le dépôt GitHub existe (`git fetch` puis `git push -u origin main`, le hook `pre-push` contrôle les noms).
-- Après l'installation par RT : vérifier hors du bac (Système de Fabrique ; `D:\StudioKids\FABRIQUE\donnees\etat.txt`) que le noyau tourne, que la première sauvegarde est dans `C:\StudioKids\SAUVEGARDESabrique` (dossier lu dans le réglage de Bramble Studio), et que la fenêtre et ses notifications portent bien le nom « Fabrique ».
+- Après l'installation par RT : vérifier hors du bac (Système de Fabrique ; `D:\StudioKids\FABRIQUE\donnees\etat.txt`) que le noyau tourne, que la première sauvegarde est dans `C:\StudioKids\SAUVEGARDES\fabrique` (dossier lu dans le réglage de Bramble Studio), et que la fenêtre et ses notifications portent bien le nom « Fabrique ».
 - Puis la tâche suivante de `docs\TACHE.md` (J2, écrite par la supervision).
