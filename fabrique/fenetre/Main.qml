@@ -165,8 +165,9 @@ Window {
                     Mono { text: "Version installée : " + versions.installee }
                     T { objectName: "version_proposee"; width: parent.width; text: versions.proposee ? "Version " + versions.proposee + " prête." : versions.raison; color: versions.proposee ? cReussi : cSecond }
                     Repeater { model: versions.nouveautes; T { text: "• " + modelData; width: parent.width } }
-                    Bouton { objectName: "bouton_mettre_a_jour"; visible: versions.proposee !== null; actif: versions.raison === ""; texte: "Mettre à jour"; onClic: pont.agir("mettre_a_jour", {}) }
-                    T { visible: versions.proposee !== null && versions.raison !== ""; text: versions.raison; color: cAttention; width: parent.width }
+                    // une valeur vide du noyau (None) arrive « undefined », pas « null »
+                    Bouton { objectName: "bouton_mettre_a_jour"; visible: !!versions.proposee; actif: versions.raison === ""; texte: "Mettre à jour"; onClic: pont.agir("mettre_a_jour", {}) }
+                    T { visible: !!versions.proposee && versions.raison !== ""; text: versions.raison; color: cAttention; width: parent.width }
                 }
 
                 Panneau {

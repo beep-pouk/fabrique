@@ -74,6 +74,9 @@ def test_parcours(qtbot):
 
     clic(f, "bouton_mettre_a_jour")
     qtbot.waitUntil(lambda: ("/api/versions/mettre-a-jour", None) in t.actions)
+    pont.recu.emit("versions", {"installee": "0.1.0", "proposee": None, "nouveautes": [], "raison": "Fabrique est à jour"})  # rien de proposé
+    qtbot.waitUntil(lambda: not element(f, "bouton_mettre_a_jour").isVisible())
+    assert element(f, "version_proposee").property("text") == "Fabrique est à jour"
     QTest.keyClick(f, Qt.Key.Key_1, Qt.KeyboardModifier.ControlModifier)
     assert f.property("ecran") == "accueil"
     f.close()

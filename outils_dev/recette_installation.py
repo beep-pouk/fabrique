@@ -108,8 +108,9 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
             assert r.returncode != 0 and not (dossier / "programme").exists() and banc.registre(DESINSTALLATION, "DisplayName") is None, f"{quoi} : pas refusé ({r.returncode})"
         point("refus d'installer dans un dossier non vide ou dans un studio de Bramble Studio : rien n'a été écrit")
 
-        # 1. installer
-        r = lancer(i0, *SILENCE, f"/DIR={racine}", "/TASKS=bureau,demarrage", f"/LOG={bac / 'installation.log'}", env=env, timeout=600)
+        # 1. installer, comme RT la première fois : l'installateur publié dans <racine>\versions, lancé de là
+        construire.publier(i0, racine / "versions", v0, ["Version de la recette d'installation."])
+        r = lancer(racine / "versions" / i0.name, *SILENCE, f"/DIR={racine}", "/TASKS=bureau,demarrage", f"/LOG={bac / 'installation.log'}", env=env, timeout=600)
         assert r.returncode == 0 and exe.is_file(), f"installation : code {r.returncode} (journal : {bac / 'installation.log'})"
         vu = {v: banc.registre(DESINSTALLATION, v) for v in ("DisplayName", "DisplayVersion", "Publisher", "DisplayIcon")}
         assert vu == {"DisplayName": NOM, "DisplayVersion": v0, "Publisher": "StudioKids", "DisplayIcon": str(exe)}, vu
@@ -121,7 +122,7 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         assert len(set(signes.values())) == 1 and all(signes.values()), f"signatures : {signes}"
         assert banc.sous_systeme(exe) == 2, "Fabrique.exe n'est pas un programme fenêtré"
         taille = sum(f.stat().st_size for f in prog.rglob("*") if f.is_file()) / 2**20
-        point(f"installée : entrée « {NOM} » {v0} (StudioKids) dans Windows, 3 raccourcis à l'identité de l'app, programme ({taille:.0f} Mio), "
+        point(f"installée comme RT la première fois (installateur publié dans le dossier versions, lancé de là) : entrée « {NOM} » {v0} (StudioKids) dans Windows, 3 raccourcis à l'identité de l'app, programme ({taille:.0f} Mio), "
               "installateur et désinstallateur signés ; Fabrique.exe est un programme fenêtré (jamais de console)")
         installe = banc.empreinte(prog)
 

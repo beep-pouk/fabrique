@@ -117,15 +117,18 @@ begin
   Result := Pos(Lowercase(AddBackslash(Parent)), Lowercase(AddBackslash(D))) = 1;
 end;
 
-function Vide(D: String): Boolean;
+function SeulementFabrique(D: String): Boolean;
+// le dossier ne contient que des dossiers de Fabrique (« versions » y est posé par la publication avant la première installation)
 var
   F: TFindRec;
+  N: String;
 begin
   Result := True;
   if FindFirst(AddBackslash(D) + '*', F) then
   try
     repeat
-      if (F.Name <> '.') and (F.Name <> '..') then
+      N := Lowercase(F.Name);
+      if (N <> '.') and (N <> '..') and (N <> 'versions') and (N <> 'donnees') and (N <> 'sessions') and (N <> 'sauvegardes') and (N <> 'programme') then
         Result := False;
     until (not Result) or (not FindNext(F));
   finally
@@ -144,7 +147,7 @@ begin
      ((S <> '') and (Dans(D, AddBackslash(S) + 'Bramble Studio') or Dans(D, AddBackslash(S) + 'DONNEES') or Dans(D, AddBackslash(S) + 'DEPOT') or
                      Dans(D, AddBackslash(S) + 'PROJET') or (Lowercase(AddBackslash(D)) = Lowercase(AddBackslash(S))))) then
     Result := 'Ce dossier appartient à Bramble Studio : Fabrique s''installe à côté, dans son propre dossier (par exemple « FABRIQUE » dans le dossier du studio).'
-  else if DirExists(D) and (not Vide(D)) and (not FileExists(AddBackslash(D) + 'programme\{#MARQUE}')) then
+  else if DirExists(D) and ((not SeulementFabrique(D)) or (DirExists(AddBackslash(D) + 'programme') and not FileExists(AddBackslash(D) + 'programme\{#MARQUE}'))) then
     Result := 'Ce dossier contient déjà autre chose que Fabrique.' + #13#10#13#10 + 'Choisissez un dossier vide ou nouveau.';
 end;
 
