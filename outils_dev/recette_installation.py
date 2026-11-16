@@ -130,8 +130,8 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         subprocess.Popen([str(exe)], env=env, cwd=str(prog))
         banc.attendre(client.repond, 120, "le noyau répond (démarré par la fenêtre)")
         f = fenetre(60, f"la fenêtre « {NOM} » est visible")
-        sante = client.appeler("sante")
-        assert sante["version"] == v0 and sante["mode"] == "simulation", sante
+        lu = sante()
+        assert lu.get("version") == v0 and lu.get("mode") == "simulation", lu
         point(f"lancée comme un clic, rien sur le chemin : fenêtre « {NOM} » et noyau prêts en {time.monotonic() - t0:.1f} s, en simulation")
 
         # 3. la sauvegarde du soir, jamais faite : rattrapée au démarrage

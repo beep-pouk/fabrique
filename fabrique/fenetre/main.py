@@ -138,7 +138,17 @@ def suivre(client: Client, pont: Pont):
 
 
 class Sonnette(QObject):
+    """Reçue dans le fil de la sonnette, traitée dans celui de la fenêtre (méthode d'un objet de ce fil : connexion différée par Qt)."""
     recue = Signal(str)
+
+    def __init__(self, montrer, quitter):
+        super().__init__()
+        self.montrer, self.quitter = montrer, quitter
+        self.recue.connect(self.agir)
+
+    @Slot(str)
+    def agir(self, message: str):
+        self.quitter() if message == "quitter" else self.montrer()
 
 
 def lancer(fond: bool = False) -> int:
@@ -184,10 +194,10 @@ def lancer(fond: bool = False) -> int:
     barre.setToolTip(programme.titre())
     barre.activated.connect(lambda raison: montrer() if raison == QSystemTrayIcon.ActivationReason.Trigger else None)
     barre.show()
-    recue = Sonnette()
-    recue.recue.connect(lambda m: app.quit() if m == "quitter" else montrer())
+    recue = Sonnette(montrer, app.quit)
     threading.Thread(target=ecouter, args=(sonnette, recue.recue), name="sonnette", daemon=True).start()
     threading.Thread(target=suivre, args=(client, pont), name="flux du noyau", daemon=True).start()
+
     def veiller():
         if not client.repond():
             log.warning("le noyau ne répond plus : relancé")

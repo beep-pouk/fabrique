@@ -141,6 +141,8 @@ def assembler(prog: Path):
                                                       or (Path(d) == base / "Lib" and n == "site-packages")])
     (rt / "Lib" / "site-packages").mkdir()
     (rt / "python312._pth").write_text(PTH, encoding="ascii")
+    # _wmi.pyd (module de Python) importe vcruntime140_1.dll sans l'avoir à côté de lui : posé à côté de l'exe, sinon Windows prend sa copie
+    shutil.copy(rt / "vcruntime140_1.dll", prog / "vcruntime140_1.dll")
     paquets(rt / "python.exe", rt / "Lib" / "site-packages", SORTIE / "travail")
     dire("app (fabrique\\ suivi par git, sans les tests)…")
     for f in ["pyproject.toml", *(f for f in suivis("fabrique") if not f.startswith("fabrique/tests/"))]:

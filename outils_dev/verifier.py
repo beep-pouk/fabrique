@@ -26,7 +26,7 @@ def bramble_tourne(studio: Path) -> bool:
     return any(Path(c).name == "Bramble Studio.exe" for c in banc.sous(studio / "Bramble Studio").values())
 
 
-def j1(dire) -> list[tuple[bool, str]]:
+def j1(dire, publier: bool = False) -> list[tuple[bool, str]]:
     import construire
 
     studio = garde.studio_bramble() or DEPOT.parents[1]
@@ -37,10 +37,11 @@ def j1(dire) -> list[tuple[bool, str]]:
     journal.parent.mkdir(parents=True, exist_ok=True)
     dire(f"construction et recette d'installation (journal : {journal})…")
     with open(journal, "w", encoding="utf-8") as sortie:
-        r = subprocess.run([sys.executable, str(DEPOT / "outils_dev" / "construire.py")], cwd=DEPOT, stdout=sortie, stderr=subprocess.STDOUT,
+        r = subprocess.run([sys.executable, str(DEPOT / "outils_dev" / "construire.py"), *(["--publier"] if publier else [])], cwd=DEPOT, stdout=sortie, stderr=subprocess.STDOUT,
                            env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
     apres, tourne = {n: banc.empreinte(d) for n, d in lieux.items()}, tourne and bramble_tourne(studio)
-    points = [(r.returncode == 0, f"construction vérifiée (suite de tests verte, programme assemblé, installateur signé, recette d'installation) — {journal.name}")]
+    points = [(r.returncode == 0, f"construction vérifiée (suite de tests verte, programme assemblé, installateur signé, recette d'installation"
+                                  f"{', installateur publié' if publier else ''}) — {journal.name}")]
     try:
         preuve = json.loads((SORTIE / "recette_installation.json").read_text(encoding="utf-8"))
         bonne = r.returncode == 0 and preuve["arbres"] == construire.arbres() and preuve["version"] == construire.version()
@@ -65,9 +66,10 @@ JALONS = {"J1": j1}
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Recette d'un jalon de Fabrique (outil de développement)")
     p.add_argument("--jalon", required=True, choices=list(JALONS))
+    p.add_argument("--publier", action="store_true", help="la construction pose aussi l'installateur dans <studio>\FABRIQUE\versions")
     a = p.parse_args(argv)
     debut = datetime.now()
-    points = JALONS[a.jalon](lambda t: print(f"[verifier] {t}", flush=True))
+    points = JALONS[a.jalon](lambda t: print(f"[verifier] {t}", flush=True), a.publier)
     rouges = sum(not ok for ok, _ in points)
     texte = [f"# Recette {a.jalon} de Fabrique — {debut:%d/%m/%Y %H:%M} ({(datetime.now() - debut).seconds // 60} min)", "",
              f"**{'Tout est vert' if not rouges else f'{rouges} point(s) rouge(s)'}** ({len(points)} points).", "",

@@ -3,6 +3,7 @@ bibliothèques chargées, en-tête d'un exe, empreinte d'un dossier, registre et
 import ctypes
 import hashlib
 import os
+import re
 import struct
 import subprocess
 import time
@@ -96,20 +97,24 @@ def differences(avant: dict, apres: dict) -> list[str]:
                   + [f"≠ {f}" for f in avant.keys() & apres.keys() if avant[f] != apres[f]])
 
 
-def bibliotheques(pid: int) -> list[str]:
-    """Les .dll, .exe et .pyd chargés par le processus."""
-    ps = f"(Get-Process -Id {pid}).Modules | ForEach-Object {{ $_.FileName }}"
+def bibliotheques(pid: int) -> tuple[list[str], set[str]]:
+    """Les .dll, .exe et .pyd chargés par le processus, et ceux d'un processus témoin de Windows (le PowerShell qui fait la lecture) :
+    ce que l'antivirus injecte dans tout processus se retrouve dans les deux."""
+    ps = (f"(Get-Process -Id {pid}).Modules | ForEach-Object {{ 'C ' + $_.FileName }}; "
+          "[Diagnostics.Process]::GetCurrentProcess().Modules | ForEach-Object { 'T ' + $_.FileName }")
     r = subprocess.run([str(POWERSHELL), "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True, text=True, encoding="utf-8", errors="replace",
                        creationflags=subprocess.CREATE_NO_WINDOW)
-    return [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    lignes = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    return [l[2:] for l in lignes if l.startswith("C ")], {os.path.normcase(l[2:]) for l in lignes if l.startswith("T ")}
 
 
 def externes(pid: int, prog: Path) -> list[str]:
-    """Bibliothèques chargées hors du programme et hors de Windows (le runtime C de Visual Studio pris dans Windows compte comme externe :
-    le programme livre le sien) — contrôle du banc d'interface."""
+    """Bibliothèques chargées hors du programme et hors de Windows, sauf celles qu'un processus de Windows a aussi (injectées par l'antivirus) ;
+    le runtime C de Visual Studio pris dans Windows compte comme externe : le programme livre le sien (contrôle du banc d'interface)."""
     p = os.path.normcase(str(prog)) + os.sep
-    return [m for m in bibliotheques(pid) if not os.path.normcase(m).startswith(p)
-            and (not os.path.normcase(m).startswith(WINDOWS) or any(n in os.path.basename(m).lower() for n in ("msvcp", "vcruntime", "vcomp", "concrt")))]
+    charges, temoin = bibliotheques(pid)
+    return [m for m in charges if not (c := os.path.normcase(m)).startswith(p) and c not in temoin
+            and (not c.startswith(WINDOWS) or re.search(r"\\(msvcp|vcruntime|vcomp|concrt)\d", c))]
 
 
 def sous_systeme(exe: Path) -> int:

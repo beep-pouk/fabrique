@@ -109,3 +109,16 @@ def test_captures(tmp_path, nom, ecran, taille, echelle):
         reference.write_bytes(png.read_bytes())
         pytest.fail(f"capture de référence écrite, à regarder : {reference}")
     assert differe(image, QImage(str(reference))) <= TOLERANCE, f"{nom} a changé : comparer {png} et {reference}"
+
+
+def test_sonnette_traitee_dans_le_fil_de_la_fenetre(qtbot):
+    import threading
+
+    vus = []
+    s = main.Sonnette(lambda: vus.append(("montrer", threading.current_thread())), lambda: vus.append(("quitter", threading.current_thread())))
+    for message in ("montrer", "quitter"):
+        t = threading.Thread(target=s.recue.emit, args=(message,))
+        t.start()
+        t.join()
+    qtbot.waitUntil(lambda: len(vus) == 2)
+    assert vus == [("montrer", threading.main_thread()), ("quitter", threading.main_thread())]

@@ -64,6 +64,7 @@ Window {
         T { id: bt; anchors.centerIn: parent; wrapMode: Text.NoWrap }
         HoverHandler { id: survol }
         Clic { enabled: parent.actif; onTapped: parent.clic() }
+        Accessible.role: Accessible.Button; Accessible.name: bt.text; Accessible.onPressAction: if (actif) clic()
     }
     component Panneau: Rectangle {
         property alias titre: entete.text
@@ -97,6 +98,7 @@ Window {
                     Mono { text: modelData.touche; color: cSecond; font.pixelSize: 12; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
                     HoverHandler { id: survolNav }
                     Clic { onTapped: aller(modelData.id) }
+                    Accessible.role: Accessible.Button; Accessible.name: modelData.nom + " (" + modelData.touche + ")"; Accessible.onPressAction: aller(modelData.id)
                 }
             }
         }
