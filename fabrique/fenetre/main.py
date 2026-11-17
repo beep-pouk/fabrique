@@ -76,6 +76,8 @@ class Pont(QObject):
             self.notifier("Sauvegarde faite", d.get("fichier", ""))
         elif type_ == "sauvegarde" and d.get("etat") == "erreur":
             self.notifier("La sauvegarde a raté", d.get("message", ""), True)
+        elif type_ == "noyau":
+            self.notifier("Le noyau de Fabrique ne démarre pas", d.get("message", ""), True)
 
     def eventFilter(self, _, e):
         if e.type() == QEvent.Type.KeyPress:
@@ -198,10 +200,18 @@ def lancer(fond: bool = False) -> int:
     threading.Thread(target=ecouter, args=(sonnette, recue.recue), name="sonnette", daemon=True).start()
     threading.Thread(target=suivre, args=(client, pont), name="flux du noyau", daemon=True).start()
 
+    rates = 0
+
     def veiller():
-        if not client.repond():
-            log.warning("le noyau ne répond plus : relancé")
-            demarrer_noyau(client)
+        nonlocal rates
+        if client.repond():
+            rates = 0
+            return
+        rates += 1
+        log.warning("le noyau ne répond plus : relancé (%d fois de suite)", rates)
+        if rates == 3:  # une seule alerte : il meurt sans doute au démarrage, la fenêtre seule ne peut rien y faire
+            pont.evenement.emit("noyau", {"message": f"Relancé sans succès depuis 1 min 30 ; le détail est dans {dossiers.donnees() / 'journaux'}."})
+        demarrer_noyau(client)
 
     garde = QTimer(interval=GARDE_MS)
     garde.timeout.connect(lambda: pont.fond.submit(veiller))

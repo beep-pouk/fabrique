@@ -1,4 +1,5 @@
 """Modes et dossiers, garde Bramble Studio, lignes de commande, instance unique."""
+import os
 import sqlite3
 from pathlib import Path
 
@@ -78,6 +79,15 @@ def test_commande(monkeypatch, tmp_path):
     assert programme.commande("noyau")[1:] == ["-m", "fabrique", "noyau"]
     monkeypatch.setattr(dossiers, "programme", lambda code=None: tmp_path)
     assert programme.commande("executer", "sauvegarde") == [str(tmp_path / "Fabrique.exe"), "executer", "sauvegarde"]
+
+
+def test_variables_d_un_parent_python_effacees(monkeypatch, tmp_path):
+    """Lancée par Bramble Studio, Fabrique hérite de ses variables : elle impose les siennes, pour elle et ses enfants (17/11)."""
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "config.settings")
+    for v in programme.HERITEES:
+        monkeypatch.setenv(v, str(tmp_path))
+    programme.environnement()
+    assert os.environ["DJANGO_SETTINGS_MODULE"] == "fabrique.settings" and not set(programme.HERITEES) & set(os.environ)
 
 
 def test_une_seule_fabrique_de_lignes_de_commande():

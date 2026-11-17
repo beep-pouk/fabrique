@@ -2,7 +2,6 @@
 Sans sous-commande (ou « --fond ») : la fenêtre. Sous-commandes : noyau, executer <tâche>, moteur, commande <action>, diagnostic, migrer,
 relais <journal> <…>, arreter, libre."""
 import json
-import os
 import sys
 
 from fabrique import dossiers, garde, journaux, programme
@@ -71,6 +70,7 @@ def moteur(args: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    programme.environnement()
     args = list(sys.argv[1:] if argv is None else argv)
     role = args[0] if args and args[0] in SOUS_COMMANDES else "fenetre"
     try:
@@ -99,7 +99,6 @@ def main(argv: list[str] | None = None) -> int:
         return 3 if taches.occupe() else 0
     if role == "commande":
         return commande(args[1:])
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fabrique.settings")
     import django
 
     django.setup()

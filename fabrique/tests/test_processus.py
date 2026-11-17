@@ -17,7 +17,9 @@ def lancer(env, *args, **options):
 
 
 def test_noyau_commande_arret(tmp_path, libre_port):
-    env = {**os.environ, "FABRIQUE_RACINE": str(tmp_path / "FABRIQUE"), "FABRIQUE_PORT": str(libre_port), "PYTHONIOENCODING": "utf-8"}
+    # lancée depuis un parent qui porte les variables de Bramble Studio (17/11 : noyau mort au démarrage chez RT)
+    env = {**os.environ, "FABRIQUE_RACINE": str(tmp_path / "FABRIQUE"), "FABRIQUE_PORT": str(libre_port), "PYTHONIOENCODING": "utf-8",
+           "DJANGO_SETTINGS_MODULE": "config.settings", "PYTHONSTARTUP": str(tmp_path / "absent.py"), "VIRTUAL_ENV": str(tmp_path)}
     noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
         client = Client(port=libre_port, donnees=tmp_path / "FABRIQUE" / "donnees")

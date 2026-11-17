@@ -29,6 +29,10 @@ GARDES = ("SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "USERPROFILE", "
           "HOMEDRIVE", "HOMEPATH", "PUBLIC", "ALLUSERSPROFILE", "OS", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS")
 
 
+BRAMBLE = {"DJANGO_SETTINGS_MODULE": "config.settings", "PYTHONPATH": r"C:\absent\studio", "PYTHONHOME": r"C:\absent\runtime", "VIRTUAL_ENV": r"C:\absent\.venv"}
+# ce qu'un processus de Bramble Studio (ou la supervision lancée par lui) transmet à Fabrique : 17/11, noyau mort au démarrage chez RT
+
+
 def env_reduit() -> dict:
     """Comme un clic, sur un PC où rien n'est installé sur le chemin : aucun Python, aucun outil, aucune variable de Fabrique."""
     return {**{k: os.environ[k] for k in GARDES if k in os.environ}, "PATH": str(Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32")}
@@ -162,9 +166,10 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         assert sonner("quitter", PORT)
         banc.attendre(lambda: len(banc.sous(prog)) == 1 and not ouvert(PORT + 1), 20, "la fenêtre se quitte, le noyau continue")
         assert client.repond()
-        subprocess.Popen([str(exe)], env=env, cwd=str(prog))
+        subprocess.Popen([str(exe)], env={**env, **BRAMBLE}, cwd=str(prog))
         fenetre(60, "la fenêtre est relancée")
-        point("fenêtre fermée (le noyau continue), revenue au 2e lancement (instance unique), quittée, puis relancée")
+        point("fenêtre fermée (le noyau continue), revenue au 2e lancement (instance unique), quittée, puis relancée depuis un parent qui porte les "
+              "variables de Bramble Studio (DJANGO_SETTINGS_MODULE, PYTHONPATH, PYTHONHOME, VIRTUAL_ENV)")
 
         # 6. sauvegarde au clic, puis restauration
         client.appeler("sauvegarder")
@@ -180,7 +185,7 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         # 6 bis. un essai de recette par le programme installé : « moteur » (Claude) met la vidéo dans la file, le noyau la fait jouer
         script = bac / "script.json"
         script.write_text(json.dumps({"titre": "Essai installé", "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Bonjour."}]}]}), encoding="utf-8")
-        r = lancer(exe, "moteur", "essai", script, env=env)
+        r = lancer(exe, "moteur", "essai", script, env={**env, **BRAMBLE})
         assert r.returncode == 0 and "dans la file" in r.stdout, f"moteur : {r.returncode} {r.stdout} {r.stderr}"
         t = banc.attendre(lambda: next((t for t in client.appeler("file") if t["titre"] == "Essai installé" and t["etat"] in ("finie", "erreur")), None), 180,
                           f"l'essai est fabriqué ({client.appeler('file')})", pas=1)
@@ -193,7 +198,7 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         banc.attendre(lambda: not client.repond(), 15, "le noyau est tué")
         t0 = time.monotonic()
         banc.attendre(lambda: sante().get("pid", ancien) != ancien, 120, "la fenêtre relance le noyau", pas=1)
-        point(f"noyau tué : la fenêtre l'a relancé seule en {time.monotonic() - t0:.0f} s (chien de garde)")
+        point(f"noyau tué : la fenêtre (lancée avec les variables de Bramble Studio) l'a relancé seule en {time.monotonic() - t0:.0f} s (chien de garde)")
         assert not (d := banc.differences(installe, banc.empreinte(prog))), "le programme a été écrit :\n" + "\n".join(d[:20])
         point("le dossier du programme n'a pas été écrit depuis l'installation")
 

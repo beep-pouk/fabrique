@@ -2,6 +2,7 @@
 gros journal mis de côté au démarrage, journaux de plus de 14 jours effacés ; lecture des avertissements et erreurs pour Système."""
 import logging
 import re
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -57,6 +58,13 @@ def configurer(dossier: Path, role: str):
     logging.basicConfig(level=logging.INFO, handlers=[h], force=True)
     for bruit in ("waitress", "django"):
         logging.getLogger(bruit).setLevel(logging.WARNING)
+    sys.excepthook = plantage
+
+
+def plantage(*erreur):
+    """Une erreur qui arrête le processus va aussi dans son journal (Système la montre), pas seulement dans sa sortie."""
+    logging.critical("arrêt sur une erreur inattendue", exc_info=erreur)
+    sys.__excepthook__(*erreur)
 
 
 def _fin(f: Path) -> str:
