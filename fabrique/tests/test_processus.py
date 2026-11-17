@@ -29,6 +29,9 @@ def test_noyau_commande_arret(tmp_path, libre_port):
         r = lancer(env, "commande", "sessions")
         assert r.returncode == 0 and [s["nom"] for s in json.loads(r.stdout)] == ["Essais"]
         assert lancer(env, "commande", "sauvegarder").returncode == 2  # Claude ne lance rien à J1
+        (tmp_path / "script.json").write_text("{}", encoding="utf-8")
+        r = lancer(env, "commande", "script", "inconnue", "s1e01", tmp_path / "script.json")
+        assert r.returncode == 1 and "session inconnue" in r.stdout, r.stdout  # Claude écrit un script par l'API, droits compris
         assert lancer(env, "libre").returncode == 0
         assert lancer(env, "moteur").returncode == 2
         r = lancer(env, "arreter")
