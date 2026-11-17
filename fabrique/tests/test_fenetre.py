@@ -194,4 +194,10 @@ def test_le_lecteur_va_au_moment_d_un_defaut(qtbot, tmp_path):
     qtbot.waitUntil(lambda: lecteur.property("duration") > 5000, timeout=10000)
     clic(f, "defaut_0")
     qtbot.waitUntil(lambda: abs(lecteur.property("position") - 3020) < 50, timeout=5000)
+    clic(f, "frise")  # un clic au milieu de la frise : au milieu de la vidéo
+    qtbot.waitUntil(lambda: abs(lecteur.property("position") - lecteur.property("duration") / 2) < 300, timeout=5000)
+    f.setProperty("coches", [2])
+    clic(f, "refaire_coches")  # le lecteur lâche la vidéo avant l'envoi (Windows refuse de déplacer un fichier ouvert)
+    assert lecteur.property("source").isEmpty() and not [a for a in t.actions if a[0].endswith("/refaire")]
+    qtbot.waitUntil(lambda: any(chemin.endswith("/videos/v1/refaire") and c == {"plans": [2]} for chemin, c in t.actions))
     f.close()

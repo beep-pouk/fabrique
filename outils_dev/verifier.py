@@ -229,6 +229,7 @@ def preuves_j3() -> list[tuple[bool, str]]:
              f"repris après une coupure : exécuteur tué avec {r['coupure']['images_avant']} images faites, "
              f"{'jamais refaites' if r['coupure']['jamais_refaites'] else 'REFAITES'} ; noyau tué puis relancé, l'exécuteur "
              f"{'continue seul' if r['noyau_relance']['seul'] else 'DOUBLÉ OU PERDU'}"),
+            (len(r.get("langues", [])) >= 2, f"une vidéo finie par langue : {', '.join(r.get('langues', [])) or 'aucune'} (« commun » = langue du script)"),
             (bool(r.get("duree_h")), f"durée réelle d'un épisode mesurée : {r.get('duree_h')} h (étapes : "
                                      + ", ".join(f"{k} {v / 60:.0f} min" for k, v in r.get("etapes", {}).items()) + ")"),
             (c["mesure"] and c["note"] is not None, f"analysé : note de Qwen {c['note']}/10, {len(c['defauts'])} défaut(s) minuté(s)"),

@@ -6,7 +6,7 @@ seulement) dans OUTILS\\fabrique_construction\\egalite\\<étape>\\{bramble,fabri
 images au niveau des consignes (ComfyUI simulé, juge factice : consignes et références envoyées identiques). Avec la carte (--carte, de nuit,
 carte libre, jamais pendant un rendu : vérifié avant chaque moteur) : voix (3 scènes), images (3 plans), anim (2 plans), lèvres (1 plan), pour de
 vrai, le même pilote de ComfyUI (celui de Fabrique) et le juge des images coupé des deux côtés. Rapport (cumulé) : egalite\\RAPPORT.json.
-python outils_dev\\egalite.py [--etapes montage,miniature,revue,images] [--carte voix,images,anim,bramble]"""
+python outils_dev\\egalite.py [--etapes montage,miniature,revue,images] [--carte voix,images,anim,bramble [--relire]]"""
 import argparse
 import hashlib
 import json
@@ -83,9 +83,9 @@ def produits(run: Path, avant: set[str], remplacer: list[tuple[str, str]] = ()) 
 
 
 def journal(run: Path) -> list[str]:
-    """Les lignes du journal sans l'heure ni la durée chronométrée d'une étape (« --- etape X : N min »)."""
+    """Les lignes du journal sans l'heure ni les durées chronométrées (« --- etape X : N min », « plan 2 (166s) »)."""
     lignes = (run / "journal.txt").read_text(encoding="utf-8").splitlines() if (run / "journal.txt").is_file() else []
-    return [re.sub(r" : [0-9.]+ min$", "", re.sub(r"^\d\d:\d\d:\d\d ", "", l)) for l in lignes]
+    return [re.sub(r"( : [0-9.]+ min| \(\d+s\))$", "", re.sub(r"^\d\d:\d\d:\d\d ", "", l)) for l in lignes]
 
 
 def plans_images(scenario: dict, rendu: Path) -> list[int]:
@@ -123,7 +123,8 @@ def comparer(etape: str, b: Path, f: Path, avant: set[str], voix: tuple[Path, Pa
     de l'un a son double identique dans l'autre (sinon la différence se voit)."""
     pareil = voix and all((voix[1] / x.name).is_file() and md5(x) == md5(voix[1] / x.name) for x in voix[0].glob("*.wav"))
     pb, pf = produits(b, avant, [(x, "<voix>") for x in formes(voix[0])] if pareil else []), produits(f, avant, [(x, "<voix>") for x in formes(voix[1])] if pareil else [])
-    diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k))
+    # deux fichiers identiques octet pour octet sont égaux (une entrée copiée porte le chemin de Bramble : il n'est remplacé que d'un côté)
+    diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k) and not (k in pb and k in pf and md5(b / k) == md5(f / k)))
     return {"egal": bool(pb.keys() - avant) and not diff and journal(b) == journal(f), "fichiers": len(pb.keys() - avant), "differents": diff[:20],
             "journal_identique": journal(b) == journal(f)}
 
@@ -132,6 +133,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--etapes", default="montage,miniature,revue,images")
     p.add_argument("--carte", default="", help="étapes jouées pour de vrai sur la carte : voix,images,anim,bramble (de nuit)")
+    p.add_argument("--relire", action="store_true", help="avec --carte : refaire seulement la comparaison des passages déjà joués")
     a = p.parse_args(argv)
     import django
 
@@ -216,8 +218,12 @@ def main(argv=None) -> int:
             choix, entrees = CARTE[etape]
             ids = choix(scenario, rendu)
             print(f"{etape} sur la carte, scènes {ids}…", flush=True)
-            scen, rb, rf, avant = preparer(etape, studio, ids, entrees, nom=f"carte_{etape}")
-            for qui, moteur, lieu, cfg, run in (("bramble", b_etape, studio, cfg_b, rb), ("fabrique", f_etape, lieux, cfg_f, rf)):
+            if a.relire:
+                rb, rf = (SORTIE / f"carte_{etape}" / qui / SCENARIO for qui in ("bramble", "fabrique"))
+                avant = {x.relative_to(rendu).as_posix() for rel in entrees for x in ((rendu / rel).rglob("*") if (rendu / rel).is_dir() else [rendu / rel]) if x.is_file()}
+            else:
+                scen, rb, rf, avant = preparer(etape, studio, ids, entrees, nom=f"carte_{etape}")
+            for qui, moteur, lieu, cfg, run in (("bramble", b_etape, studio, cfg_b, rb), ("fabrique", f_etape, lieux, cfg_f, rf)) if not a.relire else ():
                 if raison := carte.occupee():
                     raise SystemExit(f"carte prise avant le moteur {qui} ({etape}) : {raison} — rien n'est lancé")
                 moteur.jouer(lieu, scen, etape, sans_juge(cfg), dossier=run, ecran=lambda *x: None, fond=lambda *x: False)

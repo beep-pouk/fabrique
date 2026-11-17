@@ -44,6 +44,7 @@ Window {
     property var video: videoVide
     property string ongletVideo: "fabrication"
     property var coches: []
+    property bool liberer: false  // « Refaire » envoyé : le lecteur lâche la vidéo (Windows refuse de déplacer un fichier ouvert)
     property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []})
     property var langues: []
     property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
@@ -81,7 +82,12 @@ Window {
     Connections {
         target: pont
         function onRecu(nom, d) { f[nom] = d; if (nom === "sessions" && session === "" && d.length) choisir(d[0].id) }
-        function onFait(nom, texte, ok) { message = texte; messageOk = ok; recharger() }
+        function onFait(nom, texte, ok) {
+            message = texte; messageOk = ok
+            if (nom === "refaire") liberer = false
+            if (nom === "nouvelle_version" && ok) brouillon = null  // refusé ou noyau absent : le texte tapé reste là
+            recharger()
+        }
         function onAller(e) { aller(e) }
         function onEvenement(type, d) { if (type !== "etat") recharger() }
     }
@@ -343,7 +349,8 @@ Window {
                     visible: ongletVideo === "verification"
                     spacing: 12
                     Bouton { objectName: "refaire_coches"; texte: "Refaire les plans cochés (" + coches.length + ")"; actif: coches.length > 0
-                             onClic: { pont.agir("refaire", {id: session, video: video.id, corps: {plans: coches}}); coches = [] } }
+                             onClic: { liberer = true; envoiRefaire.start() } }
+                    Timer { id: envoiRefaire; interval: 500; onTriggered: { pont.agir("refaire", {id: session, video: video.id, corps: {plans: coches}}); coches = [] } }
                     T { text: "Seules les pièces des plans cochés, et ce qui en dépend, sont refaites ; l'avant reste à côté."; color: cSecond; wrapMode: Text.NoWrap
                         anchors.verticalCenter: parent.verticalCenter }
                 }
@@ -382,18 +389,43 @@ Window {
                             MediaPlayer {
                                 id: lecteur
                                 objectName: "lecteur"
-                                source: video.controle.video !== "" && ongletVideo === "verification" ? "file:///" + video.controle.video.replace(/\\/g, "/") : ""
+                                source: video.controle.video !== "" && ecran === "video" && ongletVideo === "verification" && !liberer
+                                        ? "file:///" + video.controle.video.replace(/\\/g, "/") : ""
                                 videoOutput: sortieVideo
                                 audioOutput: AudioOutput {}
                             }
                             VideoOutput { id: sortieVideo; anchors.fill: parent }
+                            Clic { onTapped: { parent.forceActiveFocus(); lecteur.playbackState === MediaPlayer.PlayingState ? lecteur.pause() : lecteur.play() } }
+                            // au clavier, l'image prise : Espace lit ou arrête, ← et → reculent ou avancent de 5 s
+                            Keys.onSpacePressed: lecteur.playbackState === MediaPlayer.PlayingState ? lecteur.pause() : lecteur.play()
+                            Keys.onLeftPressed: lecteur.position = Math.max(0, lecteur.position - 5000)
+                            Keys.onRightPressed: lecteur.position = Math.min(lecteur.duration, lecteur.position + 5000)
+                            Accessible.role: Accessible.Animation; Accessible.name: "Vidéo : Espace lit ou arrête, flèches ± 5 s"
+                        }
+                        Item {
+                            objectName: "frise"
+                            visible: video.controle.video !== ""
+                            width: parent.width; height: 28
+                            Rectangle { y: 12; width: parent.width; height: 4; radius: 2; color: cTrait }
+                            Rectangle { y: 12; width: lecteur.duration ? parent.width * lecteur.position / lecteur.duration : 0; height: 4; radius: 2; color: cSelection }
+                            Repeater {  // un repère par défaut minuté, à la couleur de sa gravité
+                                model: video.controle.defauts.filter(d => d.debut != null)
+                                Rectangle { x: lecteur.duration ? parent.width * modelData.debut * 1000 / lecteur.duration - 2 : 0; y: 4; width: 4; height: 20; radius: 2
+                                            color: modelData.gravite === "forte" ? cDefaut : modelData.gravite === "moyenne" ? cAttention : cSecond }
+                            }
+                            Clic { onTapped: (e) => { if (lecteur.duration) lecteur.position = Math.round(lecteur.duration * e.position.x / parent.width) } }
                         }
                         Row {
                             visible: video.controle.video !== ""
                             spacing: 12
                             Bouton { objectName: "lire"; texte: lecteur.playbackState === MediaPlayer.PlayingState ? "Pause" : "Lecture"
                                      onClic: lecteur.playbackState === MediaPlayer.PlayingState ? lecteur.pause() : lecteur.play() }
-                            Mono { text: mmss(lecteur.position / 1000) + " / " + mmss(lecteur.duration / 1000); color: cSecond; anchors.verticalCenter: parent.verticalCenter }
+                            Mono { text: mmss(lecteur.position / 1000) + "," + String(lecteur.position % 1000).padStart(3, "0") + " / " + mmss(lecteur.duration / 1000)
+                                   color: cSecond; anchors.verticalCenter: parent.verticalCenter }
+                            Repeater {
+                                model: [0.5, 1, 1.5, 2]
+                                Bouton { objectName: "vitesse_" + index; texte: String(modelData).replace(".", ",") + "×"; onClic: lecteur.playbackRate = modelData }
+                            }
                         }
                         T {
                             objectName: "note_controle"
@@ -494,8 +526,8 @@ Window {
                     visible: brouillon !== null
                     width: parent.width; spacing: 8
                     Bouton { objectName: "enregistrer_version"; texte: "Enregistrer comme nouvelle version"
-                             onClic: { pont.agir("nouvelle_version", {id: session, code: script.code, corps: {contenu: brouillon}}); brouillon = null } }
-                    Bouton { objectName: "abandonner_brouillon"; texte: "Abandonner les changements"; onClic: brouillon = null }
+                             onClic: { aControler.stop(); pont.agir("nouvelle_version", {id: session, code: script.code, corps: {contenu: brouillon}}) } }
+                    Bouton { objectName: "abandonner_brouillon"; texte: "Abandonner les changements"; onClic: { aControler.stop(); brouillon = null } }
                     T { text: (controler.erreurs || []).length ? "Les règles signalent " + controler.erreurs.length + " erreur(s) : la version s'enregistre, la fabrication attendra."
                               : "Les règles sont rejouées pendant la frappe."; color: (controler.erreurs || []).length ? cDefaut : cSecond
                         wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
@@ -580,7 +612,7 @@ Window {
                     Panneau {
                         visible: brouillon !== null
                         titre: "Scènes (écriture)"
-                        Timer { id: aControler; interval: 600; onTriggered: pont.lire("controler", {id: session, code: script.code, corps: {contenu: brouillon}}) }
+                        Timer { id: aControler; interval: 600; onTriggered: if (brouillon) pont.lire("controler", {id: session, code: script.code, corps: {contenu: brouillon}}) }
                         Repeater {
                             model: brouillon ? brouillon.scenes || [] : []  // le brouillon est changé sur place : la liste n'est pas refaite pendant la frappe
                             Column {
