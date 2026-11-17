@@ -55,7 +55,9 @@ def moteur(args: list[str]) -> int:
 
     from fabrique.garde import Refus
     from fabrique.moteur import carte, execution, file, recettes
+    from fabrique.noyau import routeur
     from fabrique.noyau.models import Session
+    from fabrique.session.models import Langue
 
     if len(args) != 2:
         print("usage : moteur <recette (id ou fichier .json)> <script.json>")
@@ -66,9 +68,13 @@ def moteur(args: list[str]) -> int:
             script = json.load(f)
         base = Path(args[1])
         traductions = {f.name[len(base.stem) + 1:-5]: json.loads(f.read_text(encoding="utf-8")) for f in base.parent.glob(f"{glob.escape(base.stem)}.*.json")}
-        if traductions:
-            recette["reglages"]["langues"] = list(dict.fromkeys([script.get("language") or recette["reglages"]["langues"][0], *traductions]))
         s = Session.objects.get(essais=True)
+        if traductions:
+            with routeur.session(s):  # refusée tout de suite, pas après des heures à l'étape « langue »
+                connues = set(Langue.objects.values_list("code", flat=True))
+            if inconnues := sorted(set(traductions) - connues):
+                raise Refus(f"{base.stem}.{inconnues[0]}.json : « {inconnues[0]} » n'est pas une langue de la session Essais")
+            recette["reglages"]["langues"] = list(dict.fromkeys([script.get("language") or recette["reglages"]["langues"][0], *traductions]))
         v = execution.preparer(s, recette, script, traductions=traductions)
         t = file.mettre(s, v.id, v.titre, "claude")
     except (ObjectDoesNotExist, DatabaseError):

@@ -20,7 +20,7 @@ from fabrique.garde import Refus
 from fabrique.moteur import carte, execution, file, outils, recettes
 from fabrique.noyau import bases, jetons, routeur, taches
 from fabrique.noyau.models import Chrono, Depense, Parametre, Session, Tache
-from fabrique.session.models import Morceau, Reglage
+from fabrique.session.models import Langue, Morceau, Reglage
 
 DEPOT = Path(__file__).parents[2]
 SCRIPT = {"titre": "Le petit essai", "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Un renard dort."}, {"id": "p2", "texte": "La lune monte."}]},
@@ -388,6 +388,11 @@ def test_commande_moteur(essais, tmp_path):
     with routeur.session(essais):
         assert {m.langue for m in Morceau.objects.filter(video_id=t.video_id)} == {"", "en", "fr"}
     (tmp_path / "script.de.json").write_text(json.dumps(UN_PLAN), encoding="utf-8")  # une traduction à côté : fabriquée aussi
+    r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "essai", str(script)], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=120)
+    assert r.returncode == 1 and "« de » n'est pas une langue de la session Essais" in r.stdout  # refusée tout de suite
+    with routeur.session(essais):
+        Langue.objects.create(code="de", nom="Deutsch")
     r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "essai", str(script)], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8",
                        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=120)
     t = Tache.objects.exclude(id=t.id).get()
