@@ -65,6 +65,11 @@
    "par": "video"
   },
   {
+   "id": "analyse",
+   "brique": "controle",
+   "par": "video"
+  },
+  {
    "id": "langue",
    "brique": "montage",
    "par": "video",
@@ -82,6 +87,7 @@
   "montage": "f1_montage",
   "miniature": "f1_miniature",
   "revue": "f1_revue",
+  "analyse": "f1_analyse",
   "langue": "f1_langue"
  }
 }

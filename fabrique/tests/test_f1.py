@@ -32,9 +32,9 @@ def essais():
 
 def test_recette_f1():
     r = recettes.recette(recettes.lire("F1"))
-    assert [e.id for e in r.etapes] == [*etape.ETAPES, "langue"] and all(e.par == "video" for e in r.etapes)  # les étapes de Bramble Studio, dans son ordre
+    assert [e.id for e in r.etapes] == [*etape.ETAPES, "analyse", "langue"] and all(e.par == "video" for e in r.etapes)  # celles de Bramble Studio, puis son analyse
     assert r.etapes[-1].langue == "autres" and r.reglages.langues == ["en"]  # les versions de langue : celles choisies à « Fabriquer »
-    assert all(not outils.fiches()[o].faux and outils.fiches()[o].module == "fabrique.moteur.f1.adaptateur" for o in r.outils.values())
+    assert all(not outils.fiches()[o].faux and outils.fiches()[o].module.startswith("fabrique.moteur.f1.") for o in r.outils.values())
     with pytest.raises(Refus, match="par vidéo entière"):
         recettes.recette({**recettes.lire("F1"), "etapes": [{"id": "voix", "brique": "voix", "par": "plan"}], "outils": {}})
 
@@ -106,7 +106,7 @@ def test_f1_est_le_moteur_de_bramble_a_quelques_lignes_pres():
         b = (f1 / rel).read_text(encoding="utf-8").replace("fabrique.moteur.f1", "moteur").splitlines()
         d = list(difflib.ndiff(a, b))
         assert (sum(l.startswith("- ") for l in d), sum(l.startswith("+ ") for l in d)) == attendu, rel
-    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py", "refaire.py", "mouvement.py"}
+    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py", "refaire.py", "mouvement.py", "analyse_bramble.py"}
 
 
 def test_le_moteur_f1_ne_lit_plus_rien_de_bramble():
@@ -122,7 +122,8 @@ SCENES = {"thumbnail_scene": 4, "title": "Une histoire factice", "scenes": [
     {"id": 1, "narration": "a", "image": "a glade"}, {"id": 2, "narration": "b", "image": "same"}, {"id": 3, "narration": "c", "bramble": "accueil"},
     {"id": 4, "narration": "d", "image": "a pond"}]}
 PIECES = ["images/plan_001.png", "calques/plan_001/fond.png", "clips/s001.mp4", "clips/s001_last.png", "clips/s002.mp4", "clips/s002_last.png", "montage/s001.mp4",
-          "montage/s002.mp4", "montage/s003.mp4", "montage/s004.mp4", "bramble/s003.mp4", "images/plan_004.png", "final/Une histoire factice.mp4", "final/miniature.jpg"]
+          "montage/s002.mp4", "montage/s003.mp4", "montage/s004.mp4", "bramble/s003.mp4", "images/plan_004.png", "final/Une histoire factice.mp4", "final/miniature.jpg",
+          "final/Une histoire factice.qwen.json", "final/analyse_Une_histoire_factice/rapport.md"]
 
 
 def atelier_plein(atelier: Path):
@@ -136,8 +137,8 @@ def test_refaire_un_plan_range_ses_pieces_a_cote(tmp_path):
 
     atelier_plein(tmp_path)
     r = refaire.preparer(tmp_path, SCENES, [1])
-    assert r["etapes"] == ["images", "anim", "bramble", "montage", "revue"]  # la miniature n'est pas faite de ce plan
-    assert sorted(r["ranges"]) == sorted(["final/Une histoire factice.mp4", "images/plan_001.png", "calques/plan_001", "clips/s001.mp4", "clips/s001_last.png",
+    assert r["etapes"] == ["images", "anim", "bramble", "montage", "revue", "analyse"]  # la miniature n'est pas faite de ce plan
+    assert sorted(r["ranges"]) == sorted(["final/Une histoire factice.mp4", "final/Une histoire factice.qwen.json", "final/analyse_Une_histoire_factice", "images/plan_001.png", "calques/plan_001", "clips/s001.mp4", "clips/s001_last.png",
                                           "clips/s002.mp4", "clips/s002_last.png", "montage/s001.mp4", "montage/s002.mp4"])
     avant = tmp_path / "_refaits" / r["horodatage"]
     assert (avant / "images" / "plan_001.png").is_file() and not (tmp_path / "images" / "plan_001.png").exists()  # l'avant reste à côté
@@ -171,7 +172,7 @@ def test_je_coche_fabrique_refait(essais):
     with routeur.session(essais):
         etats = {m.etape: m.etat for m in Morceau.objects.filter(video=v)}
     assert etats == {"voix": "fini", "poses": "fini", "images": "attente", "anim": "attente", "musique": "fini", "bramble": "attente", "montage": "attente",
-                     "miniature": "fini", "revue": "attente"}  # seuls les morceaux qui dépendent du plan repartent
+                     "miniature": "fini", "revue": "attente", "analyse": "attente"}  # seuls les morceaux qui dépendent du plan repartent
     assert list((settings.SESSIONS / essais.dossier / "videos" / v.id / "_refaits").glob("*/images/resultat.json"))  # l'avant, à côté
     t = Tache.objects.get(video_id=v.id)
     assert t.acteur == "RT" and t.etat == "attente"
@@ -311,3 +312,51 @@ def test_prise_f1_revue_v2_rend_les_defauts(essais, tmp_path, monkeypatch):
     (tmp_path / "m1").mkdir()
     r = adaptateur.fabriquer(outils.fiche("f1_revue", "controle"), d.model_copy(update={"reglages": {"plan_fixe_max_s": None}}), tmp_path / "m1")
     assert r.infos["defauts"] is None  # F1 v1 : pas mesuré
+
+
+RAPPORT_MD = """# Analyse de Titre.mp4
+
+- Durée : 1 min 05.0 s ; 160×90 ; 12.00 i/s ; son : oui
+
+## Alertes
+- volume global -20.1 LUFS (cible -14)
+- image figée 4.0 s à 12.5 s
+
+## Fichiers à regarder
+- planche_01.jpg
+"""
+
+
+def test_prise_f1_analyse_rend_note_et_defauts_minutes(essais, tmp_path, monkeypatch):
+    """L'analyse de Bramble (scripts d'OUTILS/analyse, joués dans l'atelier) : sautés quand leur sortie existe (reprise), lus comme Bramble les lit."""
+    from fabrique.moteur.f1 import analyse_bramble as analyse
+    from fabrique.moteur.f1.outils import Outils
+
+    final = tmp_path / "atelier" / "2026-01-01-s1e01" / "final"
+    (final / "analyse_Titre").mkdir(parents=True)
+    (final / "Titre.mp4").write_bytes(b"mp4")
+    (final / "analyse_Titre" / "rapport.md").write_text(RAPPORT_MD, encoding="utf-8")
+    (final / "analyse_Titre" / "planche_01.jpg").write_bytes(b"jpg")
+    (final / "Titre.qwen.json").write_text(json.dumps({"0000.0": {"score": 8, "defects": [], "debut": 0, "duree": 20},
+                                                         "0020.0": {"score": 3.5, "defects": [{"t": 4, "what": "une patte glisse"}], "debut": 20, "duree": 20},
+                                                         "0040.0": {"score": 5.5, "defects": [], "debut": 40, "duree": 25}}), encoding="utf-8")
+    joues = []
+    monkeypatch.setattr(Outils, "run", lambda self, cmd, **kw: joues.append(cmd) or "")
+    d = outils.Demande(brique="controle", etape="analyse", unite="", session=str(settings.SESSIONS / essais.dossier), script=str(tmp_path / "s.json"),
+                       atelier=str(final.parent))
+    (tmp_path / "m").mkdir()
+    with pytest.raises(RuntimeError, match=r"Titre\.qwen\.md n'a pas été écrit \(ANALYSER_QWEN\.bat\)"):
+        analyse.fabriquer(outils.fiche("f1_analyse", "controle"), d, tmp_path / "m")  # le .bat rend 0 sans rien écrire : la sortie fait foi
+    assert len(joues) == 1 and joues[0][:3] == ["cmd", "/c", "ANALYSER_QWEN.bat"]  # analyser_video.py sauté : son rapport existe
+    (final / "Titre.qwen.md").write_text("fini", encoding="utf-8")
+    (final / "Titre.transcription.json").write_text("{}", encoding="utf-8")
+    r = analyse.fabriquer(outils.fiche("f1_analyse", "controle"), d, tmp_path / "m")
+    outils.controler_resultat("controle", r, tmp_path / "m")
+    assert r.infos["note"] == 5.7 and r.duree_s == 65.0
+    assert [(x["debut"], x["source"], x["gravite"]) for x in r.infos["defauts"]] == [(12.5, "analyser_video", "moyenne"), (20, "Qwen", "forte"),
+                                                                                   (40, "Qwen", "moyenne"), (None, "analyser_video", "legere")]
+    assert "une patte glisse" in r.infos["defauts"][1]["texte"] and r.fichiers == ["rapport.json", "analyse/rapport.md", "analyse/planche_01.jpg"]
+    lu = json.loads((tmp_path / "m" / "rapport.json").read_text(encoding="utf-8"))
+    assert lu["note"] == 5.7 and lu["analyse"] == "complete" and lu["video"].endswith("Titre.mp4")
+    cmd = analyse.commandes(analyse.Lieux(tmp_path, tmp_path), final / "Titre.mp4", tmp_path / "s.json")[0][1]
+    assert cmd[:2] == ["wsl", "-d"] and "--scenario" in cmd[-4] and cmd[-3].endswith("analyser_video.py")  # chemins en arguments, jamais dans le texte de bash

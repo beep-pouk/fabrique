@@ -1,0 +1,27 @@
+{
+ "id": "f1_analyse",
+ "nom": "Analyse de Bramble Studio (alertes, Qwen, Whisper)",
+ "roles": [
+  "controle"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "celle des outils de Bramble Studio (à reporter au banc, J6)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 16,
+  "disque_go": 1
+ },
+ "langues": [],
+ "limites": "toute la vidéo d'un coup ; Gemini (le soir) et la relecture écrite ne sont pas joués",
+ "version": "Bramble Studio 1.5.6 (OUTILS/analyse)",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "module": "fabrique.moteur.f1.analyse_bramble",
+ "reglages": {
+  "secondes": 600,
+  "secondes_par_scene": 60
+ }
+}

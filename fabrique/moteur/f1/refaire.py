@@ -3,13 +3,14 @@ plans cochés (image, calques, clips de chacune de leurs scènes, lèvres, segme
 miniature, sont DÉPLACÉS dans <atelier>\\_refaits\\<horodatage>\\ (jamais supprimés : l'avant reste à côté de l'après) ; la graine de leur image
 est décalée (images\\_graines.json, lu par l'étape des images) ; les étapes à refaire sont rendues : seules ces pièces manquent, elles seules
 sont refaites. Sans Django."""
+import glob
 import json
 from datetime import datetime
 from pathlib import Path
 
 from fabrique.garde import Refus
 
-ETAPES = ["images", "anim", "bramble", "montage", "revue"]  # = ETAPES_REFAIRE de Bramble Studio, et la revue (ses textes suivent le montage)
+ETAPES = ["images", "anim", "bramble", "montage", "revue", "analyse"]  # = ETAPES_REFAIRE de Bramble Studio, puis le contrôle (il suit le montage)
 
 
 def unites(scenes: list[dict]) -> list[dict]:
@@ -65,7 +66,7 @@ def etapes(scenario: dict, plans: list[int]) -> tuple[list[int], list[str], bool
     if inconnus := [n for n in choisis if n not in par_n]:
         raise Refus(f"plan(s) inconnu(s) : {inconnus}")
     miniature = any(str(m) == str(scenario.get("thumbnail_scene")) for n in choisis for m in par_n[n]["scenes"])
-    return choisis, ETAPES[:-1] + (["miniature"] if miniature else []) + ETAPES[-1:], miniature
+    return choisis, ETAPES[:4] + (["miniature"] if miniature else []) + ETAPES[4:], miniature
 
 
 def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | None = None) -> dict:
@@ -81,7 +82,9 @@ def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | 
         if par_n[n]["image"]:
             graines[str(n)] = int(graines.get(str(n), 0)) + 1  # graine = 1000 + id + décalage, lue par l'étape des images
     horodatage = f"{quand or datetime.now():%Y%m%d_%H%M%S_%f}"
-    finale = [p.relative_to(atelier).as_posix() for p in (atelier / "final").glob("*.mp4")]
+    finale = [p.relative_to(atelier).as_posix() for v in (atelier / "final").glob("*.mp4")  # la vidéo finale et ses analyses (= fichiers_final de Bramble)
+              for p in [*v.parent.glob(f"{glob.escape(v.stem)}.*"), v.parent / f"analyse_{v.stem.replace(' ', '_')}", v.parent / f"{v.stem.replace(' ', '_')}_gemini"]
+              if p.exists()]
     ranges = deplacer(atelier, finale + fichiers + (["final/miniature.jpg"] if miniature else []), horodatage)
     graines_f.parent.mkdir(exist_ok=True)
     graines_f.write_text(json.dumps(graines, indent=1) + "\n", encoding="utf-8")
