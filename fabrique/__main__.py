@@ -8,7 +8,7 @@ import sys
 from fabrique import dossiers, garde, journaux, programme
 
 SOUS_COMMANDES = ("noyau", "executer", "moteur", "commande", "diagnostic", "migrer", "relais", "arreter", "libre")
-COMMANDES_CLAUDE = {"etat": "etat", "sessions": "sessions", "file": "file"}  # Claude lit ; ses essais passent par « moteur » ; importer arrive à J3
+COMMANDES_CLAUDE = {"etat": "etat", "sessions": "sessions", "file": "file"}  # Claude lit ; ses essais : « moteur » ; « importer-bramble » : dans le processus
 
 
 def sortie_sans_console(dossier):
@@ -70,6 +70,22 @@ def moteur(args: list[str]) -> int:
     return 0
 
 
+def importer(args: list[str]) -> int:
+    """« commande importer-bramble [--pour-de-vrai] » (Claude) : Bramble Studio en session n° 1 ; à blanc d'abord (le rapport seulement)."""
+    from django.db import DatabaseError
+
+    from fabrique.garde import Refus
+    from fabrique.session import bramble
+
+    try:
+        r = bramble.importer(pour_de_vrai="--pour-de-vrai" in args)
+    except (Refus, OSError, DatabaseError) as e:
+        print(f"refusé : {e}")
+        return 1
+    print(json.dumps(r, ensure_ascii=False, indent=1))
+    return 0 if r["a_blanc"] or (r["copies_identiques"] and r["source_intacte"]) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     role = args[0] if args and args[0] in SOUS_COMMANDES else "fenetre"
@@ -97,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         from fabrique.noyau import taches
 
         return 3 if taches.occupe() else 0
-    if role == "commande":
+    if role == "commande" and args[1:2] != ["importer-bramble"]:
         return commande(args[1:])
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fabrique.settings")
     import django
@@ -105,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
     django.setup()
     if role == "moteur":
         return moteur(args[1:])
+    if role == "commande":
+        return importer(args[2:])
     if role == "noyau":
         from fabrique.noyau import serveur
 

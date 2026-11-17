@@ -20,7 +20,7 @@ Pour chaque jalon, dans l'ordre :
 ## Urgent (trouvé par la supervision le 17/11 à 20 h, à faire avant de continuer)
 
 - **Fabrique installée chez RT ne démarre pas son noyau** : `D:\StudioKids\FABRIQUE\donnees\journaux\sortie_noyau.log` → `ModuleNotFoundError: No module named 'config'`. Cause : lancée depuis un processus de Bramble Studio, Fabrique hérite de `DJANGO_SETTINGS_MODULE=config.settings`, et `__main__.py` (l. 102), `wsgi.py` et `conftest.py` font `setdefault`. Corriger à la racine : Fabrique impose ses propres variables (`DJANGO_SETTINGS_MODULE`, et retire `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `VIRTUAL_ENV`… héritées) pour elle et pour chaque processus qu'elle lance ; test + point de recette « lancée depuis un parent qui porte des variables de Bramble Studio ». Puis version 0.1.1 publiée et **mise à jour de l'installation réelle de RT** (bouton « Mettre à jour » de Fabrique, ou installateur en silence par-dessus) ; contrôler hors du bac : noyau en marche, `donnees\etat.txt`, première sauvegarde dans le dossier de sauvegarde de RT `\fabrique`, nom « Fabrique » sur la fenêtre et les notifications. Après la relance de 19 h 51 par la supervision (`Fabrique.exe arreter`, puis lancement propre), un `Fabrique.exe` tourne sans noyau ni journal : comprendre pourquoi (instance unique ? fenêtre sans chien de garde ?) et corriger.
-- **GitHub** : voir `docs\QUESTIONS.md` (réponse : commits locaux, rien vers le réseau pour l'instant).
+- **GitHub** : fait (17/11, 20 h 40 : dépôt créé par RT, `main` poussé, `credential.helper manager` réglé dans le dépôt). Pousser à chaque jalon.
 
 ## Tout de suite (avant J2) — fait le 17/11 sauf GitHub
 
