@@ -62,8 +62,9 @@ def configurer(dossier: Path, role: str):
 
 
 def plantage(*erreur):
-    """Une erreur qui arrête le processus va aussi dans son journal (Système la montre), pas seulement dans sa sortie."""
-    logging.critical("arrêt sur une erreur inattendue", exc_info=erreur)
+    """Une erreur que rien n'a attrapée va aussi dans son journal (Système la montre), pas seulement dans sa sortie ; elle arrête le processus,
+    sauf dans la fenêtre (Qt passe par ici les erreurs d'un clic, et continue)."""
+    logging.critical("erreur inattendue", exc_info=erreur)
     sys.__excepthook__(*erreur)
 
 

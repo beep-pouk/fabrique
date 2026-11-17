@@ -76,7 +76,7 @@ def empreinte(f: Path, remplacer: list[tuple[str, str]]) -> str:
         return md5(f)
     b = f.read_bytes()
     if f.suffix == ".wav":
-        return hashlib.md5(b[b.find(b"data"):]).hexdigest()
+        return hashlib.md5(b[b.find(b"data"):] if b"data" in b else b).hexdigest()  # sans bloc « data » (abîmé) : le fichier entier
     t = b.decode("utf-8", errors="replace")
     for ancien, nouveau in remplacer:
         t = t.replace(ancien, nouveau)

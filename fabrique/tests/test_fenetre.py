@@ -200,4 +200,5 @@ def test_le_lecteur_va_au_moment_d_un_defaut(qtbot, tmp_path):
     clic(f, "refaire_coches")  # le lecteur lâche la vidéo avant l'envoi (Windows refuse de déplacer un fichier ouvert)
     assert lecteur.property("source").isEmpty() and not [a for a in t.actions if a[0].endswith("/refaire")]
     qtbot.waitUntil(lambda: any(chemin.endswith("/videos/v1/refaire") and c == {"plans": [2]} for chemin, c in t.actions))
+    film.rename(film.with_name("range.mp4"))  # Windows le laisse déplacer : le lecteur l'a bien lâché
     f.close()
