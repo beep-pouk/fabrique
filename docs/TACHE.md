@@ -17,6 +17,21 @@ Pour chaque jalon, dans l'ordre :
 - **Un geste de RT** prévu au § 7.3 (relier les chaînes et cliquer « Publier » à J4, voter aux bancs, cliquer « Fabriquer » à J12) ou **une vraie question** : l'écrire dans `docs\QUESTIONS.md` (une ligne datée, en QCM, option recommandée en premier), **avancer sur tout ce qui n'en dépend pas**, et ne s'arrêter que si plus rien n'avance. La supervision répond dans ce fichier (ligne « Réponse : »).
 - **La limite d'usage** : commit, « à reprendre à … » en tête de `docs\REPRISE.md`, puis s'arrêter. La supervision relance.
 
+## S'inspirer de l'open source (demande de RT, 17/11 22 h 43)
+
+Avant de concevoir une brique, un écran ou un flux, **regarder comment les meilleurs logiciels libres l'ont fait** et reprendre ce qui est éprouvé plutôt que réinventer. Ordre de préférence : 1) une bibliothèque libre installée par uv (la plus solide, licence permissive) ; 2) du code copié et adapté ; 3) seulement l'idée. Code cloné pour lecture dans `OUTILS\fabrique_construction\references\` (hors dépôt), lu avec graphify ou grep, jamais exécuté sans raison.
+
+- **Licences** : MIT, BSD, Apache, Unlicense → copie permise, avec crédit dans `NOTICE.md` (projet, licence, fichier d'origine, version). GPL, AGPL → s'en inspirer ; copier seulement en le notant dans `NOTICE.md` (Fabrique reste privée). Modèles d'IA : **la chaîne est monétisée = usage commercial** → refuser tout modèle ou poids « non commercial » (et leurs dépendances, ex. certains détecteurs de visage). Vérifier chaque licence sur le dépôt d'origine au moment de copier.
+- **À regarder, par jalon** (licences à revérifier) :
+  - Fenêtre (tous les jalons) : Shotcut (Qt/QML + moteur MLT, GPL), Kdenlive (Qt, GPL) : lecteur, raccourcis, file des rendus, vérification image par image.
+  - J3 (F1 v2, plans quasi fixes) : PySceneDetect (BSD) et auto-editor (Unlicense) pour mesurer coupes et mouvement ; MoviePy (MIT) pour les cadrages tirés d'une même image.
+  - Moteur, recettes, file : ComfyUI (GPL, file et cache de ses graphes) ; MoneyPrinterTurbo (MIT) et ShortGPT (MIT) : chaîne script → voix → sous-titres → montage, API REST, langage de montage décrit en JSON.
+  - J4 publication et paquets : Mixpost Lite (MIT) et Postiz (licence à vérifier) : connexion aux réseaux, formats et limites par réseau, programmation, reprise après coupure ; exemples officiels de l'API YouTube (Google).
+  - J7 et J8 (courtes verticales, voix off + images, sous-titres mot à mot) : WhisperX (BSD) ou stable-ts (MIT), MoneyPrinterTurbo (styles de sous-titres, recadrage 9:16).
+  - J9 chanson : ACE-Step (Apache), YuE, DiffRhythm — au banc à l'aveugle, licences des poids vérifiées.
+  - J10 présentateur : LatentSync (Apache), MuseTalk (MIT), EchoMimic — au banc, licences des poids vérifiées.
+- Noter dans REPRISE ce qui a été repris, d'où, et ce que cela a évité d'écrire. Rester mesuré : regarder vite, ne pas lire des projets entiers (l'usage de la semaine est compté).
+
 ## Urgent (trouvé par la supervision le 17/11 à 20 h, à faire avant de continuer)
 
 - **Fabrique installée chez RT ne démarre pas son noyau** : `D:\StudioKids\FABRIQUE\donnees\journaux\sortie_noyau.log` → `ModuleNotFoundError: No module named 'config'`. Cause : lancée depuis un processus de Bramble Studio, Fabrique hérite de `DJANGO_SETTINGS_MODULE=config.settings`, et `__main__.py` (l. 102), `wsgi.py` et `conftest.py` font `setdefault`. Corriger à la racine : Fabrique impose ses propres variables (`DJANGO_SETTINGS_MODULE`, et retire `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `VIRTUAL_ENV`… héritées) pour elle et pour chaque processus qu'elle lance ; test + point de recette « lancée depuis un parent qui porte des variables de Bramble Studio ». Puis version 0.1.1 publiée et **mise à jour de l'installation réelle de RT** (bouton « Mettre à jour » de Fabrique, ou installateur en silence par-dessus) ; contrôler hors du bac : noyau en marche, `donnees\etat.txt`, première sauvegarde dans le dossier de sauvegarde de RT `\fabrique`, nom « Fabrique » sur la fenêtre et les notifications. Après la relance de 19 h 51 par la supervision (`Fabrique.exe arreter`, puis lancement propre), un `Fabrique.exe` tourne sans noyau ni journal : comprendre pourquoi (instance unique ? fenêtre sans chien de garde ?) et corriger.
