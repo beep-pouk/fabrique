@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import sys
+import tomllib
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ os.environ["FABRIQUE_RACINE"] = str(SORTIE / "FABRIQUE")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fabrique.settings")
 sys.path.insert(0, str(DEPOT))
 
+BRAMBLE = "1.5.6"  # la version d'où F1 est repris (test_f1.ECARTS)
 RENDU = "2026-10-26-s1e01_refaire_1"  # le rendu de référence (le seul fini sur le disque)
 SCENARIO = "2026-10-26-s1e01"
 ENTREES = {  # ce que chaque étape lit dans l'atelier, copié du rendu de référence
@@ -52,8 +54,8 @@ def md5(f: Path) -> str:
 
 
 def produits(run: Path, avant: set[str]) -> dict[str, str]:
-    return {f.relative_to(run).as_posix(): md5(f) for f in sorted(run.rglob("*")) if f.is_file() and f.name not in HORS
-            and f.relative_to(run).as_posix() not in avant}
+    """L'empreinte de TOUT l'atelier après passage : ce qui a été produit, et les entrées (une entrée réécrite ou abîmée se voit aussi)."""
+    return {f.relative_to(run).as_posix(): md5(f) for f in sorted(run.rglob("*")) if f.is_file() and f.name not in HORS}
 
 
 def journal(run: Path) -> list[str]:
@@ -95,7 +97,7 @@ def preparer(etape: str, studio: Path, ids: list[int] | None = None, entrees: li
 def comparer(etape: str, b: Path, f: Path, avant: set[str]) -> dict:
     pb, pf = produits(b, avant), produits(f, avant)
     diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k))
-    return {"egal": bool(pb) and not diff and journal(b) == journal(f), "fichiers": len(pb), "differents": diff[:20],
+    return {"egal": bool(pb.keys() - avant) and not diff and journal(b) == journal(f), "fichiers": len(pb.keys() - avant), "differents": diff[:20],
             "journal_identique": journal(b) == journal(f)}
 
 
@@ -118,7 +120,12 @@ def main(argv=None) -> int:
     from fabrique.session import bramble as import_bramble
 
     studio = garde.studio_bramble()
+    version = tomllib.loads((studio / "OUTILS" / "app" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    if version != BRAMBLE:
+        print(f"le code de Bramble Studio est en {version}, F1 a été repris de la {BRAMBLE} : comparer d'abord les deux codes")
+        return 2
     sys.path.insert(0, str(studio / "OUTILS" / "app" / "studio"))
+    sys.dont_write_bytecode = True  # rien d'écrit dans le dépôt de Bramble Studio
     from moteur import copies as b_copies  # le moteur de Bramble Studio, lu dans son dépôt
     from moteur import etape as b_etape
     from moteur import images as b_images
