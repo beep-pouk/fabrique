@@ -54,6 +54,8 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     garde.verifier(atelier)
     atelier.mkdir(parents=True, exist_ok=True)
     cfg = json.loads((session / "reglages" / "config.json").read_text(encoding="utf-8"))
+    if max_s := demande.reglages.get("plan_fixe_max_s"):  # F1 v2 : lu par l'animation des calques (F1 v1 : réglages de Bramble à l'identique)
+        cfg["plan_fixe_max_s"] = max_s
     lignes: list[str] = []
     lieux = Lieux(garde.studio_bramble() or dossiers.racine().parent, session)
     if fiche.reglages["etape"] == "langue":  # une version de langue entière, à partir de l'atelier de la langue du script

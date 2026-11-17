@@ -131,6 +131,31 @@ def camera(img, k, dx=0.0):
     return np.asarray(im.transform((W, H), Image.AFFINE, (1 / k, 0, W * (1 - 1 / k) / 2 + dx * W, 0, 1 / k, H * (1 - 1 / k) / 2), resample=Image.BICUBIC), np.float32)
 
 
+# F1 v2 (Fabrique, remarque de RT) : un plan d'une seule image ne garde jamais le même cadrage plus de plan_fixe_max_s ; au-delà, nouveau cadrage
+# tiré de la même image (zoom, décalage), aux débuts de scène, une scène trop longue coupée en parts égales. Sans réglage : F1 v1, à l'identique.
+CADRAGES = [(1.25, -0.06), (1.25, 0.06), (1.15, 0.0)]  # (zoom, décalage horizontal) ; |décalage| + 0,01 de dérive < (1 - 1/zoom) / 2 : jamais de bord noir
+
+
+def coupes(durees, max_s):
+    """Instants (s depuis le début du plan) où le cadrage change, pour qu'aucun ne dure plus de max_s."""
+    t, debut, c = 0.0, 0.0, []
+    for d in durees:
+        if t > debut and t + d - debut > max_s:
+            c.append(t); debut = t
+        n = math.ceil(d / max_s - 1e-9)
+        if n > 1:
+            c += [t + d * i / n for i in range(1, n)]; debut = t + d * (n - 1) / n
+        t += d
+    return c
+
+
+def cadre(u, k, sens):
+    """Le cadrage n° k (k > 0), progression u (0..1) dans son segment : une poussée ou un recul doux, une légère dérive."""
+    z, dx = CADRAGES[(k - 1) % len(CADRAGES)]
+    u = lisse(u)
+    return z * (1 + 0.04 * (u if sens else 1 - u)), dx + 0.02 * (u - 0.5) * (1 if k % 2 else -1)
+
+
 # ------------------------------------------------------------------------------------------------- 3. le plan
 def anime_plan(plan_scenes, cal, out_dir, hero=None, log=print):
     """Rend chaque scène du plan en mp4 (s{id}.mp4) à partir des calques `cal` (calques.charger_calques)."""
@@ -155,6 +180,13 @@ def anime_plan(plan_scenes, cal, out_dir, hero=None, log=print):
         if mv0["cam"] == "pan_left": return 1 + amp, -amp * 0.5 * (1 - 2 * p)
         if mv0["cam"] == "pan_right": return 1 + amp, amp * 0.5 * (1 - 2 * p)
         return 1 + 0.03 * p, 0.004 * math.sin(2 * math.pi * p * 1.3)
+    max_s = P.CFG.get("plan_fixe_max_s")
+    if max_s and total > max_s:  # F1 v2
+        bornes = [0.0, *coupes([s["_duree"] for s in plan_scenes], max_s), total]
+        cam_v1 = cam_k
+        def cam_k(p):
+            tau = p * total; k = max(i for i, b in enumerate(bornes[:-1]) if b <= tau + 1e-9); u = (tau - bornes[k]) / max(1e-6, bornes[k + 1] - bornes[k])
+            return cam_v1(u) if k == 0 else cadre(u, k, k % 2 == 1)
     t_plan = 0.0; derniere = None
     for s in plan_scenes:
         D = s["_duree"]; n = max(2, round(D * FPS)); mv = lire_mouvement(s.get("motion"), s.get("camera"))

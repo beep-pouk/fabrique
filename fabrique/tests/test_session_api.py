@@ -73,7 +73,7 @@ def test_fabriquer_est_un_geste_de_rt(session, monkeypatch):
     t = Tache.objects.get()
     assert (t.acteur, t.session_id, t.titre) == ("RT", session.id, "Une histoire factice")
     v = n.get(f"/api/sessions/{session.id}/videos", **entete("fenetre")).json()
-    assert len(v) == 1 and v[0]["nom"] == "2026-12-01-s1e01" and v[0]["recette"] == "F1 v1" and v[0]["progression"] == "0/10"
+    assert len(v) == 1 and v[0]["nom"] == "2026-12-01-s1e01" and v[0]["recette"] == "F1 v2" and v[0]["progression"] == "0/10"
     with routeur.session(session):
         assert json.loads((settings.SESSIONS / session.dossier / "videos" / v[0]["id"] / "2026-12-01-s1e01.json").read_text(encoding="utf-8")) == SCENARIO
     r = n.post(chemin, **entete("fenetre"))

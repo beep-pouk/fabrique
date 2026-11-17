@@ -88,7 +88,7 @@ BRAMBLE = Path(r"D:\StudioKids\OUTILS\app\studio\moteur")  # le code de Bramble 
 ECARTS = {  # fichier → (lignes retirées, ajoutées) face à Bramble Studio, importations mises à part ; tout le reste est son code, à l'identique
     "__init__.py": (0, 2), "anim.py": (5, 6), "copies.py": (39, 5), "etape.py": (4, 4), "images.py": (2, 2), "outils.py": (11, 46), "langue.py": (9, 8),
     "production_copie/calques.py": (1, 1), "bramble.py": (0, 0), "montage.py": (0, 0), "musique.py": (0, 0), "voix.py": (0, 0),
-    "production_copie/anime_calques.py": (0, 0), "production_copie/lipsync_batch.py": (0, 0), "production_copie/offload.py": (0, 0),
+    "production_copie/anime_calques.py": (0, 32), "production_copie/lipsync_batch.py": (0, 0), "production_copie/offload.py": (0, 0),
     "langue_texte.py": (0, 0), "tts_chatterbox_mtl.py": (0, 0), "tts_cosyvoice3.py": (0, 0), "tts_qwen.py": (0, 0), "tts_voxcpm_wsl.py": (0, 0),
     "vc_chatterbox.py": (0, 0), "whisper_langue_wsl.py": (0, 0),
 }
@@ -180,7 +180,7 @@ def test_je_coche_fabrique_refait(essais):
     assert t.acteur == "RT" and t.etat == "attente"
     d = Navigateur().get(f"/api/sessions/{essais.id}/videos/{v.id}", **entete("fenetre")).json()
     assert [p["n"] for p in d["plans"]] == [1, 3, 4] and d["plans"][0]["scenes"] == [1, 2] and d["plans"][1]["bramble"]
-    assert {e["id"]: (e["finis"], e["total"]) for e in d["etapes"]}["images"] == (0, 1) and d["recette"] == "F1 v1"
+    assert {e["id"]: (e["finis"], e["total"]) for e in d["etapes"]}["images"] == (0, 1) and d["recette"] == "F1 v2"
     r = Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("fenetre"))
     assert r.status_code == 409 and "encore dans la file" in r.json()["detail"]
     Tache.objects.all().delete()
@@ -362,3 +362,41 @@ def test_prise_f1_analyse_rend_note_et_defauts_minutes(essais, tmp_path, monkeyp
     assert lu["note"] == 5.7 and lu["analyse"] == "complete" and lu["video"].endswith("Titre.mp4")
     cmd = analyse.commandes(analyse.Lieux(tmp_path, tmp_path), final / "Titre.mp4", tmp_path / "s.json")[0][1]
     assert cmd[:2] == ["wsl", "-d"] and "--scenario" in cmd[-4] and cmd[-3].endswith("analyser_video.py")  # chemins en arguments, jamais dans le texte de bash
+
+
+PYTHON_CALQUES = Path(r"D:\StudioKids\OUTILS\ComfyUI_windows_portable\python_embeded\python.exe")  # celui de l'animation (numpy, scipy, Pillow)
+RENDRE = """import json, sys, types
+import numpy as np
+P = sys.modules["production"] = types.ModuleType("production")
+P.CFG, P.FFMPEG = json.loads(sys.argv[3]), sys.argv[4]
+sys.path.insert(0, sys.argv[1]); sys.dont_write_bytecode = True
+import anime_calques as a
+print(json.dumps(a.coupes([8, 30, 4], 12)))
+fond = np.indices((180, 320)).sum(0)[..., None].repeat(3, 2).astype(np.float32) % 255  # une image qui se voit bouger quand le cadrage change
+a.anime_plan([{"id": 1, "_duree": 14.0, "image": "a glade"}, {"id": 2, "_duree": 14.0, "image": "same"}], {"fond": fond, "persos": [], "meta": {}}, sys.argv[2])
+"""
+
+
+@pytest.mark.skipif(not PYTHON_CALQUES.is_file(), reason="Python de l'animation absent de ce PC")
+def test_f1_v2_change_de_cadrage_avant_plan_fixe_max_s(tmp_path):
+    """Un plan d'une image de 28 s : F1 v1 (Bramble) le garde quasi fixe, F1 v2 coupe vers un autre cadrage de la même image avant 12 s."""
+    import subprocess
+
+    from fabrique.moteur import faux
+    from fabrique.moteur.f1 import copies, mouvement
+
+    ffmpeg = faux.programme("ffmpeg")
+    plans = {}
+    for version, max_s in (("v1", None), ("v2", 12)):
+        d = tmp_path / version
+        d.mkdir()
+        cfg = {"sortie": {"largeur": 320, "hauteur": 180, "fps": 12}, **({"plan_fixe_max_s": max_s} if max_s else {})}
+        r = subprocess.run([str(PYTHON_CALQUES), "-B", "-c", RENDRE, str(copies.DOSSIER), str(d), json.dumps(cfg), ffmpeg], capture_output=True, text=True,
+                           timeout=300, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        assert r.returncode == 0, r.stderr[-2000:]
+        assert json.loads(r.stdout.splitlines()[0]) == [8, 18, 28, 38]  # aux débuts de scène ; une scène trop longue en parts égales
+        (d / "liste.txt").write_text("".join(f"file 's{i:03d}.mp4'\n" for i in (1, 2)), encoding="utf-8")
+        subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(d / "liste.txt"), "-c", "copy", str(d / "plan.mp4")], check=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        plans[version] = mouvement.defauts(ffmpeg, d / "plan.mp4", 28.0, 12)
+    assert len(plans["v1"]) == 1 and plans["v2"] == []  # v1 : un plan quasi fixe de 28 s ; v2 : aucun

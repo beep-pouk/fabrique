@@ -2,7 +2,7 @@
  "schema": 1,
  "id": "F1",
  "nom": "Histoire animée longue",
- "version": 1,
+ "version": 2,
  "reglages": {
   "duree_s": [
    900,
@@ -15,7 +15,7 @@
   "sous_titres": "fichier",
   "enfants": true,
   "declaration_ia": true,
-  "plan_fixe_max_s": null
+  "plan_fixe_max_s": 12
  },
  "script": "scenario-bramble",
  "etapes": [
