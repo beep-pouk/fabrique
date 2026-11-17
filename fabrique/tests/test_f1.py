@@ -106,7 +106,7 @@ def test_f1_est_le_moteur_de_bramble_a_quelques_lignes_pres():
         b = (f1 / rel).read_text(encoding="utf-8").replace("fabrique.moteur.f1", "moteur").splitlines()
         d = list(difflib.ndiff(a, b))
         assert (sum(l.startswith("- ") for l in d), sum(l.startswith("+ ") for l in d)) == attendu, rel
-    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py", "refaire.py"}
+    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py", "refaire.py", "mouvement.py"}
 
 
 def test_le_moteur_f1_ne_lit_plus_rien_de_bramble():
@@ -271,3 +271,43 @@ def test_estimation_f1_suit_la_longueur_du_script():
     assert adaptateur.estimer(outils.fiche("f1_images", "images"), d).secondes == 770
     assert adaptateur.estimer(outils.fiche("f1_images", "images"), d.model_copy(update={"reglages": {"scenes": 74}})).secondes == 74 * 77
     assert adaptateur.estimer(outils.fiche("f1_miniature", "miniature"), d).secondes == 10  # une durée fixe
+
+
+def test_revue_v2_trouve_les_plans_quasi_fixes_trop_longs(tmp_path):
+    import subprocess
+
+    from fabrique.moteur import faux
+    from fabrique.moteur.f1 import mouvement
+
+    ffmpeg = faux.programme("ffmpeg")
+    video = tmp_path / "v.mp4"  # 15 s d'une image fixe, puis 6 s d'une image qui bouge
+    subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x5c8048:s=160x90:d=15:r=12", "-f", "lavfi",
+                    "-i", "testsrc=s=160x90:d=6:r=12", "-filter_complex", "[0][1]concat=n=2:v=1", "-pix_fmt", "yuv420p", str(video)], check=True,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    p = mouvement.plans(ffmpeg, video, 21.0)
+    assert len(p) == 2 and p[0]["mouvement"] < mouvement.SEUIL < p[1]["mouvement"] and abs(p[0]["fin"] - 15) < 0.2
+    d = mouvement.defauts(ffmpeg, video, 21.0, 12)
+    assert len(d) == 1 and d[0]["debut"] == 0 and "15 s à l'écran" in d[0]["texte"]
+    assert mouvement.defauts(ffmpeg, video, 21.0, 20) == []  # sous la limite : rien
+
+
+def test_prise_f1_revue_v2_rend_les_defauts(essais, tmp_path, monkeypatch):
+    import subprocess
+
+    from fabrique.moteur import faux
+
+    atelier = tmp_path / "atelier" / "2026-01-01-s1e01"
+    (atelier / "final").mkdir(parents=True)
+    subprocess.run([faux.programme("ffmpeg"), "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x5c8048:s=160x90:d=15:r=12", "-pix_fmt", "yuv420p",
+                    str(atelier / "final" / "Titre.mp4")], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    (atelier / "final" / "youtube.txt").write_text("TITRE", encoding="utf-8")
+    monkeypatch.setattr(etape, "jouer", lambda *a, **k: 0)
+    d = outils.Demande(brique="controle", etape="revue", unite="", session=str(settings.SESSIONS / essais.dossier), script=str(tmp_path / "s.json"),
+                       atelier=str(atelier), reglages={"plan_fixe_max_s": 12})
+    (tmp_path / "m").mkdir()
+    r = adaptateur.fabriquer(outils.fiche("f1_revue", "controle"), d, tmp_path / "m")
+    assert len(r.infos["defauts"]) == 1 and "plan quasi fixe trop long" in r.infos["defauts"][0]["texte"]
+    assert json.loads((tmp_path / "m" / "rapport.json").read_text(encoding="utf-8"))["analyse"] == "mouvement"
+    (tmp_path / "m1").mkdir()
+    r = adaptateur.fabriquer(outils.fiche("f1_revue", "controle"), d.model_copy(update={"reglages": {"plan_fixe_max_s": None}}), tmp_path / "m1")
+    assert r.infos["defauts"] is None  # F1 v1 : pas mesuré

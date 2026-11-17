@@ -9,8 +9,8 @@ import shutil
 from pathlib import Path
 
 from fabrique import dossiers, garde
-from fabrique.moteur.f1 import etape, langue
-from fabrique.moteur.f1.outils import Lieux
+from fabrique.moteur.f1 import etape, langue, mouvement
+from fabrique.moteur.f1.outils import Lieux, Outils
 from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
 SESSION = "session:"
@@ -68,8 +68,13 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     if code or any("tourne deja" in ligne for ligne in lignes):
         raise RuntimeError(f"étape {fiche.reglages['etape']} : " + (lignes[-1] if lignes else f"code {code}"))
     fichiers = []
-    if fiche.reglages.get("rapport"):  # le contrôle de F1 v1 : pas encore d'analyse (elle arrive avec l'écran Vérification) — dit tel quel
-        (dossier / "rapport.json").write_text(json.dumps({"defauts": None, "analyse": "absente"}), encoding="utf-8")
+    defauts = None  # pas mesuré
+    if fiche.reglages.get("rapport"):  # le contrôle : F1 v2 mesure le mouvement de chaque plan ; F1 v1 n'analyse rien encore — dit tel quel
+        if (max_s := demande.reglages.get("plan_fixe_max_s")) and (videos := sorted((atelier / "final").glob("*.mp4"))):
+            outils_ = Outils(lieux)
+            defauts = mouvement.defauts(outils_.ffmpeg, videos[0], outils_.duree(videos[0]), max_s)
+        (dossier / "rapport.json").write_text(json.dumps({"defauts": defauts, "analyse": "mouvement" if defauts is not None else "absente"}, ensure_ascii=False),
+                                             encoding="utf-8")
         fichiers.append("rapport.json")
     for motif in fiche.reglages["sorties"]:
         base = session if motif.startswith(SESSION) else atelier
@@ -77,6 +82,6 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
             if f.is_file() and (rel := f.relative_to(base).as_posix()) not in fichiers:
                 lier(f, dossier / rel)
                 fichiers.append(rel)
-    infos = {"journal": lignes[-20:], **({"mots": None} if demande.brique == "voix" else {}), **({"defauts": None} if demande.brique == "controle" else {}),
+    infos = {"journal": lignes[-20:], **({"mots": None} if demande.brique == "voix" else {}), **({"defauts": defauts} if demande.brique == "controle" else {}),
              **({"rien_a_faire": True} if not fichiers and fiche.reglages.get("peut_etre_vide") else {})}  # None : pas mesuré (jamais « rien trouvé »)
     return Resultat(fichiers=fichiers, infos=infos)
