@@ -172,11 +172,16 @@ def videos(request, id: str):
 @api.post("/sessions/{id}/scripts/{code}/fabriquer", response=schemas.Message)
 @droit("fabriquer")
 def fabriquer(request, id: str, code: str):
-    """Geste de RT : la vidéo du script (dernière version) découpée selon le format de la session (réglage « format », F1 par défaut), mise
-    dans la file."""
+    """Geste de RT : la vidéo du script (dernière version) découpée selon le format de la session (réglage « format », F1 par défaut), dans
+    les langues choisies avant le lancement (chacune a sa traduction : script « code.langue »), mise dans la file."""
     from fabrique.moteur import execution, file, recettes
 
     s = session_(id)
+    try:  # corps facultatif {"langues": [...]} : sans corps, la langue du script seule
+        corps = request.body if request.content_type == "application/json" and request.body else b"{}"
+        choisies = list(dict.fromkeys(schemas.Langues.model_validate_json(corps).langues))
+    except ValueError as e:
+        raise HttpError(400, f"langues illisibles : {e}") from None
     with routeur.session(s):
         sc = m.Script.objects.filter(code=code).first()
         if sc is None or not (v := sc.versions.order_by("-numero").first()):
@@ -185,7 +190,16 @@ def fabriquer(request, id: str, code: str):
             raise Refus(f"le script {code} a {len(erreurs)} erreur(s) des règles de l'univers (version {v.numero}) : à corriger avant de fabriquer")
         forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
         date = (sc.date_prevue or v.date.date()).isoformat()
-    video = execution.preparer(s, recettes.lire(forme), v.contenu, nom=f"{date}-{sc.code}")
+        traductions = {}
+        for langue in choisies:
+            t = m.Script.objects.filter(code=f"{code}.{langue}").first()
+            if t is None or not (tv := t.versions.order_by("-numero").first()):
+                raise Refus(f"pas de traduction en « {langue} » pour {code} : la demander à Claude d'abord")
+            traductions[langue] = tv.contenu
+    recette = recettes.lire(forme)
+    base = v.contenu.get("language") or recette["reglages"]["langues"][0]
+    recette["reglages"]["langues"] = list(dict.fromkeys([base, *choisies]))
+    video = execution.preparer(s, recette, v.contenu, nom=f"{date}-{sc.code}", traductions=traductions)
     t = file.mettre(s, video.id, video.titre, ACTEURS[request.auth])
     e = execution.estimer(s, video.id)
     return {"message": f"« {video.titre} » dans la file (tâche {t.id}) : environ {round(e['secondes'] / 3600, 1)} h".replace(".", ",") + f", {execution.euros(e['cout_eur'])}"}

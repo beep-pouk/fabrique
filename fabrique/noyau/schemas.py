@@ -166,6 +166,10 @@ class VideoDetail(BaseModel):
     script: dict
 
 
+class Langues(BaseModel):
+    langues: list[str] = []  # les langues fabriquées en plus de celle du script
+
+
 class Demande(BaseModel):
     quoi: str  # « ecrire » (nouvelle version) ou « traduire »
     langue: str = ""  # pour une traduction

@@ -42,7 +42,7 @@ class Etape(Strict):
     id: Nom
     brique: str
     par: Literal["plan", "scene", "video"]
-    langue: bool = False
+    langue: bool | Literal["autres"] = False  # vrai : refaite pour chaque langue ; « autres » : pour chaque langue sauf celle du script
 
 
 class Recette(Strict):

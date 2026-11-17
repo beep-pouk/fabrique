@@ -1,0 +1,34 @@
+{
+ "id": "f1_langue",
+ "nom": "Version de langue de Bramble Studio (voix de la langue, lèvres, musique recalée, montage, miniature, sous-titres)",
+ "roles": [
+  "montage"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "celle de l'outil de Bramble Studio (à reporter au banc, J6)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 16,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "étape entière de Bramble Studio (toute la vidéo d'un coup)",
+ "version": "Bramble Studio 1.5.6",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "module": "fabrique.moteur.f1.adaptateur",
+ "reglages": {
+  "etape": "langue",
+  "sorties": [
+   "final/*.mp4",
+   "final/miniature.jpg",
+   "final/sous_titres.srt",
+   "final/youtube.txt",
+   "voix/s*.wav"
+  ],
+  "secondes": 5400
+ }
+}

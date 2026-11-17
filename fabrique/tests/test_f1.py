@@ -32,7 +32,8 @@ def essais():
 
 def test_recette_f1():
     r = recettes.recette(recettes.lire("F1"))
-    assert [e.id for e in r.etapes] == list(etape.ETAPES) and all(e.par == "video" for e in r.etapes)  # les étapes de Bramble Studio, dans son ordre
+    assert [e.id for e in r.etapes] == [*etape.ETAPES, "langue"] and all(e.par == "video" for e in r.etapes)  # les étapes de Bramble Studio, dans son ordre
+    assert r.etapes[-1].langue == "autres" and r.reglages.langues == ["en"]  # les versions de langue : celles choisies à « Fabriquer »
     assert all(not outils.fiches()[o].faux and outils.fiches()[o].module == "fabrique.moteur.f1.adaptateur" for o in r.outils.values())
     with pytest.raises(Refus, match="par vidéo entière"):
         recettes.recette({**recettes.lire("F1"), "etapes": [{"id": "voix", "brique": "voix", "par": "plan"}], "outils": {}})
@@ -192,3 +193,36 @@ def test_la_voix_de_reference_est_celle_de_la_session(tmp_path):
     cfg = {"voix": {"ref_audio": str(tmp_path / "STUDIO" / "PROJET" / "voix" / "narrateur.wav"), "cfg": 0.5}, "style": "x"}
     assert lieux.config(cfg) == {"voix": {"ref_audio": str(tmp_path / "session" / "univers" / "voix" / "narrateur.wav"), "cfg": 0.5}, "style": "x"}
     assert lieux.config({"voix": {"ref_audio": "C:/ailleurs/voix.wav"}}) == {"voix": {"ref_audio": "C:/ailleurs/voix.wav"}}  # hors du projet : tel quel
+
+
+def test_prise_f1_version_de_langue(essais, tmp_path, monkeypatch):
+    from fabrique.moteur.f1 import langue
+    from fabrique.session.models import Langue
+
+    vus = {}
+
+    def faire(lieux, script, cfg, langue_, ref, ecran, dossier, anglais_run):  # la version de langue de Bramble, simulée
+        vus.update(script=Path(script).name, langue=langue_, anglais=anglais_run, atelier=dossier)
+        (Path(dossier) / "final").mkdir(parents=True, exist_ok=True)
+        (Path(dossier) / "final" / "Titre traduit.mp4").write_bytes(b"mp4")
+        return 0
+
+    monkeypatch.setattr(langue, "faire", faire)
+    with routeur.session(essais):
+        Langue.objects.update_or_create(code="xx", defaults={"nom": "Langue factice", "outil_voix": "outil_factice", "reglages_voix": {"cfg": 0.5}})
+    session = settings.SESSIONS / essais.dossier
+    (session / "reglages" / "config.json").write_text(json.dumps({"voix": {"ref_audio": "C:/voix.wav"}}), encoding="utf-8")
+    video = tmp_path / "videos" / "v1"
+    (video / "2026-01-01-s1e01.xx.json").parent.mkdir(parents=True)
+    (video / "2026-01-01-s1e01.xx.json").write_text("{}", encoding="utf-8")
+    d = outils.Demande(brique="montage", etape="langue", unite="", langue="xx", session=str(session), script=str(video / "2026-01-01-s1e01.json"),
+                       atelier=str(video / "xx" / "atelier" / "2026-01-01-s1e01"))
+    (tmp_path / "m").mkdir()
+    r = adaptateur.fabriquer(outils.fiche("f1_langue", "montage"), d, tmp_path / "m")
+    assert r.fichiers == ["final/Titre traduit.mp4"] and vus["script"] == "2026-01-01-s1e01.xx.json"
+    assert vus["langue"] == {"code": "xx", "outil": "outil_factice", "reglages": {"cfg": 0.5}, "police": ""}
+    assert vus["anglais"] == video / "commun" / "atelier" / "2026-01-01-s1e01"  # l'atelier de la langue du script
+    (video / "2026-01-01-s1e01.xx.json").unlink()
+    (tmp_path / "m2").mkdir()
+    with pytest.raises(RuntimeError, match="traduction"):
+        adaptateur.fabriquer(outils.fiche("f1_langue", "montage"), d, tmp_path / "m2")

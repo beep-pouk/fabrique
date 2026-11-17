@@ -65,6 +65,17 @@ def test_fabriquer_est_un_geste_de_rt(session, monkeypatch):
     assert len(v) == 1 and v[0]["nom"] == "2026-12-01-s1e01" and v[0]["recette"] == "F1 v1" and v[0]["progression"] == "0/9"
     with routeur.session(session):
         assert json.loads((settings.SESSIONS / session.dossier / "videos" / v[0]["id"] / "2026-12-01-s1e01.json").read_text(encoding="utf-8")) == SCENARIO
+    r = n.post(chemin, {"langues": ["xx"]}, content_type="application/json", **entete("fenetre"))
+    assert r.status_code == 409 and "pas de traduction en « xx »" in r.json()["detail"]
+    with routeur.session(session):
+        t = m.Script.objects.create(code="s1e01.xx", titre="Titre traduit", langue="xx", statut="traduction")
+        m.VersionScript.objects.create(script=t, numero=1, auteur="claude", date=datetime(2026, 11, 11, tzinfo=timezone.utc), contenu={**SCENARIO, "title": "Titre traduit"})
+    r = n.post(chemin, {"langues": ["xx"]}, content_type="application/json", **entete("fenetre"))
+    assert r.status_code == 200, r.content
+    v = n.get(f"/api/sessions/{session.id}/videos", **entete("fenetre")).json()[0]
+    assert v["progression"] == "0/10"  # les 9 étapes de la langue du script, et la version « xx »
+    d = settings.SESSIONS / session.dossier / "videos" / v["id"]
+    assert json.loads((d / "2026-12-01-s1e01.xx.json").read_text(encoding="utf-8"))["title"] == "Titre traduit"
 
 
 def test_machine(monkeypatch):

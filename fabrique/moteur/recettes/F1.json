@@ -63,6 +63,12 @@
    "id": "revue",
    "brique": "controle",
    "par": "video"
+  },
+  {
+   "id": "langue",
+   "brique": "montage",
+   "par": "video",
+   "langue": "autres"
   }
  ],
  "controles": "revue-bramble",
@@ -75,6 +81,7 @@
   "bramble": "f1_levres",
   "montage": "f1_montage",
   "miniature": "f1_miniature",
-  "revue": "f1_revue"
+  "revue": "f1_revue",
+  "langue": "f1_langue"
  }
 }

@@ -32,8 +32,9 @@ class Echec(Exception):
     """Un morceau a épuisé ses essais : la cause en clair."""
 
 
-def preparer(s: Session, recette: dict, script: dict, nom: str = "") -> Video:
-    """La vidéo et ses morceaux ; le script aussi en fichier (videos\\<id>\\<nom>.json : les outils de toute une vidéo le lisent)."""
+def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions: dict | None = None) -> Video:
+    """La vidéo et ses morceaux ; le script aussi en fichier (videos\\<id>\\<nom>.json : les outils de toute une vidéo le lisent), et ses
+    traductions (<nom>.<langue>.json : celles qui ont servi, gardées avec la vidéo)."""
     R = recettes.recette(recette)
     S = recettes.script(script, R.script)
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
@@ -45,13 +46,23 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "") -> Video:
         Morceau.objects.bulk_create(morceaux)
     fichier_script(s, v).parent.mkdir(parents=True, exist_ok=True)
     fichier_script(s, v).write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
+    for langue, contenu in (traductions or {}).items():
+        f = fichier_script(s, v)
+        f.with_name(f"{f.stem}.{langue}.json").write_text(json.dumps(contenu, ensure_ascii=False, indent=1), encoding="utf-8")
     return v
+
+
+def langues(R: recettes.Recette, S, e: recettes.Etape) -> list[str]:
+    """Les langues d'une étape : « » (commune), toutes celles de la recette, ou toutes sauf celle du script (« autres »)."""
+    if e.langue == "autres":
+        return [l for l in R.reglages.langues if l != (getattr(S, "language", None) or R.reglages.langues[0])]
+    return R.reglages.langues if e.langue else [""]
 
 
 def decouper(R: recettes.Recette, S, reglages: dict) -> list[Morceau]:
     """Les morceaux (pas encore enregistrés) : étape × unité × langue, l'outil de chacun choisi."""
     morceaux = [Morceau(etape=e.id, brique=e.brique, unite=unite, langue=langue, outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
-                for e in R.etapes for langue in (R.reglages.langues if e.langue else [""]) for unite, du_plan, _ in recettes.unites(S, e.par)]
+                for e in R.etapes for langue in langues(R, S, e) for unite, du_plan, _ in recettes.unites(S, e.par)]
     for i, m in enumerate(morceaux):
         m.ordre = i
     return morceaux

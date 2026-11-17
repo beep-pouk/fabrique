@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 
 from fabrique import dossiers, garde
-from fabrique.moteur.f1 import etape
+from fabrique.moteur.f1 import etape, langue
 from fabrique.moteur.f1.outils import Lieux
 from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
@@ -18,6 +18,19 @@ SESSION = "session:"
 
 def estimer(fiche: Fiche, demande: Demande) -> Estimation:
     return Estimation(secondes=fiche.reglages.get("secondes", 60), carte_go=fiche.besoins.carte_go)
+
+
+def langue_de(session: Path, code: str) -> dict:
+    """La langue de la session telle que langue.faire la lit : code, outil de voix, ses réglages, police."""
+    from fabrique.noyau import routeur
+    from fabrique.noyau.models import Session
+    from fabrique.session.models import Langue
+
+    with routeur.session(Session.objects.get(dossier=session.name)):
+        l = Langue.objects.filter(code=code).first()
+    if l is None:
+        raise RuntimeError(f"la langue « {code} » n'est pas une langue de la session")
+    return {"code": l.code, "outil": l.outil_voix, "reglages": l.reglages_voix, "police": l.police}
 
 
 def lier(source: Path, cible: Path):
@@ -34,8 +47,16 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     atelier.mkdir(parents=True, exist_ok=True)
     cfg = json.loads((session / "reglages" / "config.json").read_text(encoding="utf-8"))
     lignes: list[str] = []
-    code = etape.jouer(Lieux(garde.studio_bramble() or dossiers.racine().parent, session), demande.script, fiche.reglages["etape"], cfg,
-                       dossier=atelier, ecran=lignes.append, fond=lambda *a: False)
+    lieux = Lieux(garde.studio_bramble() or dossiers.racine().parent, session)
+    if fiche.reglages["etape"] == "langue":  # une version de langue entière, à partir de l'atelier de la langue du script
+        script = Path(demande.script).with_name(f"{Path(demande.script).stem}.{demande.langue}.json")
+        if not script.is_file():
+            raise RuntimeError(f"traduction en « {demande.langue} » absente de la vidéo ({script.name})")
+        cfg = lieux.config(cfg)
+        code = langue.faire(lieux, script, cfg, langue_de(session, demande.langue), cfg["voix"]["ref_audio"], ecran=lignes.append, dossier=atelier,
+                            anglais_run=atelier.parents[2] / "commun" / "atelier" / atelier.name)
+    else:
+        code = etape.jouer(lieux, demande.script, fiche.reglages["etape"], cfg, dossier=atelier, ecran=lignes.append, fond=lambda *a: False)
     if code or any("tourne deja" in ligne for ligne in lignes):
         raise RuntimeError(f"étape {fiche.reglages['etape']} : " + (lignes[-1] if lignes else f"code {code}"))
     fichiers = []
