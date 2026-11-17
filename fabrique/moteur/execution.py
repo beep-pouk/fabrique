@@ -16,6 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from fabrique.garde import Refus
 from fabrique.moteur import outils, recettes
 from fabrique.noyau import routeur
 from fabrique.noyau.models import Chrono, Depense, Parametre, Session
@@ -187,6 +188,34 @@ def jouer(s: Session, video_id: str, alerter=lambda texte: None, progres=lambda:
             for m in v.morceaux.filter(etape=e.id).exclude(etat="fini").order_by("ordre"):
                 jouer_morceau(s, v, R, S, i, m, reglages, alerter)
                 progres()
+
+
+def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
+    """« Je coche, Fabrique refait » (plan § 5.3), pour une vidéo de F1 : les pièces des plans cochés rangées à côté dans l'atelier (f1/refaire.py),
+    les morceaux des étapes qui en dépendent repartent (leur dossier d'avant rangé dans videos\\<id>\\_refaits), la vidéo revient dans la file ;
+    seules les pièces manquantes sont refaites."""
+    from fabrique.moteur import file
+    from fabrique.moteur.f1 import refaire as f1
+    from fabrique.noyau.models import Tache
+
+    if Tache.objects.filter(session_id=s.id, video_id=video_id, etat__in=("attente", "en_cours", "pause")).exists():
+        raise Refus("cette vidéo est encore dans la file : refaire quand elle est finie")
+    with routeur.session(s):
+        v = Video.objects.filter(id=video_id).first()
+        if v is None:
+            raise Refus(f"vidéo inconnue : {video_id}")
+        if v.recette.get("script") != "scenario-bramble":
+            raise Refus("refaire un plan : seulement pour une vidéo du format F1 à ce jalon")
+        base = settings.SESSIONS / s.dossier / "videos" / v.id
+        r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans)
+        for m in v.morceaux.filter(etape__in=r["etapes"]):
+            if (d := dossier(s, m)).exists():
+                (cible := base / "_refaits" / r["horodatage"] / m.etape).parent.mkdir(parents=True, exist_ok=True)
+                d.rename(cible)
+            m.etat, m.essais, m.message = "attente", 0, ""
+            m.save(update_fields=["etat", "essais", "message"])
+    t = file.mettre(s, v.id, v.titre, acteur)
+    return f"« {v.titre} » : plans {r['plans']} à refaire ({', '.join(r['etapes'])}) — {len(r['ranges'])} pièce(s) rangée(s) à côté, tâche {t.id} dans la file"
 
 
 def estimer(s: Session, video_id: str) -> dict:

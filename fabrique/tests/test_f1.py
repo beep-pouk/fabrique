@@ -103,7 +103,7 @@ def test_f1_est_le_moteur_de_bramble_a_quelques_lignes_pres():
         b = (f1 / rel).read_text(encoding="utf-8").replace("fabrique.moteur.f1", "moteur").splitlines()
         d = list(difflib.ndiff(a, b))
         assert (sum(l.startswith("- ") for l in d), sum(l.startswith("+ ") for l in d)) == attendu, rel
-    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py"}
+    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py", "refaire.py"}
 
 
 def test_le_moteur_f1_ne_lit_plus_rien_de_bramble():
@@ -113,3 +113,68 @@ def test_le_moteur_f1_ne_lit_plus_rien_de_bramble():
         code = "\n".join(l for l in texte.splitlines() if not l.lstrip().startswith("#"))
         assert '"PROJET"' not in code and "DATA_DIR" not in code and "django" not in code, f
     assert garde.PROTEGES  # la garde reste celle de Fabrique : rien n'est écrit sous Bramble Studio
+
+
+SCENES = {"thumbnail_scene": 4, "title": "Une histoire factice", "scenes": [
+    {"id": 1, "narration": "a", "image": "a glade"}, {"id": 2, "narration": "b", "image": "same"}, {"id": 3, "narration": "c", "bramble": "accueil"},
+    {"id": 4, "narration": "d", "image": "a pond"}]}
+PIECES = ["images/plan_001.png", "calques/plan_001/fond.png", "clips/s001.mp4", "clips/s001_last.png", "clips/s002.mp4", "clips/s002_last.png", "montage/s001.mp4",
+          "montage/s002.mp4", "montage/s003.mp4", "montage/s004.mp4", "bramble/s003.mp4", "images/plan_004.png", "final/Une histoire factice.mp4", "final/miniature.jpg"]
+
+
+def atelier_plein(atelier: Path):
+    for rel in PIECES:
+        (atelier / rel).parent.mkdir(parents=True, exist_ok=True)
+        (atelier / rel).write_bytes(b"x")
+
+
+def test_refaire_un_plan_range_ses_pieces_a_cote(tmp_path):
+    from fabrique.moteur.f1 import refaire
+
+    atelier_plein(tmp_path)
+    r = refaire.preparer(tmp_path, SCENES, [1])
+    assert r["etapes"] == ["images", "anim", "bramble", "montage", "revue"]  # la miniature n'est pas faite de ce plan
+    assert sorted(r["ranges"]) == sorted(["final/Une histoire factice.mp4", "images/plan_001.png", "calques/plan_001", "clips/s001.mp4", "clips/s001_last.png",
+                                          "clips/s002.mp4", "clips/s002_last.png", "montage/s001.mp4", "montage/s002.mp4"])
+    avant = tmp_path / "_refaits" / r["horodatage"]
+    assert (avant / "images" / "plan_001.png").is_file() and not (tmp_path / "images" / "plan_001.png").exists()  # l'avant reste à côté
+    assert (tmp_path / "images" / "plan_004.png").is_file() and (tmp_path / "montage" / "s003.mp4").is_file()  # le reste ne bouge pas
+    assert json.loads((tmp_path / "images" / "_graines.json").read_text(encoding="utf-8")) == {"1": 1}
+    r = refaire.preparer(tmp_path, SCENES, [4, 3])
+    assert "miniature" in r["etapes"] and "final/miniature.jpg" in r["ranges"] and "bramble/s003.mp4" in r["ranges"]
+    assert json.loads((tmp_path / "images" / "_graines.json").read_text(encoding="utf-8")) == {"1": 1, "4": 1}  # la scène de Bramble n'a pas d'image
+    with pytest.raises(Refus, match="inconnu"):
+        refaire.preparer(tmp_path, SCENES, [2])  # une scène « same » n'est pas un plan
+    with pytest.raises(Refus, match="aucun plan"):
+        refaire.preparer(tmp_path, SCENES, [])
+
+
+def test_je_coche_fabrique_refait(essais):
+    from django.test import Client as Navigateur
+
+    from fabrique.noyau import jetons
+    from fabrique.noyau.models import Tache
+
+    v = execution.preparer(essais, recettes.lire("F1"), SCENES, nom="2026-01-01-s1e01")
+    execution.jouer(essais, v.id)
+    atelier = settings.SESSIONS / essais.dossier / "videos" / v.id / "commun" / "atelier" / "2026-01-01-s1e01"
+    atelier_plein(atelier)
+    jetons.tirer(settings.DONNEES)
+    chemin = f"/api/sessions/{essais.id}/videos/{v.id}/refaire"
+    entete = lambda qui: {"HTTP_AUTHORIZATION": f"Bearer {jetons.lire(settings.DONNEES, qui)}"}  # noqa: E731
+    assert Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("claude")).status_code == 403
+    r = Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("fenetre"))
+    assert r.status_code == 200 and "plans [1] à refaire" in r.json()["message"], r.content
+    with routeur.session(essais):
+        etats = {m.etape: m.etat for m in Morceau.objects.filter(video=v)}
+    assert etats == {"voix": "fini", "poses": "fini", "images": "attente", "anim": "attente", "musique": "fini", "bramble": "attente", "montage": "attente",
+                     "miniature": "fini", "revue": "attente"}  # seuls les morceaux qui dépendent du plan repartent
+    assert list((settings.SESSIONS / essais.dossier / "videos" / v.id / "_refaits").glob("*/images/resultat.json"))  # l'avant, à côté
+    t = Tache.objects.get(video_id=v.id)
+    assert t.acteur == "RT" and t.etat == "attente"
+    r = Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("fenetre"))
+    assert r.status_code == 409 and "encore dans la file" in r.json()["detail"]
+    Tache.objects.all().delete()
+    execution.jouer(essais, v.id)
+    with routeur.session(essais):
+        assert {m.etat for m in Morceau.objects.filter(video=v)} == {"fini"}

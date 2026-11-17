@@ -22,7 +22,7 @@ from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
-    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", *GESTES},
+    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", *GESTES},
     "iphone": {"voir", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -146,6 +146,15 @@ def fabriquer(request, id: str, code: str):
     t = file.mettre(s, video.id, video.titre, ACTEURS[request.auth])
     e = execution.estimer(s, video.id)
     return {"message": f"« {video.titre} » dans la file (tâche {t.id}) : environ {round(e['secondes'] / 3600, 1)} h".replace(".", ",") + f", {execution.euros(e['cout_eur'])}"}
+
+
+@api.post("/sessions/{id}/videos/{video}/refaire", response=schemas.Message)
+@droit("refaire")
+def refaire(request, id: str, video: str, corps: schemas.Plans):
+    """« Je coche, Fabrique refait » : clic de RT dans Vérification."""
+    from fabrique.moteur import execution
+
+    return {"message": execution.refaire(session_(id), video, corps.plans, ACTEURS[request.auth])}
 
 
 @api.get("/machine", response=schemas.Machine)

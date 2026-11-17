@@ -137,6 +137,10 @@ class VideoListe(BaseModel):
     erreurs: int
 
 
+class Plans(BaseModel):
+    plans: list[int]  # les plans cochés (id de leur première scène)
+
+
 class Machine(BaseModel):
     carte: str  # « 9 % · 2,3 / 16 Go », ou « indisponible »
     disque_go: int

@@ -35,6 +35,7 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "univers": ("GET", "/api/sessions/{id}/univers", s.Univers),
     "videos": ("GET", "/api/sessions/{id}/videos", list[s.VideoListe]),
     "fabriquer": ("POST", "/api/sessions/{id}/scripts/{code}/fabriquer", s.Message),
+    "refaire": ("POST", "/api/sessions/{id}/videos/{video}/refaire", s.Message),
     "agir_file": ("POST", "/api/file/{id}/{action}", s.Message),
 }
 
