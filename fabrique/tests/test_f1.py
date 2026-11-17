@@ -83,6 +83,29 @@ def test_prise_f1_lie_les_sorties_de_l_etape(essais, tmp_path, monkeypatch):
         adaptateur.fabriquer(outils.fiche("f1_voix", "voix"), d, tmp_path / "encore")
 
 
+BRAMBLE = Path(r"D:\StudioKids\OUTILS\app\studio\moteur")  # le code de Bramble Studio (lu seulement), sur le PC
+ECARTS = {  # fichier → (lignes retirées, ajoutées) face à Bramble Studio, importations mises à part ; tout le reste est son code, à l'identique
+    "__init__.py": (0, 2), "anim.py": (5, 6), "copies.py": (39, 5), "etape.py": (4, 4), "images.py": (2, 2), "outils.py": (11, 35),
+    "production_copie/calques.py": (1, 1), "bramble.py": (0, 0), "montage.py": (0, 0), "musique.py": (0, 0), "voix.py": (0, 0),
+    "production_copie/anime_calques.py": (0, 0), "production_copie/lipsync_batch.py": (0, 0), "production_copie/offload.py": (0, 0),
+}
+
+
+@pytest.mark.skipif(not BRAMBLE.is_dir(), reason="code de Bramble Studio absent de ce PC")
+def test_f1_est_le_moteur_de_bramble_a_quelques_lignes_pres():
+    """Preuve d'égalité, côté code : chaque écart avec le moteur de Bramble Studio est compté (seulement où il lit le projet : la session à la
+    place) ; un écart de plus fait échouer ce test, à relire et à prouver."""
+    import difflib
+
+    f1 = Path(adaptateur.__file__).parent
+    for rel, attendu in ECARTS.items():
+        a = (BRAMBLE / rel).read_text(encoding="utf-8").splitlines()
+        b = (f1 / rel).read_text(encoding="utf-8").replace("fabrique.moteur.f1", "moteur").splitlines()
+        d = list(difflib.ndiff(a, b))
+        assert (sum(l.startswith("- ") for l in d), sum(l.startswith("+ ") for l in d)) == attendu, rel
+    assert {p.relative_to(f1).as_posix() for p in f1.rglob("*.py")} == set(ECARTS) | {"adaptateur.py", "comfy.py"}
+
+
 def test_le_moteur_f1_ne_lit_plus_rien_de_bramble():
     """Le moteur repris ne lit plus le projet de Bramble Studio : ni PROJET, ni ses données, ni Django ; ses outils partagés seulement."""
     for f in (Path(adaptateur.__file__).parent).rglob("*.py"):
