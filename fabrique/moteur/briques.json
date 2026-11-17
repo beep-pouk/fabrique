@@ -1,0 +1,10 @@
+{
+ "voix": {"titre": "Voix", "defaut": "faux_voix"},
+ "images": {"titre": "Images", "defaut": "faux_images"},
+ "animation": {"titre": "Animation", "defaut": "faux_animation"},
+ "musique": {"titre": "Musique", "defaut": "faux_musique"},
+ "levres": {"titre": "Lèvres", "defaut": "faux_levres"},
+ "montage": {"titre": "Montage", "defaut": "faux_montage"},
+ "miniature": {"titre": "Miniature", "defaut": "faux_miniature"},
+ "controle": {"titre": "Contrôle", "defaut": "faux_controle"}
+}

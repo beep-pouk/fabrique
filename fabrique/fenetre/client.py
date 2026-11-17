@@ -28,6 +28,8 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "cles": ("GET", "/api/cles", list[s.Cle]),
     "enregistrer_cle": ("POST", "/api/cles/{nom}", s.Message),
     "arreter": ("POST", "/api/arreter", s.Message),
+    "file": ("GET", "/api/file", list[s.TacheFile]),
+    "agir_file": ("POST", "/api/file/{id}/{action}", s.Message),
 }
 
 

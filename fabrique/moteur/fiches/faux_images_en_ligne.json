@@ -1,0 +1,25 @@
+{
+ "id": "faux_images_en_ligne",
+ "nom": "Fausses images en ligne (payant)",
+ "roles": [
+  "images"
+ ],
+ "local": false,
+ "prix_unite_eur": 0.04,
+ "prix_date": "2026-11-17",
+ "licence": "simulation",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "simulation d'un service payant : aucun appel réseau",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "module": "fabrique.moteur.faux",
+ "reglages": {
+  "couleur": "485c80"
+ }
+}

@@ -1,6 +1,6 @@
-"""Les tâches détachées du noyau (« executer <tâche> ») : J1 n'en a qu'une, la sauvegarde (le soir à 23 h 30, ou au clic de RT). Son état est
-un fichier (donnees\\taches\\sauvegarde.json) : lu par le noyau, par « libre » (installateur) et par Claude, sans la base. La file des recettes
-arrive au jalon J2. Sans Django en tête de module : « libre » le lit sans le démarrer."""
+"""Les tâches détachées du noyau (« executer <tâche> ») : la sauvegarde (le soir à 23 h 30, ou au clic de RT), tâche légère, et la fabrication
+d'une vidéo de la file (moteur/file.py), tâche lourde. L'état de chacune est un fichier (donnees\\taches\\<tâche>.json) : lu par le noyau, par
+« libre » (installateur) et par Claude, sans la base. Sans Django en tête de module : « libre » le lit sans le démarrer."""
 import json
 import logging
 import os
@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from fabrique import dossiers, programme
 
 log = logging.getLogger(__name__)
-TACHES = ("sauvegarde",)
+TACHES = ("sauvegarde", "fabrication")
+DEMARRAGE_S = 60  # lancée, pas encore de pid (le relais démarre l'exécuteur) : comptée comme en cours
 HEURE_SAUVEGARDE = (23, 30)
 
 
@@ -32,9 +33,20 @@ def ecrire(nom: str, etat: dict):
     tmp.replace(f)
 
 
-def occupe() -> str:
-    """Ce qui tourne (vide : rien) ; une tâche « en cours » dont le processus est mort ne compte pas."""
-    return next((nom for nom in TACHES if (e := lire(nom)).get("etat") == "en_cours" and programme.de_l_app(int(e.get("pid", 0)))), "")
+def vivante(e: dict) -> bool:
+    if e.get("etat") != "en_cours":
+        return False
+    if pid := int(e.get("pid", 0)):
+        return programme.de_l_app(pid)
+    try:
+        return (datetime.now() - datetime.fromisoformat(e.get("lancee", ""))).total_seconds() < DEMARRAGE_S
+    except ValueError:
+        return False
+
+
+def occupe(*noms: str) -> str:
+    """Ce qui tourne parmi `noms` (toutes par défaut ; vide : rien) ; une tâche « en cours » dont le processus est mort ne compte pas."""
+    return next((nom for nom in noms or TACHES if vivante(lire(nom))), "")
 
 
 def lancer(nom: str, acteur: str) -> str:
@@ -42,8 +54,8 @@ def lancer(nom: str, acteur: str) -> str:
     from fabrique.garde import Refus
     from fabrique.noyau.models import noter
 
-    if o := occupe():
-        raise Refus(f"la {o} est déjà en cours")
+    if occupe(nom):
+        raise Refus(f"la {nom} est déjà en cours")
     programme.lancer_detache("executer", nom, journal=dossiers.donnees() / "journaux" / f"sortie_{nom}.log")
     noter(acteur, nom, quoi="lancée")
     return "Sauvegarde lancée : une notification dira quand elle est finie."
@@ -60,11 +72,15 @@ def due(derniere: str, maintenant: datetime) -> bool:
         return True
 
 
-def executer(nom: str = "", *_) -> int:
+def executer(nom: str = "", *args) -> int:
     if nom not in TACHES:
         print(f"tâche inconnue : {nom} (connues : {', '.join(TACHES)})")
         return 2
-    if occupe():
+    if nom == "fabrication":
+        from fabrique.moteur import file
+
+        return file.executer(*args)
+    if occupe(nom):
         print(f"la {nom} est déjà en cours")
         return 3
     from fabrique.noyau import sauvegarde

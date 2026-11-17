@@ -1,0 +1,22 @@
+{
+ "schema": 1,
+ "id": "essai",
+ "nom": "Recette d'essai (les étapes de F1, faux outils)",
+ "version": 1,
+ "reglages": {"duree_s": [5, 60], "cadre": "16:9", "langues": ["en", "fr"], "sous_titres": "fichier", "enfants": true, "declaration_ia": true,
+              "plan_fixe_max_s": null},
+ "script": "scenes-plans-narrateur",
+ "etapes": [
+  {"id": "voix", "brique": "voix", "par": "plan", "langue": true},
+  {"id": "poses", "brique": "images", "par": "plan"},
+  {"id": "images", "brique": "images", "par": "plan"},
+  {"id": "animation", "brique": "animation", "par": "plan"},
+  {"id": "musique", "brique": "musique", "par": "scene", "langue": true},
+  {"id": "levres", "brique": "levres", "par": "plan", "langue": true},
+  {"id": "montage", "brique": "montage", "par": "video", "langue": true},
+  {"id": "miniature", "brique": "miniature", "par": "video", "langue": true},
+  {"id": "revue", "brique": "controle", "par": "video", "langue": true}
+ ],
+ "controles": "revue-essai",
+ "outils": {}
+}

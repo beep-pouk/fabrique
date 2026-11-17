@@ -3,6 +3,7 @@ chaque route déclare son droit (@droit) ; les trois gestes (fabriquer, approuve
 de RT. Aucune règle dans la fenêtre : tout ce qu'elle montre et fait passe par ici."""
 import os
 from functools import wraps
+from typing import Literal
 
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -12,13 +13,14 @@ from ninja.security import HttpBearer
 
 from fabrique import journaux, programme
 from fabrique.garde import Refus
+from fabrique.moteur import file
 from fabrique.noyau import cles, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, versions
 from fabrique.noyau.models import Session, noter
 from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
-    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", *GESTES},
+    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", *GESTES},
     "iphone": {"voir", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -141,6 +143,18 @@ def lire_cles(request):
 @droit("cles")
 def enregistrer_cle(request, nom: str, corps: schemas.Valeur):
     return {"message": cles.enregistrer(nom, corps.valeur, ACTEURS[request.auth])}
+
+
+@api.get("/file", response=list[schemas.TacheFile])
+@droit("voir")
+def lire_file(request):
+    return file.lister()
+
+
+@api.post("/file/{id}/{action}", response=schemas.Message)
+@droit("file")
+def agir_file(request, id: int, action: Literal["pause", "reprendre", "annuler"]):
+    return {"message": file.agir(id, action, ACTEURS[request.auth])}
 
 
 @api.post("/arreter", response=schemas.Message)

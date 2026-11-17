@@ -109,7 +109,7 @@ def test_etat_ecrit_pour_claude(monkeypatch):
     monkeypatch.setattr(etat, "SEUIL_DISQUE_GO", 10**9)
     e = etat.ecrire()
     lu = json.loads((settings.DONNEES / "etat.json").read_text(encoding="utf-8"))
-    assert lu["mode"] == "simulation" and "Essais" in lu["sessions"] and lu["file"] == {"attente": [], "encours": None}
+    assert lu["mode"] == "simulation" and "Essais" in lu["sessions"] and lu["file"] == {"attente": [], "encours": None, "raison": "", "taches": []}
     assert lu["alertes"] and lu["alertes"][0].startswith("disque")
     assert (settings.DONNEES / "etat.txt").read_text(encoding="utf-8").startswith(f"[{datetime.now():%d/%m}") and e["texte"][-1].startswith("! disque")
 

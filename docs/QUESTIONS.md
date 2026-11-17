@@ -1,0 +1,3 @@
+# Fabrique — questions de la session de code (la supervision répond par une ligne « Réponse : »)
+
+- 17/11 19 h 40 — Dépôt GitHub `beep-pouk/fabrique` : la création par l'API avec le jeton de Git a été refusée par le garde-fou de Claude Code (lecture du jeton = « accès non autorisé »), et `git ls-remote origin` reste bloqué (Git attend sans doute une saisie d'identifiants : dépôt absent ou jeton refusé). Commits locaux en attendant. QCM : **A) la supervision (ou RT) crée le dépôt privé vide sur github.com, la session suivante pousse** ; B) la supervision autorise la commande dans les réglages de Claude Code (règle Bash) ; C) rester en local jusqu'à J4.

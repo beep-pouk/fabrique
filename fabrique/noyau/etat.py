@@ -9,6 +9,7 @@ from datetime import datetime
 from django.conf import settings
 
 from fabrique import dossiers, programme
+from fabrique.moteur import file
 from fabrique.noyau import taches
 from fabrique.noyau.models import Parametre, Session
 
@@ -25,18 +26,25 @@ def alertes(e: dict, libre: int) -> list[str]:
         a.append(f"disque : {libre / 1e9:.0f} Go libres (moins de {SEUIL_DISQUE_GO} Go)")
     if e["sauvegarde"].get("etat") == "erreur":
         a.append(f"la dernière sauvegarde a raté : {e['sauvegarde'].get('message', '')}")
+    a += [f"« {t['titre']} » : {x}" for t in e["file"]["taches"] if t["etat"] not in ("finie", "annulee") for x in t["alertes"]]
     return a
 
 
 def etat(maintenant: datetime | None = None) -> dict:
+    liste = file.lister()
+    encours = next((t for t in liste if t["etat"] == "en_cours"), None)
+    attente = [t for t in liste if t["etat"] == "attente"]
     e = {"heure": (maintenant or datetime.now()).isoformat(timespec="minutes"), "version": settings.VERSION,
          "mode": "simulation" if simulation() else "réel", "noyau": {"pid": os.getpid(), "port": dossiers.port()},
          "sessions": list(Session.objects.order_by("cree").values_list("nom", flat=True)),
-         "file": {"attente": [], "encours": taches.occupe() or None}, "sauvegarde": taches.lire("sauvegarde")}
+         "file": {"attente": [t["titre"] for t in attente], "encours": encours and f"{encours['titre']} ({encours['progression']})",
+                  "raison": attente[0]["raison"] if attente and not encours else "", "taches": liste},
+         "sauvegarde": taches.lire("sauvegarde")}
     e["alertes"] = alertes(e, shutil.disk_usage(settings.RACINE).free)
-    s = e["sauvegarde"]
+    s, f = e["sauvegarde"], e["file"]
     e["texte"] = [f"[{datetime.fromisoformat(e['heure']):%d/%m %H:%M}] Fabrique {e['version']} ({e['mode']})",
-                  f"Sessions : {', '.join(e['sessions']) or 'aucune'} | en cours : {e['file']['encours'] or 'rien'}",
+                  f"Sessions : {', '.join(e['sessions']) or 'aucune'} | en cours : {f['encours'] or 'rien'} | file : {len(f['attente'])}"
+                  + (f" (attend : {f['raison']})" if f["raison"] else ""),
                   f"Dernière sauvegarde : {s.get('etat', 'aucune')} {s.get('fin', '')} {s.get('fichier', s.get('message', ''))}".rstrip(),
                   *(f"! {a}" for a in e["alertes"])]
     return e

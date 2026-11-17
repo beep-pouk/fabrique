@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import connections
 
 from fabrique import dossiers, programme
+from fabrique.moteur import file
 from fabrique.noyau import bases, etat, evenements, jetons, sauvegarde, taches
 from fabrique.noyau.models import Parametre, noter
 
@@ -29,16 +30,21 @@ def quitter_bientot(delai: float = 0.5):
 
 
 def tour(vu: dict, maintenant: datetime) -> dict:
-    """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, heure du dernier état écrit)."""
-    s = taches.lire("sauvegarde")
-    change = s != vu.get("sauvegarde")
-    if change and "sauvegarde" in vu:
-        evenements.publier("sauvegarde", **s)
+    """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
+    la tâche suivante lancée si la carte est libre (moteur/file.py)."""
+    file.tour()
+    s, f = taches.lire("sauvegarde"), file.lister()
+    change = s != vu.get("sauvegarde") or f != vu.get("file")
+    if "sauvegarde" in vu:
+        if s != vu["sauvegarde"]:
+            evenements.publier("sauvegarde", **s)
+        if f != vu["file"]:
+            evenements.publier("file", taches=f)
     if change or time.monotonic() - vu.get("ecrit", -MINUTE) >= MINUTE:
         evenements.publier("etat", **etat.ecrire())
         vu["ecrit"] = time.monotonic()
-    vu["sauvegarde"] = s
-    if programme.installee() and taches.due(Parametre.lire("auto_sauvegarde"), maintenant) and not taches.occupe():
+    vu["sauvegarde"], vu["file"] = s, f
+    if programme.installee() and taches.due(Parametre.lire("auto_sauvegarde"), maintenant) and not taches.occupe("sauvegarde"):
         Parametre.ecrire("auto_sauvegarde", maintenant.isoformat(timespec="seconds"))
         taches.lancer("sauvegarde", "noyau")
     return vu

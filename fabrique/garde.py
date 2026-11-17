@@ -26,10 +26,13 @@ def studio_bramble() -> Path | None:
         return None
 
 
+def studios() -> set[Path]:
+    """Où peut être Bramble Studio : son studio (registre) et à côté de la racine de Fabrique (installée dans <studio>\\FABRIQUE)."""
+    return {s for s in (studio_bramble(), dossiers.racine().parent) if s}
+
+
 def interdits() -> list[Path]:
-    """Les dossiers de Bramble Studio : dans son studio (registre) et à côté de la racine de Fabrique (installée dans <studio>\\FABRIQUE)."""
-    studios = {s for s in (studio_bramble(), dossiers.racine().parent) if s}
-    return [s / p for s in studios for p in PROTEGES]
+    return [s / p for s in studios() for p in PROTEGES]
 
 
 def _norme(p: Path) -> str:

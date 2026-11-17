@@ -3,6 +3,17 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
+## 17/11/2026 — J2 (moteur à recettes) : en cours
+
+*Session Code du PC (Opus 5.5), pilotée par la supervision. Fabrique n'est pas encore installée chez RT (`FABRIQUE\` n'a que `versions`) : contrôles d'installation passés. GitHub : création refusée par le garde-fou de Claude Code → `docs\QUESTIONS.md`, commits locaux.*
+
+### Plan du jalon
+
+- `fabrique\moteur\` : `recettes.py` (schéma versionné `"schema": 1`, pydantic, `plan_fixe_max_s` présent sans usage ; recette d'essai livrée), `briques.json` + `outils\*.json` (les 8 rôles de F1, leur outil par défaut ; fiches d'outils), `faux.py` (un faux outil par brique, ffmpeg, sans carte ; une 2e fausse voix ; un faux outil payant), `outils.py` (fiches, choix : plan → format → session → réglage du noyau → brique), `execution.py` (vidéo découpée en morceaux étape × unité × langue dans la base de la session ; joués étape par étape ; écrits dans `.tmp` puis renommés ; reprise au premier non fini ; 3 essais puis alerte ; payant : plafond 0 € par défaut, 1 nouvelle tentative, repli sur l'outil local, alerte ; chronos → médianes), `carte.py` (verrou : notre tâche lourde, `DONNEES\etat.json` de Bramble lu seulement, `nvidia-smi`), `file.py` (file unique dans la base du noyau : ordre strict par session, priorité entre sessions, pause, reprise, annulation ; le noyau lance `executer fabrication <id>`).
+- Repris de Bramble Studio (lu seulement) : `core/pipeline/machine.py` (nvidia-smi, seuil 50 % de `core/pilotage.py`), lecture de son `etat.json` (`tache.episode`, `episode`), fichiers factices de `moteur/simulation.py` (ffmpeg lavfi), chronos de `core/temps.py`.
+- `moteur <recette> <script>` (Claude) : un essai dans la session « Essais », mis dans la file.
+- Preuve : `verifier.py --jalon J2` en vrais processus sur un dossier temporaire (noyau + file) : recette d'essai de bout en bout ; exécuteur tué en plein milieu puis repris (morceaux finis intacts, aucun `.tmp`) ; outil par défaut changé par une donnée, empreinte du code identique ; faux `etat.json` de Bramble « fabrique » → rien n'est lancé, puis libre → lancé ; suite verte.
+
 ## 16-17/11/2026 — J1 (socle) : fait, recette verte ; arrêt propre à la demande de RT (17/11, 0 h 20)
 
 *Session Code du PC (Opus 5.5). Rien sur la carte graphique ; Bramble Studio (1.5.6, en marche, en pause) seulement lu.*

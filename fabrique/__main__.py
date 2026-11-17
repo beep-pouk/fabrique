@@ -8,7 +8,7 @@ import sys
 from fabrique import dossiers, garde, journaux, programme
 
 SOUS_COMMANDES = ("noyau", "executer", "moteur", "commande", "diagnostic", "migrer", "relais", "arreter", "libre")
-COMMANDES_CLAUDE = {"etat": "etat", "sessions": "sessions"}  # Claude lit seulement à J1 ; importer et déposer arrivent aux jalons J2 et J3
+COMMANDES_CLAUDE = {"etat": "etat", "sessions": "sessions", "file": "file"}  # Claude lit ; ses essais passent par « moteur » ; importer arrive à J3
 
 
 def sortie_sans_console(dossier):
@@ -33,6 +33,40 @@ def commande(args: list[str]) -> int:
     except (OSError, ErreurApi) as e:
         print(f"le noyau ne répond pas ou refuse : {e}")
         return 1
+    return 0
+
+
+def moteur(args: list[str]) -> int:
+    """« moteur <recette (id ou .json)> <script.json> » : un essai de construction (Claude), toujours dans la session « Essais » : la vidéo est
+    découpée en morceaux et mise dans la file ; le noyau la lance quand la carte est libre."""
+    from django.core.exceptions import ObjectDoesNotExist
+    from django.db import DatabaseError
+
+    from fabrique.garde import Refus
+    from fabrique.moteur import carte, execution, file, recettes
+    from fabrique.noyau.models import Session
+
+    if len(args) != 2:
+        print("usage : moteur <recette (id ou fichier .json)> <script.json>")
+        return 2
+    try:
+        recette = recettes.lire(args[0])
+        with open(args[1], encoding="utf-8") as f:
+            script = json.load(f)
+        s = Session.objects.get(essais=True)
+        v = execution.preparer(s, recette, script)
+        t = file.mettre(s, v.id, v.titre, "claude")
+    except (ObjectDoesNotExist, DatabaseError):
+        print("refusé : les bases de Fabrique ne sont pas prêtes (lancer Fabrique une fois)")
+        return 1
+    except (Refus, OSError, ValueError) as e:
+        print(f"refusé : {e}")
+        return 1
+    e = execution.estimer(s, v.id)
+    raison = carte.occupee()
+    print(f"« {v.titre} » (recette {recette['id']} v{recette['version']}) dans la file de la session {s.nom} : tâche {t.id}, vidéo {v.id} ; "
+          f"estimé {e['secondes']:.0f} s, {execution.euros(e['cout_eur'])}.\n"
+          + (f"Rien n'est lancé pour l'instant : {raison} ; elle partira quand la carte sera libre." if raison else "Le noyau la lance à son prochain tour."))
     return 0
 
 
@@ -65,13 +99,12 @@ def main(argv: list[str] | None = None) -> int:
         return 3 if taches.occupe() else 0
     if role == "commande":
         return commande(args[1:])
-    if role == "moteur":
-        print("Le moteur à recettes arrive au jalon J2 : rien n'est fabriqué.")
-        return 2
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fabrique.settings")
     import django
 
     django.setup()
+    if role == "moteur":
+        return moteur(args[1:])
     if role == "noyau":
         from fabrique.noyau import serveur
 

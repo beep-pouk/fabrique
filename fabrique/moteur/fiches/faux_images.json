@@ -1,0 +1,23 @@
+{
+ "id": "faux_images",
+ "nom": "Fausses images",
+ "roles": [
+  "images"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "simulation",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "simulation : ffmpeg, aucune carte",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "module": "fabrique.moteur.faux",
+ "reglages": {}
+}

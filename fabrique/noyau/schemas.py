@@ -75,3 +75,14 @@ class Cle(BaseModel):
 
 class Valeur(BaseModel):
     valeur: str
+
+
+class TacheFile(BaseModel):
+    id: int
+    titre: str
+    session: str
+    etat: str  # attente, en_cours, pause, finie, erreur, annulee
+    raison: str  # pourquoi elle attend ou s'est arrêtée
+    alertes: list[str]
+    acteur: str
+    progression: str  # morceaux finis / tous
