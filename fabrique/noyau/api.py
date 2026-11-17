@@ -238,7 +238,26 @@ def video_(request, id: str, video: str):
                            "secondes": round(sum(x.secondes or 0 for x in ms), 1)})
         plans = f1.planche(v.script) if v.recette.get("script") == "scenario-bramble" else []
         return {"id": v.id, "titre": v.titre, "nom": v.nom, "recette": f"{v.recette.get('id')} v{v.recette.get('version')}", "etapes": etapes, "plans": plans,
-                "script": v.script}
+                "script": v.script, "controle": controle(session_(id), v)}
+
+
+def controle(s: Session, v) -> dict:
+    """Ce que Vérification montre (langue du script) : les défauts minutés de tous les contrôles finis, la note, la vidéo finale du montage."""
+    from fabrique.moteur import execution
+
+    c = {"mesure": False, "note": None, "defauts": [], "video": ""}
+    for mo in v.morceaux.filter(etat="fini", langue="", brique__in=("controle", "montage")).order_by("ordre"):
+        r = execution.resultat(s, mo)
+        if r is None:
+            continue
+        if mo.brique == "montage" and r.fichiers and r.fichiers[0].endswith(".mp4"):
+            c["video"] = str(execution.dossier(s, mo) / r.fichiers[0])
+        elif mo.brique == "controle" and r.infos.get("defauts") is not None:
+            c["mesure"] = True
+            c["defauts"] += [{"source": mo.etape, **d} for d in r.infos["defauts"]]
+            c["note"] = r.infos.get("note", c["note"])
+    c["defauts"].sort(key=lambda d: (d["debut"] is None, d["debut"] or 0))
+    return c
 
 
 @api.post("/sessions/{id}/videos/{video}/refaire", response=schemas.Message)

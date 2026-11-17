@@ -3,6 +3,7 @@
 // Jetons de style du plan technique § 6.2. Aucune règle ici : tout vient du noyau par « pont » (main.py).
 import QtQuick
 import QtQuick.Controls.Basic
+import QtMultimedia
 
 Window {
     id: f
@@ -39,7 +40,8 @@ Window {
     property var videos: []
     property var univers: ({personnages: [], lieux: [], langues: []})
     property string aFabriquer: ""
-    property var video: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}})
+    readonly property var videoVide: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}, controle: {mesure: false, note: null, defauts: [], video: ""}})
+    property var video: videoVide
     property string ongletVideo: "fabrication"
     property var coches: []
     property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []})
@@ -56,7 +58,9 @@ Window {
         if (ecran === "script" && script.code !== "") pont.lire("script", {id: session, code: script.code})
     }
     function choisir(id) { session = id; aFabriquer = ""; recharger() }
-    function ouvrirVideo(id) { video = {id: id, titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}}; coches = []; ongletVideo = "fabrication"; aller("video") }
+    function ouvrirVideo(id) { video = Object.assign({}, videoVide, {id: id}); coches = []; ongletVideo = "fabrication"; aller("video") }
+    function mmss(s) { s = Math.floor(s); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0") }
+    function aller_a(s) { lecteur.position = Math.round(s * 1000) + 20; lecteur.pause() }  // + 20 ms : Qt Multimedia montre sinon l'image d'avant (banc du 16/11)
     function ouvrirScript(code) { script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []}
                                   aFabriquer = ""; langues = []; brouillon = null; aller("script") }
     function ecrire() { brouillon = JSON.parse(JSON.stringify(script.contenu)); controler = script.regles }
@@ -368,6 +372,57 @@ Window {
                                 T { visible: modelData.erreur !== ""; text: modelData.erreur; color: cDefaut; width: parent.width; font.pixelSize: 12 }
                             }
                         }
+                    }
+                    Column {
+                        visible: ongletVideo === "verification"
+                        width: parent.width; spacing: 8
+                        Rectangle {
+                            visible: video.controle.video !== ""
+                            width: parent.width; height: Math.min(width * 9 / 16, f.height * 0.45); radius: 6; color: "black"; clip: true  // les défauts restent visibles sous lui
+                            MediaPlayer {
+                                id: lecteur
+                                objectName: "lecteur"
+                                source: video.controle.video !== "" && ongletVideo === "verification" ? "file:///" + video.controle.video.replace(/\\/g, "/") : ""
+                                videoOutput: sortieVideo
+                                audioOutput: AudioOutput {}
+                            }
+                            VideoOutput { id: sortieVideo; anchors.fill: parent }
+                        }
+                        Row {
+                            visible: video.controle.video !== ""
+                            spacing: 12
+                            Bouton { objectName: "lire"; texte: lecteur.playbackState === MediaPlayer.PlayingState ? "Pause" : "Lecture"
+                                     onClic: lecteur.playbackState === MediaPlayer.PlayingState ? lecteur.pause() : lecteur.play() }
+                            Mono { text: mmss(lecteur.position / 1000) + " / " + mmss(lecteur.duration / 1000); color: cSecond; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        T {
+                            objectName: "note_controle"
+                            width: parent.width
+                            text: !video.controle.mesure ? "Pas encore contrôlée : le contrôle passe après le montage."
+                                : (video.controle.note != null ? "Note de Qwen : " + String(video.controle.note).replace(".", ",") + "/10  ·  " : "")
+                                  + (video.controle.defauts.length ? video.controle.defauts.length + " défaut(s) ; un clic sur l'un va à son moment" : "aucun défaut relevé")
+                            color: video.controle.mesure && !video.controle.defauts.length ? cReussi : cSecond
+                        }
+                        Repeater {
+                            model: video.controle.defauts
+                            Rectangle {
+                                objectName: "defaut_" + index
+                                width: parent.width; height: ligneDefaut.implicitHeight + 12; radius: 6; color: cLeve
+                                Row {
+                                    id: ligneDefaut
+                                    x: 12; y: 6; width: parent.width - 24; spacing: 12
+                                    Rectangle { width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter
+                                                color: modelData.gravite === "forte" ? cDefaut : modelData.gravite === "moyenne" ? cAttention : cSecond }
+                                    Mono { text: modelData.debut == null ? "toute" : mmss(modelData.debut); width: 56; color: cSecond }
+                                    T { text: modelData.texte; width: parent.width - 220 }
+                                    Mono { text: modelData.source; color: cSecond; font.pixelSize: 12 }
+                                }
+                                Clic { enabled: modelData.debut != null && video.controle.video !== ""; onTapped: aller_a(modelData.debut) }
+                                Accessible.role: Accessible.Button; Accessible.name: (modelData.debut == null ? "Toute la vidéo" : mmss(modelData.debut)) + " : " + modelData.texte
+                                Accessible.onPressAction: if (modelData.debut != null && video.controle.video !== "") aller_a(modelData.debut)
+                            }
+                        }
+                        T { text: "Plans à refaire"; font.pixelSize: 18; font.weight: Font.DemiBold; topPadding: 8 }
                     }
                     Repeater {
                         model: ongletVideo === "verification" ? video.plans : []

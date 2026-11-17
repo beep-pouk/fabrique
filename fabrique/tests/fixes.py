@@ -28,7 +28,11 @@ REPONSES = {
         "plans": [{"n": 1, "image": "A small fox sleeps under a fern.", "scenes": [1, 2], "bramble": False},
                   {"n": 3, "image": "", "scenes": [3], "bramble": True},
                   {"n": 4, "image": "The moon rises over a quiet pond.", "scenes": [4], "bramble": False}],
-        "script": {"title": "Le petit renard", "scenes": [{"id": 1, "narration": "Un petit renard dort."}, {"id": 3, "narration": "Bonne nuit.", "bramble": "accueil"}]}},
+        "script": {"title": "Le petit renard", "scenes": [{"id": 1, "narration": "Un petit renard dort."}, {"id": 3, "narration": "Bonne nuit.", "bramble": "accueil"}]},
+        "controle": {"mesure": True, "note": 5.7, "video": "", "defauts": [
+            {"debut": 1.5, "fin": None, "texte": "image figée 4.0 s", "source": "analyser_video", "gravite": "moyenne"},
+            {"debut": 20.0, "fin": 40.0, "texte": "0020.0 : Qwen 3.5/10 (seuil 6) une patte glisse", "source": "Qwen", "gravite": "forte"},
+            {"debut": None, "fin": None, "texte": "volume global -20.1 LUFS (cible -14)", "source": "analyser_video", "gravite": "legere"}]}},
     ("GET", "/api/sessions/s1/scripts/s1e01"): {
         "code": "s1e01", "titre": "Le petit renard", "statut": "scenario", "date_prevue": "2026-12-01",
         "versions": [{"numero": 2, "auteur": "RT", "date": "2026-11-16T21:00", "validee": True}, {"numero": 1, "auteur": "import", "date": "2026-11-10T21:00", "validee": True}],

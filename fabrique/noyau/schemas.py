@@ -157,6 +157,21 @@ class PlanVideo(BaseModel):
     bramble: bool
 
 
+class Defaut(BaseModel):
+    debut: float | None  # secondes dans la vidéo ; None : toute la vidéo (volume global)
+    fin: float | None = None
+    texte: str
+    source: str = ""  # qui l'a vu : analyser_video, Qwen, mouvement…
+    gravite: str = "moyenne"  # forte, moyenne, legere
+
+
+class Controle(BaseModel):
+    mesure: bool = False  # un contrôle a rendu ses défauts (sinon : rien de mesuré, jamais « aucun défaut »)
+    note: float | None = None  # sur 10
+    defauts: list[Defaut] = []
+    video: str = ""  # la vidéo finale (chemin complet), pour le lecteur
+
+
 class VideoDetail(BaseModel):
     id: str
     titre: str
@@ -165,6 +180,7 @@ class VideoDetail(BaseModel):
     etapes: list[EtapeVideo]
     plans: list[PlanVideo]  # ce qui se coche dans Vérification (F1)
     script: dict
+    controle: Controle = Controle()
 
 
 class Langues(BaseModel):

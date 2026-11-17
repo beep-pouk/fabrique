@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QObject, QPointF, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 
@@ -86,6 +86,7 @@ def test_parcours(qtbot):
     assert f.property("ecran") == "video"
     qtbot.waitUntil(lambda: len(valeur(f, "video")["plans"]) == 3)
     clic(f, "onglet_video_verification")
+    assert "Note de Qwen : 5,7/10" in element(f, "note_controle").property("text") and element(f, "defaut_2").isVisible()
     clic(f, "plan_0")
     clic(f, "plan_2")
     clic(f, "plan_0")  # décoché
@@ -172,3 +173,25 @@ def test_sonnette_traitee_dans_le_fil_de_la_fenetre(qtbot):
         t.join()
     qtbot.waitUntil(lambda: len(vus) == 2)
     assert vus == [("montrer", threading.main_thread()), ("quitter", threading.main_thread())]
+
+
+def test_le_lecteur_va_au_moment_d_un_defaut(qtbot, tmp_path):
+    """Vérification : un clic sur un défaut minuté amène le vrai lecteur (Qt Multimedia, sans fenêtre visible) à son moment."""
+    from fabrique.moteur import faux
+
+    film = tmp_path / "Titre.mp4"
+    subprocess.run([faux.programme("ffmpeg"), "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:d=6:r=25", "-pix_fmt", "yuv420p", str(film)],
+                   check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: len(valeur(f, "scripts")) == 2)  # premiers chargements finis : plus rien ne remplace la vidéo donnée ici
+    f.setProperty("ongletVideo", "verification")
+    f.setProperty("ecran", "video")
+    pont.recu.emit("video", {"id": "v1", "titre": "Titre", "nom": "n", "recette": "F1 v1", "etapes": [], "plans": [], "script": {},
+                             "controle": {"mesure": True, "note": None, "video": str(film), "defauts": [{"debut": 3.0, "fin": None, "texte": "image figée", "source": "s", "gravite": "moyenne"}]}})
+    lecteur = f.findChild(QObject, "lecteur")
+    qtbot.waitUntil(lambda: lecteur.property("duration") > 5000, timeout=10000)
+    clic(f, "defaut_0")
+    qtbot.waitUntil(lambda: abs(lecteur.property("position") - 3020) < 50, timeout=5000)
+    f.close()

@@ -9,6 +9,7 @@ dependencies = [
     "waitress>=3.0",
     "PySide6-Essentials>=6.12,<6.13",  # LGPL v3 : bibliothèques livrées à part, non modifiées
     "pillow==13.0.0",  # F1 : celle de Bramble Studio (mêmes pixels pour la miniature et le grain du montage)
+    "PySide6-Addons>=6.12,<6.13",  # le lecteur de Vérification (Qt Multimedia, moteur FFmpeg : choix du banc du 16/11) ; LGPL v3, comme Essentials
 ]
 
 [dependency-groups]

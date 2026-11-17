@@ -166,6 +166,8 @@ def test_je_coche_fabrique_refait(essais):
     jetons.tirer(settings.DONNEES)
     chemin = f"/api/sessions/{essais.id}/videos/{v.id}/refaire"
     entete = lambda qui: {"HTTP_AUTHORIZATION": f"Bearer {jetons.lire(settings.DONNEES, qui)}"}  # noqa: E731
+    c = Navigateur().get(f"/api/sessions/{essais.id}/videos/{v.id}", **entete("fenetre")).json()["controle"]
+    assert c["mesure"] and c["defauts"] == [] and c["note"] is None and Path(c["video"]).is_file()  # simulation : faux contrôles, vidéo du faux montage
     assert Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("claude")).status_code == 403
     r = Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("fenetre"))
     assert r.status_code == 200 and "plans [1] à refaire" in r.json()["message"], r.content
