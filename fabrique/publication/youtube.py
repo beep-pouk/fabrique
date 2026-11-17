@@ -52,9 +52,9 @@ class ErreurYoutube(Exception):
 
 
 def _faux():
-    from fabrique.publication import faux_youtube
+    from fabrique.publication.faux_youtube import partage
 
-    return faux_youtube.partage(dossiers.port() + 2)  # port + 1 : la sonnette de la fenêtre
+    return partage(dossiers.port() + 2)  # port + 1 : la sonnette de la fenêtre
 
 
 def urls() -> dict:
@@ -68,9 +68,9 @@ def chemin_secret() -> Path:
 def secret() -> dict:
     """client_id et client_secret du fichier téléchargé dans la console Google (« application de bureau » : clé installed) ; en simulation, le faux."""
     if etat.simulation():
-        from fabrique.publication import faux_youtube
+        from fabrique.publication.faux_youtube import SECRET_SIMULE
 
-        return faux_youtube.SECRET_SIMULE["installed"]
+        return SECRET_SIMULE["installed"]
     try:
         d = json.loads(chemin_secret().read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):

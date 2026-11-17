@@ -141,7 +141,8 @@ def test_notifications_de_la_sauvegarde(qtbot):
     pont.evenement.emit("sauvegarde", {"etat": "faite", "fichier": "z.zip"})
     pont.evenement.emit("sauvegarde", {"etat": "erreur", "message": "disque plein"})
     pont.evenement.emit("sauvegarde", {"etat": "en_cours"})
-    assert dites == [("Sauvegarde faite", "z.zip"), ("La sauvegarde a raté", "disque plein", True)]
+    pont.evenement.emit("alerte", {"titre": "Publication", "message": "jeton refusé"})
+    assert dites == [("Sauvegarde faite", "z.zip"), ("La sauvegarde a raté", "disque plein", True), ("Publication", "jeton refusé", True)]
 
 
 def differe(a: QImage, b: QImage) -> float:

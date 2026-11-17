@@ -41,6 +41,9 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "nouvelle_version": ("POST", "/api/sessions/{id}/scripts/{code}/versions", s.Message),
     "demander": ("POST", "/api/sessions/{id}/scripts/{code}/demander", s.Message),
     "agir_file": ("POST", "/api/file/{id}/{action}", s.Message),
+    "destinations": ("GET", "/api/sessions/{id}/destinations", list[s.Destination]),
+    "relier": ("POST", "/api/sessions/{id}/destinations/{langue}/relier", s.Lien),
+    "rafraichir": ("POST", "/api/sessions/{id}/destinations/{langue}/rafraichir", s.Message),
 }
 
 

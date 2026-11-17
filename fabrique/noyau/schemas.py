@@ -225,4 +225,26 @@ class TacheFile(BaseModel):
     progression: str  # morceaux finis / tous
 
 
+class Playlist(BaseModel):
+    id: str
+    titre: str
+
+
+class Destination(BaseModel):
+    """Où sont publiées les vidéos d'une langue de la session (jamais de jeton ici)."""
+    langue: str
+    reseau: str  # « youtube »
+    etat: str  # « reliée », « refusée le JJ/MM/AAAA à HH:MM », « pas reliée »
+    reliee: bool
+    chaine: str  # le nom lu chez le réseau
+    chaine_id: str
+    depuis: str  # date de connexion
+    playlists: list[Playlist]
+
+
+class Lien(BaseModel):
+    message: str
+    url: str  # la page du réseau, à ouvrir dans le navigateur du PC
+
+
 ScriptDetail.model_rebuild()  # la planche utilise PlanVideo, défini plus bas

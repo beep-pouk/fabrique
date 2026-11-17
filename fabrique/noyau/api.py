@@ -22,8 +22,8 @@ from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
-    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", *GESTES},
-    "iphone": {"voir", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
+    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier", *GESTES},
+    "iphone": {"voir", "destinations", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
 }
@@ -269,6 +269,37 @@ def refaire(request, id: str, video: str, corps: schemas.Plans):
     from fabrique.moteur import execution
 
     return {"message": execution.refaire(session_(id), video, corps.plans, ACTEURS[request.auth])}
+
+
+@api.get("/sessions/{id}/destinations", response=list[schemas.Destination])
+@droit("destinations")
+def destinations(request, id: str):
+    """Où sont publiées les vidéos de chaque langue de la session : chaîne, état, playlists (lues au dernier « rafraîchir »)."""
+    from fabrique.publication import youtube
+
+    return youtube.lister(session_(id))
+
+
+@api.post("/sessions/{id}/destinations/{langue}/relier", response=schemas.Lien)
+@droit("relier")
+def relier(request, id: str, langue: str):
+    """RT relie la chaîne d'une langue : rend la page de Google, que la fenêtre ouvre dans le navigateur du PC ; le retour est attendu 5 min sur 127.0.0.1."""
+    from fabrique.publication import youtube
+
+    url, _ = youtube.connecter(session_(id), langue, ACTEURS[request.auth])
+    return {"message": "Choisir la chaîne sur la page de Google ouverte dans le navigateur (5 min).", "url": url}
+
+
+@api.post("/sessions/{id}/destinations/{langue}/rafraichir", response=schemas.Message)
+@droit("relier")
+def rafraichir(request, id: str, langue: str):
+    from fabrique.publication import youtube
+
+    try:
+        lu = youtube.rafraichir(session_(id), langue)
+    except (youtube.ErreurYoutube, OSError) as e:  # Google injoignable ou en erreur : dit à RT
+        raise Refus(f"chaîne non lue : {e}") from None
+    return {"message": f"Chaîne « {lu['chaine']} » : {len(lu['playlists'])} playlist(s) lue(s)."}
 
 
 @api.get("/machine", response=schemas.Machine)

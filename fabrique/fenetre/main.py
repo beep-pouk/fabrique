@@ -84,6 +84,8 @@ class Pont(QObject):
             self.notifier("La sauvegarde a raté", d.get("message", ""), True)
         elif type_ == "noyau":
             self.notifier("Le noyau de Fabrique ne démarre pas", d.get("message", ""), True)
+        elif type_ == "alerte":
+            self.notifier(d.get("titre", "Fabrique"), d.get("message", ""), True)
 
     def eventFilter(self, _, e):
         if e.type() == QEvent.Type.KeyPress:
