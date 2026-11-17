@@ -3,6 +3,17 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
+## 17/11/2026 — J3 (Bramble refabrique, F1) : en cours
+
+### Plan du jalon (par étapes, un commit chacune)
+
+1. **Import de Bramble** (`commande importer-bramble`, à blanc puis pour de vrai ; droit « importer ») : base de Bramble copiée par l'API de sauvegarde de SQLite sur une connexion `mode=ro` (WAL compris), fichiers copiés jamais déplacés, rapport chiffré avec empreintes avant/après, rejouable tant que la session n'a rien fabriqué. Base de session : scripts et versions (+ date prévue, statut = calendrier), idées, personnages, lieux, références, langues et leurs voix ; fichiers sous `sessions\<s>\univers\` (univers.json, personnages, voix, langues.json), `regles\` (REGLES_*.md, regles.json), `reglages\` (config.json), `moteur\production_textes.py`, `calendrier\` (plan et registre éditoriaux).
+2. **F1 v1** : le moteur de Bramble (`OUTILS\app\studio\moteur`, lu seulement) repris dans `fabrique\moteur\f1\`, ses lectures « racine » remplacées par les dossiers de la session et un registre d'outils partagés à Fabrique (`kit\comfy.py` repris : journal chez Fabrique) ; un adaptateur par brique qui joue une étape de Bramble sur la vidéo (`par: video`, entrées liées en liens durs, outils réels déclarés « reprend » : le `.tmp` n'est pas effacé à la reprise) ; recette `F1` v1 (mêmes étapes, réglages, graines).
+3. **Égalité sans carte** (niveau consigne, ComfyUI simulé, comme Bramble le 11/11) : le moteur original de Bramble, importé en lecture depuis `OUTILS\app`, et F1 de Fabrique sur la même copie d'entrée → consignes, commandes, fichiers identiques ; test.
+4. **Écrans** : Accueil (file, santé, « À faire »), Session (Vidéos, Scripts avec règles en direct et demandes à Claude, Univers en lecture), Vidéo (Script, Planche, Fabrication, Vérification avec « je coche, Fabrique refait ») ; captures.
+5. **De nuit, carte libre** (jamais pendant un rendu) : égalité réelle étape par étape contre le rendu de référence (`PROJET\rendus\…_refaire_1`, lu seulement) ; essai pleine longueur (histoire d'essai, jamais publiée), analysé, corrigé par un « refaire », repris après une coupure, durée mesurée ; F1 v2 (`plan_fixe_max_s`).
+- Preuve : `verifier.py --jalon J3`.
+
 ## 17/11/2026 — J2 (moteur à recettes) : fait, recette verte (23 points), 0.2.0 publiée
 
 *Session Code du PC (Opus 5.5), pilotée par la supervision. Fabrique n'est pas encore installée chez RT (`FABRIQUE\` n'a que `versions`) : contrôles d'installation passés. GitHub : création refusée par le garde-fou de Claude Code → `docs\QUESTIONS.md` ; réponse de la supervision : **C**, commits locaux, **aucune commande Git vers le réseau** (`ls-remote`, `fetch`, `push`) tant qu'elle ne l'a pas écrit (la fenêtre « git credential helper selector » est apparue chez RT pendant la tentative).*
