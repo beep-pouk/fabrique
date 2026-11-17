@@ -1,6 +1,6 @@
 """État du noyau (repris de Bramble Studio, core/etat.py et core/mode.py) : etat.json et etat.txt dans donnees, écrits chaque minute et à chaque
-changement ; Claude les lit sans joindre l'API. Mode simulation : le dépôt du code y reste toujours ; installée, jusqu'au clic de RT (réglage
-« simulation », lu à chaque usage)."""
+changement ; Claude les lit sans joindre l'API. Mode simulation : le dépôt du code y reste, sauf essai réel sur le PC (FABRIQUE_REEL=1 et le
+réglage) ; installée, jusqu'au clic de RT (réglage « simulation », lu à chaque usage)."""
 import json
 import os
 import shutil
@@ -17,7 +17,8 @@ SEUIL_DISQUE_GO = 50
 
 
 def simulation() -> bool:
-    return not programme.installee() or Parametre.lire("simulation", "oui") != "non"
+    reel_permis = programme.installee() or os.environ.get("FABRIQUE_REEL") == "1"  # développement : les essais réels de J3, jamais par défaut
+    return not reel_permis or Parametre.lire("simulation", "oui") != "non"
 
 
 def alertes(e: dict, libre: int) -> list[str]:

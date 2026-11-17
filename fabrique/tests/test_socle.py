@@ -29,6 +29,21 @@ def test_modes(tmp_path, monkeypatch):
     assert dossiers.port() == dossiers.PORT_DEV
 
 
+def test_simulation_sauf_essai_reel_demande(monkeypatch):
+    """Le dépôt du code reste en simulation ; un essai réel sur le PC demande les deux : FABRIQUE_REEL=1 et le réglage « simulation » à non."""
+    from fabrique.noyau import etat
+
+    Parametre.ecrire("simulation", "non")
+    try:
+        assert etat.simulation()  # le réglage seul ne suffit pas hors installation
+        monkeypatch.setenv("FABRIQUE_REEL", "1")
+        assert not etat.simulation()
+        Parametre.ecrire("simulation", "oui")
+        assert etat.simulation()
+    finally:
+        Parametre.ecrire("simulation", "oui")
+
+
 def test_garde(tmp_path, monkeypatch):
     studio = tmp_path / "Studio"
     monkeypatch.setattr(garde, "studio_bramble", lambda: studio)
