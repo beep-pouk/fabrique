@@ -151,6 +151,13 @@ def test_refaire_un_plan_range_ses_pieces_a_cote(tmp_path):
         refaire.preparer(tmp_path, SCENES, [2])  # une scène « same » n'est pas un plan
     with pytest.raises(Refus, match="aucun plan"):
         refaire.preparer(tmp_path, SCENES, [])
+    langue = tmp_path / "xx"  # une version de langue : mêmes pièces et vidéo finale rangées, puis remises en place
+    atelier_plein(langue)
+    rels = refaire.ranger_langue(langue, SCENES, [4], "h")
+    assert sorted(rels) == sorted(["final/Une histoire factice.mp4", "final/Une histoire factice.qwen.json", "final/analyse_Une_histoire_factice",
+                                   "images/plan_004.png", "montage/s004.mp4", "final/miniature.jpg"])
+    refaire.remettre(langue, rels, "h")
+    assert all((langue / rel).exists() for rel in PIECES)
 
 
 def test_je_coche_fabrique_refait(essais):
@@ -159,25 +166,34 @@ def test_je_coche_fabrique_refait(essais):
     from fabrique.noyau import jetons
     from fabrique.noyau.models import Tache
 
-    v = execution.preparer(essais, recettes.lire("F1"), SCENES, nom="2026-01-01-s1e01")
+    recette = recettes.lire("F1")
+    recette["reglages"]["langues"] = ["en", "xx"]  # et sa version en « xx »
+    v = execution.preparer(essais, recette, SCENES, nom="2026-01-01-s1e01", traductions={"xx": SCENES})
     execution.jouer(essais, v.id)
     atelier = settings.SESSIONS / essais.dossier / "videos" / v.id / "commun" / "atelier" / "2026-01-01-s1e01"
     atelier_plein(atelier)
+    atelier_xx = atelier.parents[2] / "xx" / "atelier" / atelier.name
+    atelier_plein(atelier_xx)
     jetons.tirer(settings.DONNEES)
     chemin = f"/api/sessions/{essais.id}/videos/{v.id}/refaire"
     entete = lambda qui: {"HTTP_AUTHORIZATION": f"Bearer {jetons.lire(settings.DONNEES, qui)}"}  # noqa: E731
     c = Navigateur().get(f"/api/sessions/{essais.id}/videos/{v.id}", **entete("fenetre")).json()["controle"]
     assert c["mesure"] and c["defauts"] == [] and c["note"] is None and Path(c["video"]).is_file()  # simulation : faux contrôles, vidéo du faux montage
+    assert c["controles"] == ["revue", "analyse"]
     assert Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("claude")).status_code == 403
     r = Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("fenetre"))
     assert r.status_code == 200 and "plans [1] à refaire" in r.json()["message"], r.content
     with routeur.session(essais):
         etats = {m.etape: m.etat for m in Morceau.objects.filter(video=v)}
     assert etats == {"voix": "fini", "poses": "fini", "images": "attente", "anim": "attente", "musique": "fini", "bramble": "attente", "montage": "attente",
-                     "miniature": "fini", "revue": "attente", "analyse": "attente"}  # seuls les morceaux qui dépendent du plan repartent
+                     "miniature": "fini", "revue": "attente", "analyse": "attente", "langue": "attente"}  # seuls les morceaux qui dépendent du plan repartent
+    rangees = list(atelier_xx.glob("_refaits/*/clips/s001.mp4"))  # la version « xx » : les pièces du plan et sa vidéo finale, rangées ; le reste reste
+    assert rangees and not (atelier_xx / "clips" / "s001.mp4").exists() and not list((atelier_xx / "final").glob("*.mp4"))
+    assert (atelier_xx / "images" / "plan_004.png").is_file() and (atelier_xx / "montage" / "s003.mp4").is_file()
     assert list((settings.SESSIONS / essais.dossier / "videos" / v.id / "_refaits").glob("*/images/resultat.json"))  # l'avant, à côté
     t = Tache.objects.get(video_id=v.id)
     assert t.acteur == "RT" and t.etat == "attente"
+    assert not Navigateur().get(f"/api/sessions/{essais.id}/videos/{v.id}", **entete("fenetre")).json()["controle"]["mesure"]  # contrôles à refaire
     d = Navigateur().get(f"/api/sessions/{essais.id}/videos/{v.id}", **entete("fenetre")).json()
     assert [p["n"] for p in d["plans"]] == [1, 3, 4] and d["plans"][0]["scenes"] == [1, 2] and d["plans"][1]["bramble"]
     assert {e["id"]: (e["finis"], e["total"]) for e in d["etapes"]}["images"] == (0, 1) and d["recette"] == "F1 v2"
@@ -283,15 +299,19 @@ def test_revue_v2_trouve_les_plans_quasi_fixes_trop_longs(tmp_path):
     from fabrique.moteur.f1 import mouvement
 
     ffmpeg = faux.programme("ffmpeg")
-    video = tmp_path / "v.mp4"  # 15 s d'une image fixe, puis 6 s d'une image qui bouge
+    # 15 s d'une image fixe, 6 s d'une image qui bouge, puis comme la fin d'une vidéo de F1 : 8 s d'une image fixe, son fondu au noir (sans coupe)
+    # et 30 s de noir (la queue de musique)
+    video = tmp_path / "v.mp4"
     subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x5c8048:s=160x90:d=15:r=12", "-f", "lavfi",
-                    "-i", "testsrc=s=160x90:d=6:r=12", "-filter_complex", "[0][1]concat=n=2:v=1", "-pix_fmt", "yuv420p", str(video)], check=True,
-                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    p = mouvement.plans(ffmpeg, video, 21.0)
-    assert len(p) == 2 and p[0]["mouvement"] < mouvement.SEUIL < p[1]["mouvement"] and abs(p[0]["fin"] - 15) < 0.2
-    d = mouvement.defauts(ffmpeg, video, 21.0, 12)
-    assert len(d) == 1 and d[0]["debut"] == 0 and "15 s à l'écran" in d[0]["texte"]
-    assert mouvement.defauts(ffmpeg, video, 21.0, 20) == []  # sous la limite : rien
+                    "-i", "testsrc=s=160x90:d=6:r=12", "-f", "lavfi", "-i", "color=c=0x806048:s=160x90:d=10:r=12", "-filter_complex",
+                    "[2]fade=t=out:st=8:d=2,tpad=stop_mode=add:stop_duration=30:color=black[fin];[0][1][fin]concat=n=3:v=1", "-pix_fmt", "yuv420p", str(video)],
+                   check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    p = mouvement.plans(ffmpeg, video, 61.0)
+    assert len(p) == 3 and p[0]["mouvement"] < mouvement.SEUIL < p[1]["mouvement"] and abs(p[0]["fin"] - 15) < 0.2
+    assert p[2]["fin"] - p[2]["debut"] > 39 and 8 < p[2]["visible"] < 10.5  # la fin : 40 s, dont 8 à 10 visibles
+    d = mouvement.defauts(ffmpeg, video, 61.0, 12)
+    assert len(d) == 1 and d[0]["debut"] == 0 and "15 s à l'écran" in d[0]["texte"]  # la fin, longue mais noire, n'est pas un défaut
+    assert mouvement.defauts(ffmpeg, video, 61.0, 20) == []  # sous la limite : rien
 
 
 def test_prise_f1_revue_v2_rend_les_defauts(essais, tmp_path, monkeypatch):
@@ -332,7 +352,6 @@ RAPPORT_MD = """# Analyse de Titre.mp4
 def test_prise_f1_analyse_rend_note_et_defauts_minutes(essais, tmp_path, monkeypatch):
     """L'analyse de Bramble (scripts d'OUTILS/analyse, joués dans l'atelier) : sautés quand leur sortie existe (reprise), lus comme Bramble les lit."""
     from fabrique.moteur.f1 import analyse_bramble as analyse
-    from fabrique.moteur.f1.outils import Outils
 
     final = tmp_path / "atelier" / "2026-01-01-s1e01" / "final"
     (final / "analyse_Titre").mkdir(parents=True)
@@ -343,7 +362,7 @@ def test_prise_f1_analyse_rend_note_et_defauts_minutes(essais, tmp_path, monkeyp
                                                          "0020.0": {"score": 3.5, "defects": [{"t": 4, "what": "une patte glisse"}], "debut": 20, "duree": 20},
                                                          "0040.0": {"score": 5.5, "defects": [], "debut": 40, "duree": 25}}), encoding="utf-8")
     joues = []
-    monkeypatch.setattr(Outils, "run", lambda self, cmd, **kw: joues.append(cmd) or "")
+    monkeypatch.setattr(analyse, "lancer", lambda cmd, cwd, journal: joues.append(cmd))
     d = outils.Demande(brique="controle", etape="analyse", unite="", session=str(settings.SESSIONS / essais.dossier), script=str(tmp_path / "s.json"),
                        atelier=str(final.parent))
     (tmp_path / "m").mkdir()
@@ -362,6 +381,24 @@ def test_prise_f1_analyse_rend_note_et_defauts_minutes(essais, tmp_path, monkeyp
     assert lu["note"] == 5.7 and lu["analyse"] == "complete" and lu["video"].endswith("Titre.mp4")
     cmd = analyse.commandes(analyse.Lieux(tmp_path, tmp_path), final / "Titre.mp4", tmp_path / "s.json")[0][1]
     assert cmd[:2] == ["wsl", "-d"] and "--scenario" in cmd[-4] and cmd[-3].endswith("analyser_video.py")  # chemins en arguments, jamais dans le texte de bash
+
+
+def test_analyse_bloquee_arretee_avec_ses_enfants(tmp_path, monkeypatch):
+    """Une analyse qui ne finit pas (Whisper bloqué dans Linux) : arrêtée avec ses enfants au-delà du délai, erreur en clair, la file repart."""
+    import subprocess
+    import sys
+    import time
+
+    from fabrique.moteur.f1 import analyse_bramble as analyse
+
+    monkeypatch.setattr(analyse, "DELAI_S", 2)
+    enfant = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
+    debut = time.monotonic()
+    with pytest.raises(RuntimeError, match="analyse bloquée"):
+        analyse.lancer([sys.executable, "-c", enfant], tmp_path, tmp_path / "journal.txt")
+    assert time.monotonic() - debut < 20
+    with pytest.raises(RuntimeError, match="echec"):
+        analyse.lancer([sys.executable, "-c", "print('perdu'); raise SystemExit(3)"], tmp_path, tmp_path / "journal.txt")
 
 
 PYTHON_CALQUES = Path(r"D:\StudioKids\OUTILS\ComfyUI_windows_portable\python_embeded\python.exe")  # celui de l'animation (numpy, scipy, Pillow)

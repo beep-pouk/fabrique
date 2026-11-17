@@ -40,7 +40,7 @@ Window {
     property var videos: []
     property var univers: ({personnages: [], lieux: [], langues: []})
     property string aFabriquer: ""
-    readonly property var videoVide: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}, controle: {mesure: false, note: null, defauts: [], video: ""}})
+    readonly property var videoVide: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}, controle: {mesure: false, controles: [], note: null, defauts: [], video: ""}})
     property var video: videoVide
     property string ongletVideo: "fabrication"
     property var coches: []
@@ -430,7 +430,8 @@ Window {
                         T {
                             objectName: "note_controle"
                             width: parent.width
-                            text: !video.controle.mesure ? "Pas encore contrôlée : le contrôle passe après le montage."
+                            text: !video.controle.mesure ? (video.controle.defauts.length ? "Contrôle pas fini : " + video.controle.defauts.length + " défaut(s) déjà relevé(s)"
+                                                                                           : "Pas encore contrôlée : le contrôle passe après le montage.")
                                 : (video.controle.note != null ? "Note de Qwen : " + String(video.controle.note).replace(".", ",") + "/10  ·  " : "")
                                   + (video.controle.defauts.length ? video.controle.defauts.length + " défaut(s) ; un clic sur l'un va à son moment" : "aucun défaut relevé")
                             color: video.controle.mesure && !video.controle.defauts.length ? cReussi : cSecond

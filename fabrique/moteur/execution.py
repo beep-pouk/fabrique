@@ -227,15 +227,22 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
             raise Refus("refaire un plan : seulement pour une vidéo du format F1 à ce jalon")
         base = settings.SESSIONS / s.dossier / "videos" / v.id
         _, a_refaire, _ = f1.etapes(v.script, plans)  # les plans contrôlés avant que rien ne bouge
-        morceaux, horodatage, ranges = list(v.morceaux.filter(etape__in=a_refaire)), f"{datetime.now():%Y%m%d_%H%M%S_%f}", []
-        try:  # les morceaux d'abord, puis les pièces de l'atelier ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
+        a_refaire += ["langue"]  # chaque version de langue reprend les visuels de la langue du script : refaite avec eux
+        langues = [a for d in sorted(base.iterdir()) if d.name not in ("commun", "_refaits") and (a := d / "atelier" / (v.nom or "video")).is_dir()]
+        quand = datetime.now()
+        morceaux, horodatage, ranges, rangees = list(v.morceaux.filter(etape__in=a_refaire)), f"{quand:%Y%m%d_%H%M%S_%f}", [], []
+        try:  # les morceaux d'abord, puis les pièces des ateliers ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
             for m in morceaux:
                 if (d := dossier(s, m)).exists():
-                    (cible := base / "_refaits" / horodatage / m.etape).parent.mkdir(parents=True, exist_ok=True)
+                    (cible := base / "_refaits" / horodatage / f"{m.etape}{'.' + m.langue if m.langue else ''}").parent.mkdir(parents=True, exist_ok=True)
                     d.rename(cible)
                     ranges.append((cible, d))
-            r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans)
+            for a in langues:
+                rangees.append((a, f1.ranger_langue(a, v.script, plans, horodatage)))
+            r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans, quand=quand)
         except (OSError, Refus) as e:
+            for a, rels in reversed(rangees):
+                f1.remettre(a, rels, horodatage)
             for cible, d in reversed(ranges):
                 cible.rename(d)
             raise e if isinstance(e, Refus) else Refus(f"un fichier de la vidéo est ouvert ailleurs ({e.__class__.__name__}) : rien n'a bougé, réessayer") from e

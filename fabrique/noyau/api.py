@@ -242,10 +242,11 @@ def video_(request, id: str, video: str):
 
 
 def controle(s: Session, v) -> dict:
-    """Ce que Vérification montre (langue du script) : les défauts minutés de tous les contrôles finis, la note, la vidéo finale du montage."""
+    """Ce que Vérification montre (langue du script) : les défauts minutés des contrôles finis, la note, la vidéo finale du montage ; « mesure »
+    seulement quand tous sont finis."""
     from fabrique.moteur import execution
 
-    c = {"mesure": False, "note": None, "defauts": [], "video": ""}
+    c = {"mesure": False, "controles": [], "note": None, "defauts": [], "video": ""}
     for mo in v.morceaux.filter(etat="fini", langue="", brique__in=("controle", "montage")).order_by("ordre"):
         r = execution.resultat(s, mo)
         if r is None:
@@ -253,10 +254,11 @@ def controle(s: Session, v) -> dict:
         if mo.brique == "montage" and r.fichiers and r.fichiers[0].endswith(".mp4"):
             c["video"] = str(execution.dossier(s, mo) / r.fichiers[0])
         elif mo.brique == "controle" and r.infos.get("defauts") is not None:
-            c["mesure"] = True
+            c["controles"].append(mo.etape)
             c["defauts"] += [{"source": mo.etape, **d} for d in r.infos["defauts"]]
             c["note"] = r.infos.get("note", c["note"])
     c["defauts"].sort(key=lambda d: (d["debut"] is None, d["debut"] or 0))
+    c["mesure"] = bool(c["controles"]) and not v.morceaux.filter(langue="", brique="controle").exclude(etat="fini").exists()  # l'analyse dure des heures
     return c
 
 

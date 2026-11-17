@@ -6,6 +6,7 @@ gravités de Bramble ; note = moyenne de Qwen. Pas joués ici : Gemini (le soir,
 dans Vérification)."""
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from fabrique import dossiers, garde
@@ -131,6 +132,24 @@ def commandes(lieux: Lieux, v: Path, script: Path) -> list[tuple[Path, list[str]
             (a_cote(v, ".transcription.json"), ["cmd", "/c", "transcrire.bat", str(v)])]
 
 
+DELAI_S = 3 * 3600  # Whisper ou Qwen bloqué dans Linux (le 14/11) : la file n'attend jamais sans fin
+
+
+def lancer(cmd: list[str], cwd: Path, journal: Path):
+    """La commande, sa sortie dans `journal` (pas de tube : wsl.exe le garderait ouvert après l'arrêt), arrêtée avec ses enfants au-delà de DELAI_S."""
+    sans_console = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with open(journal, "w", encoding="utf-8") as j:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=j, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=sans_console)
+        try:
+            code = p.wait(timeout=DELAI_S)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True, creationflags=sans_console)
+            p.wait()
+            raise RuntimeError(f"analyse bloquée plus de {DELAI_S / 3600:g} h, arrêtée : {' '.join(cmd)[:200]}") from None
+    if code:
+        raise RuntimeError(f"echec : {' '.join(cmd)[:300]}\n{journal.read_text(encoding='utf-8', errors='replace')[-3000:]}")
+
+
 def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     atelier = Path(demande.atelier)
     garde.verifier(atelier)
@@ -139,9 +158,9 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     if v is None:
         raise RuntimeError("aucune vidéo finale dans l'atelier : le montage n'a rien rendu")
     outils_ = Outils(lieux)
-    for sortie, cmd in commandes(lieux, v, Path(demande.script)):
+    for i, (sortie, cmd) in enumerate(commandes(lieux, v, Path(demande.script))):
         if not sortie.is_file():
-            outils_.run(cmd, cwd=str(composant(lieux, "analyse")))
+            lancer(cmd, composant(lieux, "analyse"), dossier / f"journal_{i + 1}.txt")
             if not sortie.is_file():
                 raise RuntimeError(f"{sortie.name} n'a pas été écrit ({cmd[2] if cmd[0] == 'cmd' else 'analyser_video.py'}) : son journal le dit")
     rap = rapport(v)

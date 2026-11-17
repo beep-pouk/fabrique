@@ -166,7 +166,8 @@ class Defaut(BaseModel):
 
 
 class Controle(BaseModel):
-    mesure: bool = False  # un contrôle a rendu ses défauts (sinon : rien de mesuré, jamais « aucun défaut »)
+    mesure: bool = False  # tous les contrôles sont finis et l'un au moins a rendu ses défauts (sinon : jamais « aucun défaut »)
+    controles: list[str] = []  # les contrôles qui ont mesuré (revue, analyse…)
     note: float | None = None  # sur 10
     defauts: list[Defaut] = []
     video: str = ""  # la vidéo finale (chemin complet), pour le lecteur

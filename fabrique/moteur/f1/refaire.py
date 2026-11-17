@@ -51,10 +51,31 @@ def deplacer(atelier: Path, rels: list[str], horodatage: str) -> list[str]:
                 (atelier / rel).rename(vers / rel)
                 faits.append(rel)
     except OSError as e:
-        for fait in reversed(faits):
-            (vers / fait).rename(atelier / fait)
+        remettre(atelier, faits, horodatage)
         raise Refus(f"{rel} ne peut pas être déplacé ({e.__class__.__name__}) : fermer le lecteur vidéo et réessayer ; rien n'a bougé") from e
     return faits
+
+
+def remettre(atelier: Path, rels: list[str], horodatage: str):
+    """Ce que `deplacer` a rangé revient à sa place (dans l'ordre inverse)."""
+    for rel in reversed(rels):
+        (atelier / "_refaits" / horodatage / rel).rename(atelier / rel)
+
+
+def finale(atelier: Path) -> list[str]:
+    """La vidéo finale et ses analyses (= fichiers_final de Bramble)."""
+    return [p.relative_to(atelier).as_posix() for v in (atelier / "final").glob("*.mp4")
+            for p in [*v.parent.glob(f"{glob.escape(v.stem)}.*"), v.parent / f"analyse_{v.stem.replace(' ', '_')}", v.parent / f"{v.stem.replace(' ', '_')}_gemini"]
+            if p.exists()]
+
+
+def ranger_langue(atelier: Path, scenario: dict, plans: list[int], horodatage: str) -> list[str]:
+    """Une version de langue : les mêmes pièces (visuels liés à ceux de la langue du script, lèvres, segments) et sa vidéo finale, rangées à côté ;
+    l'étape « langue » les refait à partir des nouvelles (ses voix restent)."""
+    par_n = {u["n"]: u for u in unites(scenario.get("scenes", []))}
+    choisis, _, miniature = etapes(scenario, plans)
+    return deplacer(atelier, finale(atelier) + [f for n in choisis for f in fichiers_unite(par_n[n])] + (["final/miniature.jpg"] if miniature else []),
+                    horodatage)
 
 
 def etapes(scenario: dict, plans: list[int]) -> tuple[list[int], list[str], bool]:
@@ -82,10 +103,7 @@ def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | 
         if par_n[n]["image"]:
             graines[str(n)] = int(graines.get(str(n), 0)) + 1  # graine = 1000 + id + décalage, lue par l'étape des images
     horodatage = f"{quand or datetime.now():%Y%m%d_%H%M%S_%f}"
-    finale = [p.relative_to(atelier).as_posix() for v in (atelier / "final").glob("*.mp4")  # la vidéo finale et ses analyses (= fichiers_final de Bramble)
-              for p in [*v.parent.glob(f"{glob.escape(v.stem)}.*"), v.parent / f"analyse_{v.stem.replace(' ', '_')}", v.parent / f"{v.stem.replace(' ', '_')}_gemini"]
-              if p.exists()]
-    ranges = deplacer(atelier, finale + fichiers + (["final/miniature.jpg"] if miniature else []), horodatage)
+    ranges = deplacer(atelier, finale(atelier) + fichiers + (["final/miniature.jpg"] if miniature else []), horodatage)
     graines_f.parent.mkdir(exist_ok=True)
     graines_f.write_text(json.dumps(graines, indent=1) + "\n", encoding="utf-8")
     return {"etapes": a_refaire, "ranges": ranges, "horodatage": horodatage, "plans": choisis}
