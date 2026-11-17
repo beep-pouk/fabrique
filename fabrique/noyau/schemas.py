@@ -101,6 +101,8 @@ class ScriptDetail(BaseModel):
     versions: list[VersionScript]  # la plus récente d'abord
     contenu: dict  # celui de la plus récente
     regles: dict  # le résultat des règles de la plus récente
+    plans: list["PlanVideo"]  # la planche : les plans qui seront fabriqués (F1)
+    estimation: dict  # secondes, cout_eur, carte_go de sa fabrication au format de la session ; « refus » si le format ne peut pas le lire
 
 
 class Personnage(BaseModel):
@@ -193,3 +195,6 @@ class TacheFile(BaseModel):
     alertes: list[str]
     acteur: str
     progression: str  # morceaux finis / tous
+
+
+ScriptDetail.model_rebuild()  # la planche utilise PlanVideo, défini plus bas

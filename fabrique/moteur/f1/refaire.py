@@ -79,3 +79,10 @@ def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | 
     graines_f.parent.mkdir(exist_ok=True)
     graines_f.write_text(json.dumps(graines, indent=1) + "\n", encoding="utf-8")
     return {"etapes": ETAPES[:-1] + (["miniature"] if miniature else []) + ETAPES[-1:], "ranges": ranges, "horodatage": horodatage, "plans": choisis}
+
+
+def planche(scenario: dict) -> list[dict]:
+    """Les plans d'un scénario, tels que la Planche (avant « Fabriquer ») et la Vérification (à cocher) les montrent."""
+    images = {s.get("id"): s.get("image", "") for s in scenario.get("scenes", [])}
+    return [{"n": u["n"], "image": images.get(u["n"], "") if u["image"] else "", "scenes": u["scenes"], "bramble": u["bramble"]}
+            for u in unites(scenario.get("scenes", []))]

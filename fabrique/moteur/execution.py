@@ -39,15 +39,22 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "") -> Video:
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
-        morceaux = [Morceau(video=v, etape=e.id, brique=e.brique, unite=unite, langue=langue,
-                            outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
-                    for e in R.etapes for langue in (R.reglages.langues if e.langue else [""]) for unite, du_plan, _ in recettes.unites(S, e.par)]
-        for i, m in enumerate(morceaux):
-            m.ordre = i
+        morceaux = decouper(R, S, reglages)
+        for m in morceaux:
+            m.video = v
         Morceau.objects.bulk_create(morceaux)
     fichier_script(s, v).parent.mkdir(parents=True, exist_ok=True)
     fichier_script(s, v).write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
     return v
+
+
+def decouper(R: recettes.Recette, S, reglages: dict) -> list[Morceau]:
+    """Les morceaux (pas encore enregistrés) : étape × unité × langue, l'outil de chacun choisi."""
+    morceaux = [Morceau(etape=e.id, brique=e.brique, unite=unite, langue=langue, outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
+                for e in R.etapes for langue in (R.reglages.langues if e.langue else [""]) for unite, du_plan, _ in recettes.unites(S, e.par)]
+    for i, m in enumerate(morceaux):
+        m.ordre = i
+    return morceaux
 
 
 def fichier_script(s: Session, v: Video) -> Path:
@@ -219,24 +226,35 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
 
 
 def estimer(s: Session, video_id: str) -> dict:
-    """Ce qui reste à faire, avec les outils qui serviront vraiment (un payant au-delà des plafonds cède la place à l'outil local) : durée
-    (médiane des chronos par format, étape et outil, sinon l'estimation de l'outil), coût (prix des fiches × quantités), mémoire de carte la
-    plus haute demandée."""
-    secondes = cout = carte = 0.0
-    medianes: dict[tuple[str, str], float | None] = {}
+    """Ce qui reste à faire d'une vidéo (voir estimer_morceaux)."""
     with routeur.session(s):
         v = Video.objects.get(id=video_id)
+        return estimer_morceaux(s, v.recette["id"], list(v.morceaux.exclude(etat="fini")), dict(Reglage.objects.values_list("cle", "valeur")))
+
+
+def estimer_script(s: Session, recette: dict, script: dict) -> dict:
+    """Avant « Fabriquer » : ce que la vidéo de ce script demanderait (rien n'est créé)."""
+    R = recettes.recette(recette)
+    with routeur.session(s):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
-        for m in v.morceaux.exclude(etat="fini"):
-            d = outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue)
-            f = outils.fiches()[m.outil]
+        return estimer_morceaux(s, R.id, decouper(R, recettes.script(script, R.script), reglages), reglages)
+
+
+def estimer_morceaux(s: Session, recette_id: str, morceaux: list[Morceau], reglages: dict) -> dict:
+    """Avec les outils qui serviront vraiment (un payant au-delà des plafonds cède la place à l'outil local) : durée (médiane des chronos par
+    format, étape et outil, sinon l'estimation de l'outil), coût (prix des fiches × quantités), mémoire de carte la plus haute demandée."""
+    secondes = cout = carte = 0.0
+    medianes: dict[tuple[str, str], float | None] = {}
+    for m in morceaux:
+        d = outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue)
+        f = outils.fiches()[m.outil]
+        e = outils.adaptateur(f).estimer(f, d)
+        if not f.local and refus_payant(s, f, e.cout_eur + cout, reglages):
+            f = outils.local(m.brique, m.langue, reglages)
             e = outils.adaptateur(f).estimer(f, d)
-            if not f.local and refus_payant(s, f, e.cout_eur + cout, reglages):
-                f = outils.local(m.brique, m.langue, reglages)
-                e = outils.adaptateur(f).estimer(f, d)
-            if (m.etape, f.id) not in medianes:
-                chronos = list(Chrono.objects.filter(recette=v.recette["id"], etape=m.etape, outil=f.id).order_by("-date").values_list("secondes", flat=True)[:50])
-                medianes[(m.etape, f.id)] = median(chronos) if chronos else None
-            secondes += e.secondes if medianes[(m.etape, f.id)] is None else medianes[(m.etape, f.id)]
-            cout, carte = cout + e.cout_eur, max(carte, e.carte_go)
+        if (m.etape, f.id) not in medianes:
+            chronos = list(Chrono.objects.filter(recette=recette_id, etape=m.etape, outil=f.id).order_by("-date").values_list("secondes", flat=True)[:50])
+            medianes[(m.etape, f.id)] = median(chronos) if chronos else None
+        secondes += e.secondes if medianes[(m.etape, f.id)] is None else medianes[(m.etape, f.id)]
+        cout, carte = cout + e.cout_eur, max(carte, e.carte_go)
     return {"secondes": round(secondes, 1), "cout_eur": round(cout, 2), "carte_go": carte}

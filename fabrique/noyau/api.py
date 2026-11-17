@@ -101,14 +101,28 @@ def scripts(request, id: str):
 @api.get("/sessions/{id}/scripts/{code}", response=schemas.ScriptDetail)
 @droit("voir")
 def script_(request, id: str, code: str):
-    with routeur.session(session_(id)):
+    """Un script : ses versions, la plus récente (contenu, règles), sa planche (les plans qui seront fabriqués) et l'estimation de sa
+    fabrication au format de la session (durée, coût), à relire avant « Fabriquer »."""
+    from fabrique.moteur import execution, recettes
+    from fabrique.moteur.f1 import refaire as f1
+
+    s = session_(id)
+    with routeur.session(s):
         sc = m.Script.objects.filter(code=code).first()
         if sc is None:
             raise HttpError(404, f"script inconnu : {code}")
         versions = list(sc.versions.order_by("-numero"))
-        return {"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""),
-                "versions": [{"numero": v.numero, "auteur": v.auteur, "date": v.date.isoformat(timespec="minutes"), "validee": v.validee} for v in versions],
-                "contenu": versions[0].contenu if versions else {}, "regles": versions[0].regles if versions else {}}
+        forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
+    contenu = versions[0].contenu if versions else {}
+    try:
+        recette = recettes.lire(forme)
+        estimation = execution.estimer_script(s, recette, contenu)
+    except Refus as e:
+        recette, estimation = {}, {"secondes": 0, "cout_eur": 0, "carte_go": 0, "refus": str(e)}
+    plans = f1.planche(contenu) if recette.get("script") == "scenario-bramble" else []
+    return {"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""),
+            "versions": [{"numero": v.numero, "auteur": v.auteur, "date": v.date.isoformat(timespec="minutes"), "validee": v.validee} for v in versions],
+            "contenu": contenu, "regles": versions[0].regles if versions else {}, "plans": plans, "estimation": estimation}
 
 
 @api.post("/sessions/{id}/scripts/{code}/controler", response=schemas.Regles)
@@ -194,8 +208,7 @@ def video_(request, id: str, video: str):
             etapes.append({"id": e["id"], "brique": e["brique"], "finis": sum(x.etat == "fini" for x in ms), "total": len(ms),
                            "erreur": next((x.message for x in ms if x.etat == "erreur"), ""), "outils": sorted({x.outil for x in ms}),
                            "secondes": round(sum(x.secondes or 0 for x in ms), 1)})
-        plans = [{"n": u["n"], "image": next((s.get("image", "") for s in v.script.get("scenes", []) if s.get("id") == u["n"]), "") if u["image"] else "",
-                  "scenes": u["scenes"], "bramble": u["bramble"]} for u in f1.unites(v.script.get("scenes", []))] if v.recette.get("script") == "scenario-bramble" else []
+        plans = f1.planche(v.script) if v.recette.get("script") == "scenario-bramble" else []
         return {"id": v.id, "titre": v.titre, "nom": v.nom, "recette": f"{v.recette.get('id')} v{v.recette.get('version')}", "etapes": etapes, "plans": plans,
                 "script": v.script}
 

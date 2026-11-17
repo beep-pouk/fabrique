@@ -17,7 +17,7 @@ from fabrique.tests.fixes import Transport
 
 CAPTURES = Path(__file__).with_name("captures")
 TOLERANCE = 0.002  # part des octets qui peuvent différer (lissage du texte)
-LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
+LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
 
 
@@ -56,10 +56,14 @@ def test_parcours(qtbot):
     QTest.keyRelease(f, Qt.Key.Key_2, Qt.KeyboardModifier.ControlModifier)
     assert f.property("ecran") == "sessions"
     qtbot.waitUntil(lambda: len(valeur(f, "scripts")) == 2)
-    clic(f, "fabriquer_0")
+    clic(f, "script_0")  # le script : règles, planche, estimation, puis « Fabriquer »
+    assert f.property("ecran") == "script"
+    qtbot.waitUntil(lambda: len(valeur(f, "script")["plans"]) == 2)
+    clic(f, "bouton_fabriquer")
     assert f.property("aFabriquer") == "s1e01"
     clic(f, "confirmer_fabriquer")  # geste de RT : confirmé
     qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/fabriquer", None) in t.actions)
+    clic(f, "retour_scripts")
     clic(f, "onglet_videos")
     clic(f, "video_0")
     assert f.property("ecran") == "video"

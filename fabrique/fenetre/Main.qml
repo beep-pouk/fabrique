@@ -42,6 +42,7 @@ Window {
     property var video: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}})
     property string ongletVideo: "fabrication"
     property var coches: []
+    property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}})
     readonly property var etats: ({attente: "en attente", en_cours: "en cours", pause: "en pause", finie: "finie", erreur: "en erreur", annulee: "annulée"})
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
@@ -49,9 +50,13 @@ Window {
         ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions"].forEach(n => pont.charger(n))
         if (session !== "") ["scripts", "videos", "univers"].forEach(n => pont.lire(n, {id: session}))
         if (ecran === "video" && video.id !== "") pont.lire("video", {id: session, video: video.id})
+        if (ecran === "script" && script.code !== "") pont.lire("script", {id: session, code: script.code})
     }
     function choisir(id) { session = id; aFabriquer = ""; recharger() }
     function ouvrirVideo(id) { video = {id: id, titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}}; coches = []; ongletVideo = "fabrication"; aller("video") }
+    function ouvrirScript(code) { script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}}
+                                  aFabriquer = ""; aller("script") }
+    function duree(s) { return s >= 3600 ? (s / 3600).toFixed(1).replace(".", ",") + " h" : Math.max(1, Math.round(s / 60)) + " min" }
     function cocher(n) { var c = coches.slice(); var i = c.indexOf(n); if (i >= 0) c.splice(i, 1); else c.push(n); coches = c }
     function aller(e) { if (e !== "") ecran = e; recharger() }
     function aFaire() { return file.filter(t => t.etat === "erreur" || t.alertes.length > 0 && t.etat !== "finie" && t.etat !== "annulee") }
@@ -114,8 +119,8 @@ Window {
                 Rectangle {
                     objectName: "nav_" + modelData.id
                     width: parent.width; height: 40; radius: 6
-                    color: (ecran === "video" ? "sessions" : ecran) === modelData.id || survolNav.hovered ? cLeve : "transparent"
-                    Rectangle { visible: (ecran === "video" ? "sessions" : ecran) === modelData.id; width: 3; height: 20; radius: 2; color: cSelection; anchors.verticalCenter: parent.verticalCenter }
+                    color: (ecran === "video" || ecran === "script" ? "sessions" : ecran) === modelData.id || survolNav.hovered ? cLeve : "transparent"
+                    Rectangle { visible: (ecran === "video" || ecran === "script" ? "sessions" : ecran) === modelData.id; width: 3; height: 20; radius: 2; color: cSelection; anchors.verticalCenter: parent.verticalCenter }
                     T { text: modelData.nom; x: 12; anchors.verticalCenter: parent.verticalCenter }
                     Mono { text: modelData.touche; color: cSecond; font.pixelSize: 12; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
                     HoverHandler { id: survolNav }
@@ -236,27 +241,6 @@ Window {
                         }
                     }
                 }
-                Rectangle {
-                    visible: aFabriquer !== ""
-                    width: parent.width; height: confFabriquer.implicitHeight + 24; radius: 6; color: cLeve; border.width: 1; border.color: cAccent
-                    Column {
-                        id: confFabriquer
-                        x: 12; y: 12; width: parent.width - 24; spacing: 12
-                        T { text: "Fabriquer « " + aFabriquer + " » ? La vidéo entre dans la file ; elle part quand la carte est libre."; width: parent.width }
-                        Row {
-                            spacing: 8
-                            Rectangle {
-                                objectName: "confirmer_fabriquer"
-                                width: tf.implicitWidth + 32; height: 32; radius: 6; color: cAccent
-                                T { id: tf; text: "Fabriquer"; color: cFond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
-                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" } }
-                                Accessible.role: Accessible.Button; Accessible.name: "Fabriquer " + aFabriquer
-                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" }
-                            }
-                            Bouton { texte: "Annuler"; onClic: aFabriquer = "" }
-                        }
-                    }
-                }
             }
             Flickable {
                 anchors { left: entetesSession.left; right: entetesSession.right; top: entetesSession.bottom; topMargin: 12; bottom: parent.bottom }
@@ -268,13 +252,15 @@ Window {
                     Repeater {
                         model: onglet === "scripts" ? scripts : []
                         Rectangle {
-                            width: parent.width; height: 52; radius: 6; color: cLeve
+                            objectName: "script_" + index
+                            width: parent.width; height: 52; radius: 6; color: survolScript.hovered ? cTrait : cLeve
+                            HoverHandler { id: survolScript }
+                            Clic { onTapped: ouvrirScript(modelData.code) }
+                            Accessible.role: Accessible.Button; Accessible.name: "Script " + modelData.titre; Accessible.onPressAction: ouvrirScript(modelData.code)
                             Mono { text: modelData.code; x: 12; anchors.verticalCenter: parent.verticalCenter }
                             T { text: modelData.titre; x: 90; width: parent.width - 400; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; wrapMode: Text.NoWrap }
                             Mono { text: (modelData.date_prevue || "—") + "  v" + modelData.versions; color: cSecond
-                                   anchors.right: boutonFabriquer.left; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter }
-                            Bouton { id: boutonFabriquer; objectName: "fabriquer_" + index; texte: "Fabriquer"
-                                     anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; onClic: aFabriquer = modelData.code }
+                                   anchors.right: parent.right; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
                     T { visible: onglet === "scripts" && !scripts.length; text: "Aucun script dans cette session."; color: cSecond }
@@ -404,6 +390,100 @@ Window {
                             Column {
                                 id: ligneScene
                                 x: 12; y: 8; width: parent.width - 24; spacing: 2
+                                Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
+                                T { text: modelData.narration || ""; width: parent.width }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Item {
+            objectName: "ecran_script"
+            visible: ecran === "script"
+            anchors.fill: parent
+            Column {
+                id: enteteScript
+                x: 24; y: 24; width: parent.width - 48; spacing: 12
+                Row {
+                    spacing: 12
+                    Bouton { objectName: "retour_scripts"; texte: "← Session"; onClic: aller("sessions") }
+                    T { text: script.titre; font.pixelSize: 28; font.weight: Font.DemiBold; wrapMode: Text.NoWrap }
+                }
+                Mono { text: script.code + "  ·  " + (script.date_prevue || "pas encore au calendrier") + "  ·  version " + (script.versions.length ? script.versions[0].numero : "—")
+                       + (script.versions.length ? " (" + script.versions[0].auteur + ")" : ""); color: cSecond }
+                Row {
+                    spacing: 12
+                    Rectangle {
+                        objectName: "bouton_fabriquer"
+                        property bool actif: !(script.regles.erreurs || []).length && !script.estimation.refus && script.versions.length > 0
+                        width: tfs.implicitWidth + 32; height: 32; radius: 6; color: actif ? cAccent : cLeve; opacity: actif ? 1 : 0.5
+                        T { id: tfs; text: "Fabriquer"; color: parent.actif ? cFond : cSecond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+                        Clic { enabled: parent.actif; onTapped: aFabriquer = script.code }
+                        Accessible.role: Accessible.Button; Accessible.name: "Fabriquer " + script.titre; Accessible.onPressAction: if (actif) aFabriquer = script.code
+                    }
+                    T { anchors.verticalCenter: parent.verticalCenter; wrapMode: Text.NoWrap
+                        text: script.estimation.refus ? script.estimation.refus
+                            : (script.regles.erreurs || []).length ? "Les règles de l'univers bloquent la fabrication : à corriger d'abord."
+                            : "Environ " + duree(script.estimation.secondes) + ", " + String(script.estimation.cout_eur.toFixed(2)).replace(".", ",") + " €"
+                        color: script.estimation.refus || (script.regles.erreurs || []).length ? cDefaut : cSecond }
+                }
+                Rectangle {
+                    visible: aFabriquer !== "" && aFabriquer === script.code
+                    width: parent.width; height: confFabriquerScript.implicitHeight + 24; radius: 6; color: cLeve; border.width: 1; border.color: cAccent
+                    Column {
+                        id: confFabriquerScript
+                        x: 12; y: 12; width: parent.width - 24; spacing: 12
+                        T { text: "Fabriquer « " + script.titre + " » (environ " + duree(script.estimation.secondes) + ") ? La vidéo entre dans la file ; elle part quand la carte est libre."
+                            width: parent.width }
+                        Row {
+                            spacing: 8
+                            Rectangle {
+                                objectName: "confirmer_fabriquer"
+                                width: tcf.implicitWidth + 32; height: 32; radius: 6; color: cAccent
+                                T { id: tcf; text: "Fabriquer"; color: cFond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" } }
+                                Accessible.role: Accessible.Button; Accessible.name: "Confirmer : fabriquer " + script.titre
+                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" }
+                            }
+                            Bouton { texte: "Annuler"; onClic: aFabriquer = "" }
+                        }
+                    }
+                }
+            }
+            Flickable {
+                anchors { left: parent.left; leftMargin: 24; right: parent.right; rightMargin: 24; top: enteteScript.bottom; topMargin: 12; bottom: parent.bottom }
+                contentHeight: pileScript.height + 24; clip: true
+                ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+                Column {
+                    id: pileScript
+                    width: Math.min(parent.width - 16, 960); spacing: 12
+                    Panneau {
+                        titre: "Règles de l'univers"
+                        T { visible: !(script.regles.erreurs || []).length && !(script.regles.avis || []).length; text: "Aucune erreur, aucun avis."; color: cReussi; width: parent.width }
+                        Repeater { model: script.regles.erreurs || []; T { text: "[" + modelData[0] + "] " + modelData[1]; color: cDefaut; width: parent.width } }
+                        Repeater { model: script.regles.avis || []; T { text: "[" + modelData[0] + "] " + modelData[1]; color: cAttention; width: parent.width } }
+                    }
+                    Panneau {
+                        visible: script.plans.length > 0
+                        titre: "Planche : " + script.plans.length + " plans"
+                        Repeater {
+                            model: script.plans
+                            Row {
+                                spacing: 12
+                                Mono { text: "plan " + modelData.n; color: cSecond; width: 70 }
+                                T { text: modelData.image || "Bramble parle face caméra"; width: pileScript.width - 200; color: modelData.image ? cTexte : cSecond }
+                                Mono { text: modelData.scenes.length + " sc."; color: cSecond }
+                            }
+                        }
+                    }
+                    Panneau {
+                        titre: "Scènes"
+                        Repeater {
+                            model: script.contenu.scenes || []
+                            Column {
+                                width: parent.width; spacing: 2
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
                                 T { text: modelData.narration || ""; width: parent.width }
                             }

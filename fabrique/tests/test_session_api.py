@@ -45,6 +45,8 @@ def test_scripts_univers_videos(session):
         {"code": "s1e01", "titre": "Une histoire factice", "statut": "scenario", "date_prevue": "2026-12-01", "versions": 2, "validee": False}]
     d = n.get(f"/api/sessions/{session.id}/scripts/s1e01", **entete("fenetre")).json()
     assert [v["numero"] for v in d["versions"]] == [2, 1] and d["contenu"] == SCENARIO and d["regles"] == {"erreurs": []}
+    assert d["plans"] == [{"n": 1, "image": "a quiet glade", "scenes": [1], "bramble": False}]  # la planche, avant « Fabriquer »
+    assert d["estimation"]["secondes"] > 0 and d["estimation"]["cout_eur"] == 0  # en simulation : les faux outils de F1
     assert n.get(f"/api/sessions/{session.id}/scripts/s9e99", **entete("fenetre")).status_code == 404
     u = n.get(f"/api/sessions/{session.id}/univers", **entete("fenetre")).json()
     assert u["personnages"] == [{"nom": "Ami Un", "role": "ami", "statut": "actif", "references": 1}] and u["langues"][0]["code"] == "xx"

@@ -24,6 +24,10 @@ if __name__ == "__main__":
 
         QTimer.singleShot(300, lambda: (QMetaObject.invokeMethod(f, "ouvrirVideo", Q_ARG("QVariant", "v1")), f.setProperty("ongletVideo", "verification"),
                                         f.setProperty("coches", [1])))
+    if ecran == "script":
+        from PySide6.QtCore import Q_ARG, QMetaObject
+
+        QTimer.singleShot(300, lambda: QMetaObject.invokeMethod(f, "ouvrirScript", Q_ARG("QVariant", "s1e01")))
     boucle = QEventLoop()
     QTimer.singleShot(1500, boucle.quit)  # réponses fixes arrivées, animations finies
     boucle.exec()
