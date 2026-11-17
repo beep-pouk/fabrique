@@ -15,6 +15,18 @@ IDENTITE = "StudioKids.Fabrique"  # AppUserModelID : épinglage, regroupement da
 SANS_CONSOLE = False  # posé par __main__ : lancée sans console (raccourci, démarrage de Windows), personne ne lit la sortie
 
 
+HERITEES = ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONEXECUTABLE", "PYTHONSAFEPATH", "PYTHONINSPECT", "VIRTUAL_ENV",
+            "CONDA_PREFIX", "CONDA_DEFAULT_ENV")
+
+
+def environnement():
+    """Fabrique impose ses variables, pour elle et pour chaque processus qu'elle lance : lancée par un autre programme Python (Bramble Studio…),
+    elle en hériterait (DJANGO_SETTINGS_MODULE=config.settings : noyau mort au démarrage chez RT le 17/11)."""
+    for v in HERITEES:
+        os.environ.pop(v, None)
+    os.environ["DJANGO_SETTINGS_MODULE"] = "fabrique.settings"
+
+
 def installee() -> bool:
     return dossiers.programme() is not None
 
