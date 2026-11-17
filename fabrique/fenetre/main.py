@@ -24,7 +24,7 @@ from fabrique.fenetre.client import Client, ErreurApi
 log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
 GARDE_MS = 30_000
-VK_1, VK_2 = 0x31, 0x32  # touches 1 et 2 du haut du clavier, quelle que soit la disposition (AZERTY : « & » et « é »)
+VK_1, VK_2, VK_3 = 0x31, 0x32, 0x33  # touches 1, 2 et 3 du haut du clavier, quelle que soit la disposition (AZERTY : « & » et « é »)
 
 
 class Pont(QObject):
@@ -49,9 +49,14 @@ class Pont(QObject):
     def charger(self, nom: str):
         self.fond.submit(self._lire, nom)
 
-    def _lire(self, nom: str):
+    @Slot(str, "QVariantMap")
+    def lire(self, nom: str, params):
+        """Une lecture avec ses paramètres (la session choisie) ; la réponse revient sous son nom."""
+        self.fond.submit(self._lire, nom, dict(params))
+
+    def _lire(self, nom: str, params: dict | None = None):
         try:
-            self.recu.emit(nom, self.client.appeler(nom))
+            self.recu.emit(nom, self.client.appeler(nom, None, **(params or {})))
         except (OSError, ErreurApi) as e:
             log.warning("lecture %s : %s", nom, e)
 
@@ -83,8 +88,8 @@ class Pont(QObject):
             repetee = e.isAutoRepeat() or e.key() in self.tenues
             self.tenues.add(e.key())
             ctrl = bool(e.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            ecran = "accueil" if ctrl and VK_1 in (e.key(), e.nativeVirtualKey()) else "systeme" if ctrl and VK_2 in (e.key(), e.nativeVirtualKey()) else \
-                "" if e.key() == Qt.Key.Key_F5 else None
+            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "systeme")) if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
+            ecran = touche or ("" if e.key() == Qt.Key.Key_F5 else None)
             if ecran is not None:
                 if not repetee:
                     self.aller.emit(ecran)

@@ -17,7 +17,7 @@ from fabrique.tests.fixes import Transport
 
 CAPTURES = Path(__file__).with_name("captures")
 TOLERANCE = 0.002  # part des octets qui peuvent différer (lissage du texte)
-LISTE = [("accueil", "accueil", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
+LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
 
 
@@ -49,10 +49,23 @@ def test_parcours(qtbot):
 
     vus = []
     pont.aller.connect(vus.append)
+    qtbot.waitUntil(lambda: len(valeur(f, "file")) == 3 and valeur(f, "machine")["disque_go"] == 85)
+    clic(f, "reprendre_2")  # la tâche en erreur
+    qtbot.waitUntil(lambda: ("/api/file/1/reprendre", None) in t.actions)
     QTest.keyPress(f, Qt.Key.Key_2, Qt.KeyboardModifier.ControlModifier)
-    QTest.keyPress(f, Qt.Key.Key_2, Qt.KeyboardModifier.ControlModifier)  # touche tenue : pas rejouée
     QTest.keyRelease(f, Qt.Key.Key_2, Qt.KeyboardModifier.ControlModifier)
-    assert vus == ["systeme"] and f.property("ecran") == "systeme"
+    assert f.property("ecran") == "sessions"
+    qtbot.waitUntil(lambda: len(valeur(f, "scripts")) == 2)
+    clic(f, "fabriquer_0")
+    assert f.property("aFabriquer") == "s1e01"
+    clic(f, "confirmer_fabriquer")  # geste de RT : confirmé
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/fabriquer", None) in t.actions)
+    clic(f, "onglet_univers")
+    assert f.property("onglet") == "univers"
+    QTest.keyPress(f, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyPress(f, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)  # touche tenue : pas rejouée
+    QTest.keyRelease(f, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)
+    assert vus == ["sessions", "systeme"] and f.property("ecran") == "systeme"
 
     clic(f, "bouton_sauvegarder")
     qtbot.waitUntil(lambda: ("/api/sauvegardes", None) in t.actions)

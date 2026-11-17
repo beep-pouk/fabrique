@@ -1,4 +1,5 @@
-// La coquille de Fabrique : navigation, Accueil (vide à J1), Système (sauvegardes, mises à jour, journal, clés).
+// La coquille de Fabrique : navigation, Accueil (file, à faire, machine), Sessions (scripts et « Fabriquer », vidéos, univers),
+// Système (sauvegardes, mises à jour, journal, clés).
 // Jetons de style du plan technique § 6.2. Aucune règle ici : tout vient du noyau par « pont » (main.py).
 import QtQuick
 import QtQuick.Controls.Basic
@@ -29,10 +30,25 @@ Window {
     property string message: ""
     property bool messageOk: true
     property string aRestaurer: ""
+    property var file: []
+    property var machine: ({carte: "", disque_go: 0, carte_prise: ""})
+    property var sessions: []
+    property string session: ""
+    property string onglet: "scripts"
+    property var scripts: []
+    property var videos: []
+    property var univers: ({personnages: [], lieux: [], langues: []})
+    property string aFabriquer: ""
+    readonly property var etats: ({attente: "en attente", en_cours: "en cours", pause: "en pause", finie: "finie", erreur: "en erreur", annulee: "annulée"})
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
-    function recharger() { ["sante", "sauvegardes", "versions", "journal", "cles"].forEach(n => pont.charger(n)) }
+    function recharger() {
+        ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions"].forEach(n => pont.charger(n))
+        if (session !== "") ["scripts", "videos", "univers"].forEach(n => pont.lire(n, {id: session}))
+    }
+    function choisir(id) { session = id; aFabriquer = ""; recharger() }
     function aller(e) { if (e !== "") ecran = e; recharger() }
+    function aFaire() { return file.filter(t => t.etat === "erreur" || t.alertes.length > 0 && t.etat !== "finie" && t.etat !== "annulee") }
     function derniere() {
         var d = sauvegardes.derniere
         return d.etat === "en_cours" ? "Sauvegarde en cours…"
@@ -43,7 +59,7 @@ Window {
     Component.onCompleted: recharger()
     Connections {
         target: pont
-        function onRecu(nom, d) { f[nom] = d }
+        function onRecu(nom, d) { f[nom] = d; if (nom === "sessions" && session === "" && d.length) choisir(d[0].id) }
         function onFait(nom, texte, ok) { message = texte; messageOk = ok; recharger() }
         function onAller(e) { aller(e) }
         function onEvenement(type, d) { if (type !== "etat") recharger() }
@@ -88,7 +104,7 @@ Window {
             Mono { text: sante.version ? "version " + sante.version : ""; color: cSecond; font.pixelSize: 12 }
             Item { width: 1; height: 16 }
             Repeater {
-                model: [{id: "accueil", nom: "Accueil", touche: "Ctrl+1"}, {id: "systeme", nom: "Système", touche: "Ctrl+2"}]
+                model: [{id: "accueil", nom: "Accueil", touche: "Ctrl+1"}, {id: "sessions", nom: "Sessions", touche: "Ctrl+2"}, {id: "systeme", nom: "Système", touche: "Ctrl+3"}]
                 Rectangle {
                     objectName: "nav_" + modelData.id
                     width: parent.width; height: 40; radius: 6
@@ -109,14 +125,184 @@ Window {
         id: contenu
         anchors { left: nav.right; right: parent.right; top: parent.top; bottom: barre.top }
 
-        Column {
+        Flickable {
             objectName: "ecran_accueil"
             visible: ecran === "accueil"
-            x: 24; y: 24; width: Math.min(contenu.width - 48, 960); spacing: 16
-            T { text: "Accueil"; font.pixelSize: 28; font.weight: Font.DemiBold }
-            Panneau {
-                titre: "Rien à faire pour l'instant"
-                T { text: "Ici s'afficheront les vidéos en cours et ce qui attend votre clic."; color: cSecond; width: parent.width }
+            anchors.fill: parent; contentHeight: pileAccueil.height + 48; clip: true
+            ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+            Column {
+                id: pileAccueil
+                x: 24; y: 24; width: Math.min(contenu.width - 48, 960); spacing: 16
+                T { text: "Accueil"; font.pixelSize: 28; font.weight: Font.DemiBold }
+                Panneau {
+                    titre: aFaire().length ? "À faire" : "Rien à faire pour l'instant"
+                    T { visible: !aFaire().length; text: "Ici s'affiche ce qui attend votre clic : une fabrication en erreur, une vidéo à approuver ou à publier."; color: cSecond; width: parent.width }
+                    Repeater {
+                        model: aFaire()
+                        T { text: "« " + modelData.titre + " » (" + modelData.session + ") : " + (modelData.raison || modelData.alertes[modelData.alertes.length - 1]); width: parent.width
+                            color: modelData.etat === "erreur" ? cDefaut : cAttention }
+                    }
+                }
+                Panneau {
+                    objectName: "panneau_file"
+                    titre: "File"
+                    T { visible: !file.length; text: "Rien en cours ni en attente."; color: cSecond; width: parent.width }
+                    Repeater {
+                        model: file
+                        Rectangle {
+                            width: parent.width; height: ligneFile.implicitHeight + 20; radius: 6; color: cLeve
+                            Column {
+                                id: ligneFile
+                                x: 12; y: 10; width: parent.width - 300; spacing: 4
+                                T { text: modelData.titre + "  ·  " + modelData.session; font.weight: Font.DemiBold; width: parent.width; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                                Row {
+                                    spacing: 12
+                                    T { text: etats[modelData.etat]; color: modelData.etat === "erreur" ? cDefaut : modelData.etat === "en_cours" ? cReussi : cSecond; wrapMode: Text.NoWrap }
+                                    Mono { text: modelData.progression + " morceaux"; color: cSecond }
+                                }
+                                T { visible: modelData.raison !== ""; text: modelData.raison; color: modelData.etat === "erreur" ? cDefaut : cAttention; width: parent.width; font.pixelSize: 12 }
+                            }
+                            Row {
+                                anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                Bouton { objectName: "pause_" + index; visible: modelData.etat === "attente" || modelData.etat === "en_cours"; texte: "Pause"
+                                         onClic: pont.agir("agir_file", {id: modelData.id, action: "pause"}) }
+                                Bouton { objectName: "reprendre_" + index; visible: modelData.etat === "pause" || modelData.etat === "erreur"; texte: "Reprendre"
+                                         onClic: pont.agir("agir_file", {id: modelData.id, action: "reprendre"}) }
+                                Bouton { objectName: "annuler_" + index; visible: modelData.etat !== "finie" && modelData.etat !== "annulee"; texte: "Annuler"
+                                         onClic: pont.agir("agir_file", {id: modelData.id, action: "annuler"}) }
+                            }
+                        }
+                    }
+                }
+                Panneau {
+                    titre: "Machine"
+                    Row {
+                        spacing: 8
+                        T { text: "Carte :"; color: cSecond; wrapMode: Text.NoWrap }
+                        Mono { objectName: "machine_carte"; text: machine.carte }
+                        Item { width: 24; height: 1 }
+                        T { text: "Disque libre :"; color: cSecond; wrapMode: Text.NoWrap }
+                        Mono { text: machine.disque_go + " Go"; color: machine.disque_go < 50 ? cDefaut : cTexte }
+                    }
+                    T { text: machine.carte_prise ? "Rien ne part pour l'instant : " + machine.carte_prise + "." : "La carte est libre : la prochaine fabrication peut partir."
+                        color: machine.carte_prise ? cAttention : cReussi; width: parent.width }
+                }
+            }
+        }
+
+        Item {
+            objectName: "ecran_sessions"
+            visible: ecran === "sessions"
+            anchors.fill: parent
+            Column {
+                id: listeSessions
+                x: 24; y: 24; width: 220; spacing: 8
+                T { text: "Sessions"; font.pixelSize: 28; font.weight: Font.DemiBold }
+                Repeater {
+                    model: sessions
+                    Rectangle {
+                        objectName: "session_" + index
+                        width: parent.width; height: 44; radius: 6
+                        color: session === modelData.id || survolSession.hovered ? cLeve : "transparent"
+                        border.width: session === modelData.id ? 1 : 0; border.color: cSelection
+                        T { text: modelData.nom; x: 12; width: parent.width - 24; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                        HoverHandler { id: survolSession }
+                        Clic { onTapped: choisir(modelData.id) }
+                        Accessible.role: Accessible.Button; Accessible.name: "Session " + modelData.nom; Accessible.onPressAction: choisir(modelData.id)
+                    }
+                }
+            }
+            Column {
+                id: entetesSession
+                anchors { left: listeSessions.right; leftMargin: 24; top: parent.top; topMargin: 72; right: parent.right; rightMargin: 24 }
+                spacing: 12
+                Row {
+                    spacing: 8
+                    Repeater {
+                        model: [{id: "scripts", nom: "Scripts"}, {id: "videos", nom: "Vidéos"}, {id: "univers", nom: "Univers"}]
+                        Rectangle {
+                            objectName: "onglet_" + modelData.id
+                            width: nomOnglet.implicitWidth + 32; height: 36; radius: 6
+                            color: onglet === modelData.id ? cLeve : "transparent"; border.width: 1; border.color: onglet === modelData.id ? cSelection : cTrait
+                            T { id: nomOnglet; text: modelData.nom; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+                            Clic { onTapped: onglet = modelData.id }
+                            Accessible.role: Accessible.PageTab; Accessible.name: modelData.nom; Accessible.onPressAction: onglet = modelData.id
+                        }
+                    }
+                }
+                Rectangle {
+                    visible: aFabriquer !== ""
+                    width: parent.width; height: confFabriquer.implicitHeight + 24; radius: 6; color: cLeve; border.width: 1; border.color: cAccent
+                    Column {
+                        id: confFabriquer
+                        x: 12; y: 12; width: parent.width - 24; spacing: 12
+                        T { text: "Fabriquer « " + aFabriquer + " » ? La vidéo entre dans la file ; elle part quand la carte est libre."; width: parent.width }
+                        Row {
+                            spacing: 8
+                            Rectangle {
+                                objectName: "confirmer_fabriquer"
+                                width: tf.implicitWidth + 32; height: 32; radius: 6; color: cAccent
+                                T { id: tf; text: "Fabriquer"; color: cFond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" } }
+                                Accessible.role: Accessible.Button; Accessible.name: "Fabriquer " + aFabriquer
+                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" }
+                            }
+                            Bouton { texte: "Annuler"; onClic: aFabriquer = "" }
+                        }
+                    }
+                }
+            }
+            Flickable {
+                anchors { left: entetesSession.left; right: entetesSession.right; top: entetesSession.bottom; topMargin: 12; bottom: parent.bottom }
+                contentHeight: pileSession.height + 24; clip: true
+                ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+                Column {
+                    id: pileSession
+                    width: Math.min(parent.width - 16, 960); spacing: 8  // la barre de défilement à droite, hors des boutons
+                    Repeater {
+                        model: onglet === "scripts" ? scripts : []
+                        Rectangle {
+                            width: parent.width; height: 52; radius: 6; color: cLeve
+                            Mono { text: modelData.code; x: 12; anchors.verticalCenter: parent.verticalCenter }
+                            T { text: modelData.titre; x: 90; width: parent.width - 400; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                            Mono { text: (modelData.date_prevue || "—") + "  v" + modelData.versions; color: cSecond
+                                   anchors.right: boutonFabriquer.left; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter }
+                            Bouton { id: boutonFabriquer; objectName: "fabriquer_" + index; texte: "Fabriquer"
+                                     anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; onClic: aFabriquer = modelData.code }
+                        }
+                    }
+                    T { visible: onglet === "scripts" && !scripts.length; text: "Aucun script dans cette session."; color: cSecond }
+                    Repeater {
+                        model: onglet === "videos" ? videos : []
+                        Rectangle {
+                            width: parent.width; height: 52; radius: 6; color: cLeve
+                            T { text: modelData.titre; x: 12; width: parent.width - 360; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                            Mono { text: modelData.recette + "  ·  " + modelData.progression + (modelData.erreurs ? "  ·  " + modelData.erreurs + " en erreur" : "")
+                                   color: modelData.erreurs ? cDefaut : cSecond; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                    }
+                    T { visible: onglet === "videos" && !videos.length; text: "Aucune vidéo fabriquée dans cette session."; color: cSecond }
+                    Panneau {
+                        visible: onglet === "univers"; titre: "Personnages"
+                        Repeater {
+                            model: onglet === "univers" ? univers.personnages : []
+                            T { text: modelData.nom + (modelData.role ? " · " + modelData.role : "") + " · " + modelData.references + " référence(s)"; width: parent.width
+                                color: modelData.statut === "actif" ? cTexte : cSecond }
+                        }
+                    }
+                    Panneau {
+                        visible: onglet === "univers"; titre: "Lieux"
+                        Repeater { model: onglet === "univers" ? univers.lieux : []; T { text: modelData.nom; width: parent.width } }
+                    }
+                    Panneau {
+                        visible: onglet === "univers"; titre: "Langues et voix"
+                        Repeater {
+                            model: onglet === "univers" ? univers.langues : []
+                            T { text: modelData.code + " · " + modelData.nom + " · " + (modelData.outil_voix || "voix de la session") + (modelData.voix_validee ? "" : " (voix à valider)")
+                                width: parent.width; color: modelData.voix_validee ? cTexte : cAttention }
+                        }
+                    }
+                }
             }
         }
 
