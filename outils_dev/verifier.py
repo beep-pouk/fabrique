@@ -189,9 +189,14 @@ def moteur(dire) -> list[tuple[bool, str]]:
                                       "plan) sans que le code change (empreinte identique, aucun outil nommé dans le code), un vrai outil jamais pris en simulation ; refus "
                                       "quand Bramble Studio fabrique, état figé ignoré, état illisible = attente, carte prise par un autre programme ; trois échecs puis "
                                       "alerte ; plantage en boucle arrêté après trois relances ; pause pendant un tour ; exécuteur unique ; outil payant (plafond à 0 €, "
-                                      f"plafond vérifié avant chaque appel, une nouvelle tentative, repli) — {r.stdout.strip().splitlines()[-1]}"))
+                                      f"plafond vérifié avant chaque appel, une nouvelle tentative, repli) — {dernier(r)}"))
     shutil.rmtree(tmp, ignore_errors=True)
     return points
+
+
+def dernier(r) -> str:
+    """La dernière ligne de pytest (son bilan), ou la fin de son erreur s'il n'a rien écrit."""
+    return (r.stdout.strip().splitlines() or [r.stderr.strip()[-300:] or f"code {r.returncode}"])[-1]
 
 
 def j2(dire, publier: bool = False) -> list[tuple[bool, str]]:
@@ -201,7 +206,16 @@ def j2(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return moteur(dire) + construction(dire, publier) + bramble_points(avant)
 
 
-EGALES = ["montage", "miniature", "revue", "images", "carte_voix", "carte_images", "carte_anim", "carte_bramble"]  # toutes les étapes de F1 v1 qui produisent
+EGALES = ["montage", "miniature", "revue", "images", "carte_voix", "carte_images", "carte_anim", "carte_bramble", "carte_musique",
+          "carte_langue"]  # toutes les étapes de F1 v1 qui produisent, la version de langue comprise
+GIT = DEPOT.parent / "git" / "cmd" / "git.exe"
+DUREE_MIN_S = 900  # « pleine longueur » : 15 min au moins (plan § 8.6)
+
+
+def moteur_change_depuis(commit: str) -> str:
+    """Les fichiers du moteur changés depuis le commit essayé (vide : la preuve vaut pour le code d'aujourd'hui)."""
+    r = subprocess.run([str(GIT), "diff", "--name-only", commit, "HEAD", "--", "fabrique/moteur"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8")
+    return r.stdout.strip().replace("\n", ", ") if r.returncode == 0 else f"commit {commit!r} illisible"
 
 
 def preuves_j3() -> list[tuple[bool, str]]:
@@ -212,31 +226,43 @@ def preuves_j3() -> list[tuple[bool, str]]:
         e = r["etapes"]
         manque = [x for x in EGALES if x not in e]
         points.append((r["reglages_identiques"] and not manque and all(e[x]["egal"] for x in EGALES),
-                       f"égalité de F1 v1 avec le moteur de Bramble Studio, étape par étape ({r['date']}, rendu {r['rendu']}) : réglages "
+                       f"égalité de F1 v1 avec le moteur de Bramble Studio, étape par étape (rendu {r['rendu']}) : réglages "
                        f"{'identiques' if r['reglages_identiques'] else 'DIFFÉRENTS'} ; " + " ; ".join(
-                           f"{x} {'égal' if e[x]['egal'] else 'DIFFÉRENT ' + str(e[x].get('differents'))} ({e[x].get('fichiers', 0)} fichiers)" for x in EGALES if x in e)
-                       + (f" ; MANQUE : {', '.join(manque)}" if manque else "")))
+                           f"{x} {'égal' if e[x]['egal'] else 'DIFFÉRENT ' + str(e[x].get('differents'))} ({e[x].get('fichiers', 0)} fichiers, {e[x]['date'][:16]})"
+                           for x in EGALES if x in e) + (f" ; MANQUE : {', '.join(manque)}" if manque else "")))
     except (OSError, ValueError, KeyError) as x:
         points.append((False, f"égalité étape par étape : pas de rapport lisible ({x})"))
     try:
         r = json.loads((SORTIE / "egalite" / "ESSAI_LONG.json").read_text(encoding="utf-8"))
-        c, f = r["controle"], r["fin"]
-        fixes = [d for d in c["defauts"] if "plan quasi fixe" in d["texte"]]
+        c, f, rf = r["controle"], r["fin"], r.get("refaire") or {}
+        change = moteur_change_depuis(r["commit"])
+        fixes = {langue: d for langue, d in (r.get("plans_fixes") or {}).items() if d}
+        coupure = r["coupure"]["images_avant"] >= 3 and r["coupure"]["jamais_refaites"]
+        refait = rf.get("fin", {}).get("etat") == "finie" and rf.get("controle", {}).get("mesure") and rf.get("image_changee")
+        niveau = {"Bramble (lèvres)": r["etapes"].get("bramble", 0) > 0, "musique": r["etapes"].get("musique", 0) > 0, "une version de langue": len(r["langues"]) >= 2,
+                  "refaire": bool(refait), "arrêt et reprise": coupure, "quitter puis relancer": r["noyau_relance"]["seul"]}
         points += [
-            (f["etat"] == "finie" and "erreur" not in r, f"essai pleine longueur fabriqué en vrai ({r['debut']}, F1 dernière version, session Essais, jamais publié) : "
-                                                         f"{f['etat']}, {f['progression']} morceaux"),
-            (r["coupure"]["images_avant"] >= 3 and r["coupure"]["jamais_refaites"] and r["noyau_relance"]["seul"],
+            (f["etat"] == "finie" and "erreur" not in r and r.get("recette") == "F1 v2" and not r["code_modifie"] and not change,
+             f"essai pleine longueur fabriqué en vrai ({r['debut']}, {r.get('recette')}, commit {r['commit'][:7]}, session Essais, jamais publié) : {f['etat']}, "
+             f"{f['progression']} morceaux" + (f" ; ERREUR : {r['erreur']}" if "erreur" in r else "") + (f" ; MOTEUR CHANGÉ DEPUIS : {change}" if change else "")
+             + (" ; code pas commité pendant l'essai" if r["code_modifie"] else "")),
+            (r.get("duree_video_s", 0) >= DUREE_MIN_S, f"pleine longueur : vidéo de {r.get('duree_video_s', 0) / 60:.1f} min (au moins {DUREE_MIN_S // 60})"),
+            (coupure and r["noyau_relance"]["seul"],
              f"repris après une coupure : exécuteur tué avec {r['coupure']['images_avant']} images faites, "
              f"{'jamais refaites' if r['coupure']['jamais_refaites'] else 'REFAITES'} ; noyau tué puis relancé, l'exécuteur "
              f"{'continue seul' if r['noyau_relance']['seul'] else 'DOUBLÉ OU PERDU'}"),
-            (len(r.get("langues", [])) >= 2, f"une vidéo finie par langue : {', '.join(r.get('langues', [])) or 'aucune'} (« commun » = langue du script)"),
-            (bool(r.get("duree_h")), f"durée réelle d'un épisode mesurée : {r.get('duree_h')} h (étapes : "
-                                     + ", ".join(f"{k} {v / 60:.0f} min" for k, v in r.get("etapes", {}).items()) + ")"),
-            (c["mesure"] and c["note"] is not None, f"analysé : note de Qwen {c['note']}/10, {len(c['defauts'])} défaut(s) minuté(s)"),
-            (not fixes, f"F1 v2 : aucun plan quasi fixe au-delà de plan_fixe_max_s" + (f" — {len(fixes)} trouvé(s) : {fixes[0]['texte']}" if fixes else "")),
-            ((rf := r.get("refaire") or {}).get("fin", {}).get("etat") == "finie" and rf["controle"]["mesure"],
-             f"corrigé par un « refaire » (plan {rf.get('plan')}) : {rf.get('fin', {}).get('etat', 'pas fait')} en {rf.get('duree_h')} h, recontrôlé "
-             f"(note {rf.get('controle', {}).get('note')})"),
+            (len(r["langues"]) >= 2, f"une vidéo finie par langue : {', '.join(r['langues']) or 'aucune'} (« commun » = langue du script)"),
+            (bool(r.get("duree_h")), f"durée réelle d'un épisode mesurée : {r.get('duree_h')} h à l'horloge (attente de la carte et coupure comprises), "
+                                     f"{r.get('calcul_h')} h de calcul (étapes : " + ", ".join(f"{k} {v / 60:.0f} min" for k, v in r["etapes"].items()) + ")"),
+            (c["mesure"] and c["note"] is not None and "analyse" in c.get("controles", []),
+             f"analysé : note de Qwen {c['note']}/10, {len(c['defauts'])} défaut(s) minuté(s) (contrôles : {', '.join(c.get('controles', [])) or 'aucun'})"),
+            (r.get("plans_fixes") is not None and not fixes and "revue" in c.get("controles", []),
+             f"F1 v2 : aucun plan quasi fixe au-delà de plan_fixe_max_s, mesuré sur chaque langue ({', '.join(r.get('plans_fixes') or {}) or 'RIEN DE MESURÉ'})"
+             + "".join(f" — {langue} : {len(d)} trouvé(s), dont {d[0]['texte']} à {d[0]['debut']:.0f} s" for langue, d in fixes.items())),
+            (bool(refait), f"corrigé par un « refaire » du plan {rf.get('plan')} ({(rf.get('defaut') or {}).get('texte', 'aucun défaut minuté sur un plan d’image')}) : "
+                           f"{rf.get('fin', {}).get('etat', 'pas fait')} en {rf.get('duree_h')} h, image {'changée' if rf.get('image_changee') else 'PAS CHANGÉE'}, "
+                           f"recontrôlé (note {rf.get('controle', {}).get('note')}), défauts du plan {' → '.join(map(str, rf.get('defauts_du_plan', [])))}"),
+            (all(niveau.values()), "au moins le niveau des essais du 13/11 : " + ", ".join(f"{k} {'oui' if v else 'NON'}" for k, v in niveau.items())),
         ]
     except (OSError, ValueError, KeyError, TypeError) as x:
         points.append((False, f"essai pleine longueur : pas de rapport complet ({x!r})"))
@@ -252,7 +278,7 @@ def j3(dire, publier: bool = False) -> list[tuple[bool, str]]:
                        env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
     points.append((r.returncode == 0, "tests de F1 et des écrans : code de F1 = moteur de Bramble à quelques lignes comptées près, F1 v2 sans carte, analyse, "
                                       "« je coche, Fabrique refait », import de Bramble, écrans (Accueil, Sessions, Script, Vidéo, Vérification et son lecteur), "
-                                      f"dépôt des discussions — {r.stdout.strip().splitlines()[-1]}"))
+                                      f"dépôt des discussions — {dernier(r)}"))
     return points + moteur(dire) + construction(dire, publier) + bramble_points(avant)
 
 
