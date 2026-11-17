@@ -1,5 +1,6 @@
 """L'API d'une session (noms factices) : scripts et versions, univers, vidéos, santé de la machine ; « Fabriquer » réservé à la fenêtre (RT)."""
 import json
+from pathlib import Path
 from datetime import date, datetime, timezone
 
 import pytest
@@ -69,3 +70,25 @@ def test_machine(monkeypatch):
     monkeypatch.setattr(carte, "bramble", lambda maintenant: "")
     r = Navigateur().get("/api/machine", **entete("fenetre")).json()
     assert r["carte"] == "9 % · 2,3 / 16 Go" and r["carte_prise"] == "" and r["disque_go"] > 0
+
+
+LINT = Path(r"D:\StudioKids\OUTILS\ecriture\lint.py")
+
+
+@pytest.mark.skipif(not LINT.is_file(), reason="lint.py (outil d'écriture du projet) absent de ce PC")
+def test_regles_en_direct_et_nouvelle_version(session):
+    d = settings.SESSIONS / session.dossier / "univers"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "univers.json").write_text(json.dumps({"friends": {}, "places": {}}), encoding="utf-8")
+    n = Navigateur()
+    r = n.post(f"/api/sessions/{session.id}/scripts/s1e01/controler", {"contenu": SCENARIO}, content_type="application/json", **entete("claude"))
+    assert r.status_code == 200 and set(r.json()) == {"erreurs", "avis", "mesures"}, r.content
+    erreurs = r.json()["erreurs"]
+    r = n.post(f"/api/sessions/{session.id}/scripts/s1e01/versions", {"contenu": SCENARIO}, content_type="application/json", **entete("claude"))
+    assert r.status_code == 200 and "version 3 enregistrée" in r.json()["message"]
+    with routeur.session(session):
+        v = m.VersionScript.objects.get(script__code="s1e01", numero=3)
+        assert (v.auteur, v.regles["erreurs"]) == ("claude", erreurs)
+    if erreurs:  # un script factice si court enfreint les règles de longueur : « Fabriquer » refuse
+        r = n.post(f"/api/sessions/{session.id}/scripts/s1e01/fabriquer", **entete("fenetre"))
+        assert r.status_code == 409 and "erreur(s) des règles" in r.json()["detail"]

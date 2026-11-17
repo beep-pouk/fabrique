@@ -7,6 +7,7 @@ from functools import wraps
 from typing import Literal
 
 from django.conf import settings
+from django.utils import timezone
 from django.http import StreamingHttpResponse
 from ninja import NinjaAPI
 from ninja.errors import HttpError
@@ -22,7 +23,7 @@ from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
-    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", *GESTES},
+    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", *GESTES},
     "iphone": {"voir", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -110,6 +111,33 @@ def script_(request, id: str, code: str):
                 "contenu": versions[0].contenu if versions else {}, "regles": versions[0].regles if versions else {}}
 
 
+@api.post("/sessions/{id}/scripts/{code}/controler", response=schemas.Regles)
+@droit("voir")
+def controler(request, id: str, code: str, corps: schemas.Contenu):
+    """Les règles de l'univers sur un script en cours d'écriture (rien n'est enregistré)."""
+    from fabrique.session import regles
+
+    return regles.controler(session_(id), corps.contenu, code)
+
+
+@api.post("/sessions/{id}/scripts/{code}/versions", response=schemas.Message)
+@droit("importer")
+def nouvelle_version(request, id: str, code: str, corps: schemas.Contenu):
+    """Une version de plus du script (rien d'existant n'est touché), avec le résultat des règles ; une erreur des règles bloque « Fabriquer »."""
+    from fabrique.session import regles
+
+    s = session_(id)
+    r = regles.controler(s, corps.contenu, code)
+    with routeur.session(s):
+        sc = m.Script.objects.filter(code=code).first()
+        if sc is None:
+            raise HttpError(404, f"script inconnu : {code}")
+        numero = (sc.versions.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
+        m.VersionScript.objects.create(script=sc, numero=numero, auteur=ACTEURS[request.auth], date=timezone.now(), contenu=corps.contenu, regles=r)
+    noter(ACTEURS[request.auth], "version_script", session=s.id, script=code, numero=numero, erreurs=len(r["erreurs"]))
+    return {"message": f"{code} : version {numero} enregistrée — {len(r['erreurs'])} erreur(s), {len(r['avis'])} avis"}
+
+
 @api.get("/sessions/{id}/univers", response=schemas.Univers)
 @droit("voir")
 def univers(request, id: str):
@@ -140,6 +168,8 @@ def fabriquer(request, id: str, code: str):
         sc = m.Script.objects.filter(code=code).first()
         if sc is None or not (v := sc.versions.order_by("-numero").first()):
             raise Refus(f"le script {code} n'a aucune version à fabriquer")
+        if erreurs := v.regles.get("erreurs"):
+            raise Refus(f"le script {code} a {len(erreurs)} erreur(s) des règles de l'univers (version {v.numero}) : à corriger avant de fabriquer")
         forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
         date = (sc.date_prevue or v.date.date()).isoformat()
     video = execution.preparer(s, recettes.lire(forme), v.contenu, nom=f"{date}-{sc.code}")

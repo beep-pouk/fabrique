@@ -164,6 +164,16 @@ class VideoDetail(BaseModel):
     script: dict
 
 
+class Contenu(BaseModel):
+    contenu: dict  # un script
+
+
+class Regles(BaseModel):
+    erreurs: list[list[str]]  # [code de la règle, texte] ; une erreur bloque « Fabriquer »
+    avis: list[list[str]]
+    mesures: dict
+
+
 class Plans(BaseModel):
     plans: list[int]  # les plans cochés (id de leur première scène)
 
