@@ -3,10 +3,13 @@ supervision. Code de retour 0 si aucun point rouge.
 J1 (plan technique § 7.1) : la construction vérifiée (suite verte, programme assemblé, installateur signé) et la recette d'installation dans le
 bac à sable (installée à côté de Bramble Studio ; fenêtre ouverte, fermée, relancée ; sauvegarde puis restauration ; mise à jour jouée),
 pendant que l'empreinte du dossier « Bramble Studio » et de « DONNEES » est prise avant et après : identique. Bramble Studio qui tourne réécrit
-lui-même son état, sa base et ses journaux : ces fichiers-là sont montrés à part. Outil de développement : jamais livré."""
+lui-même son état, sa base et ses journaux : ces fichiers-là sont montrés à part.
+J2 : le moteur à recettes en vrais processus (moteur()), puis tout J1 (la recette d'installation joue aussi un essai de recette).
+Outil de développement : jamais livré."""
 import argparse
 import fnmatch
 import json
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -26,20 +29,36 @@ def bramble_tourne(studio: Path) -> bool:
     return any(Path(c).name == "Bramble Studio.exe" for c in banc.sous(studio / "Bramble Studio").values())
 
 
-def j1(dire, publier: bool = False) -> list[tuple[bool, str]]:
-    import construire
-
+def bramble_avant(dire) -> tuple:
     studio = garde.studio_bramble() or DEPOT.parents[1]
     lieux = {"Bramble Studio": studio / "Bramble Studio", "DONNEES": studio / "DONNEES"}
     dire(f"empreinte avant : {', '.join(str(d) for d in lieux.values())}")
-    avant, tourne = {n: banc.empreinte(d) for n, d in lieux.items()}, bramble_tourne(studio)
+    return studio, lieux, {n: banc.empreinte(d) for n, d in lieux.items()}, bramble_tourne(studio)
+
+
+def bramble_points(avant: tuple) -> list[tuple[bool, str]]:
+    """Le dossier « Bramble Studio » et « DONNEES » identiques avant et après (hors ce que Bramble Studio, s'il tourne, réécrit lui-même)."""
+    studio, lieux, avant, tourne = avant
+    apres, tourne = {n: banc.empreinte(d) for n, d in lieux.items()}, tourne and bramble_tourne(studio)
+    d = banc.differences(avant["Bramble Studio"], apres["Bramble Studio"])
+    points = [(not d, "dossier « Bramble Studio » identique avant et après" + ("" if not d else " : " + ", ".join(d[:10])))]
+    d = banc.differences(avant["DONNEES"], apres["DONNEES"])
+    siens = [x for x in d if tourne and any(fnmatch.fnmatch(x[2:], m) for m in VIVANTS)]
+    autres = [x for x in d if x not in siens]
+    points.append((not autres, "dossier « DONNEES » identique avant et après" + (f" ({len(siens)} fichier(s) réécrits par Bramble Studio lui-même, qui tourne : "
+                                                                                    f"{', '.join(siens)})" if siens else "") + ("" if not autres else " — AUTRES : " + ", ".join(autres[:10]))))
+    return points
+
+
+def construction(dire, publier: bool) -> list[tuple[bool, str]]:
+    import construire
+
     journal = SORTIE / f"construire_{construire.version()}.log"
     journal.parent.mkdir(parents=True, exist_ok=True)
     dire(f"construction et recette d'installation (journal : {journal})…")
     with open(journal, "w", encoding="utf-8") as sortie:
         r = subprocess.run([sys.executable, str(DEPOT / "outils_dev" / "construire.py"), *(["--publier"] if publier else [])], cwd=DEPOT, stdout=sortie, stderr=subprocess.STDOUT,
                            env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
-    apres, tourne = {n: banc.empreinte(d) for n, d in lieux.items()}, tourne and bramble_tourne(studio)
     points = [(r.returncode == 0, f"construction vérifiée (suite de tests verte, programme assemblé, installateur signé, recette d'installation"
                                   f"{', installateur publié' if publier else ''}) — {journal.name}")]
     try:
@@ -48,25 +67,119 @@ def j1(dire, publier: bool = False) -> list[tuple[bool, str]]:
         points += [(bonne, f"recette d'installation ({preuve['date']}) : {p}") for p in preuve["points"]]
     except (OSError, ValueError, KeyError):
         points.append((False, "recette d'installation : pas de preuve écrite"))
-    d = banc.differences(avant["Bramble Studio"], apres["Bramble Studio"])
-    points.append((not d, "dossier « Bramble Studio » identique avant et après" + ("" if not d else " : " + ", ".join(d[:10]))))
-    d = banc.differences(avant["DONNEES"], apres["DONNEES"])
-    siens = [x for x in d if tourne and any(fnmatch.fnmatch(x[2:], m) for m in VIVANTS)]
-    autres = [x for x in d if x not in siens]
-    points.append((not autres, "dossier « DONNEES » identique avant et après" + (f" ({len(siens)} fichier(s) réécrits par Bramble Studio lui-même, qui tourne : "
-                                                                                    f"{', '.join(siens)})" if siens else "") + ("" if not autres else " — AUTRES : " + ", ".join(autres[:10]))))
     captures = sorted(f.name for f in (DEPOT / "fabrique" / "tests" / "captures").glob("*.png"))
     points.append((len(captures) >= 5, f"captures de référence de la fenêtre comparées par la suite (100 %, 125 %, 150 %, 2560 × 1440) : {', '.join(captures)}"))
     return points
 
 
-JALONS = {"J1": j1}
+def j1(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    avant = bramble_avant(dire)
+    return construction(dire, publier) + bramble_points(avant)
+
+
+SCRIPT = {"titre": "Essai de la recette J2", "scenes": [{"id": f"s{i}", "plans": [{"id": f"p{j}", "texte": f"Texte factice {i}.{j}."} for j in (1, 2)]} for i in (1, 2)]}
+MORCEAUX = 38  # recette d'essai sur 2 scènes de 2 plans, en et fr
+
+
+def moteur(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, sur un dossier temporaire : le noyau et sa file, « moteur » (Claude), l'exécuteur détaché. L'état de Bramble Studio
+    est simulé à côté de la racine (<tmp>\\DONNEES\\etat.json, lu par la garde de la carte comme celui du vrai studio)."""
+    import os
+    import socket
+    import tempfile
+    import time
+
+    from fabrique.fenetre.client import Client
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j2_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+    etat, script = tmp / "DONNEES" / "etat.json", tmp / "script.json"
+    etat.parent.mkdir(parents=True)
+    script.write_text(json.dumps(SCRIPT), encoding="utf-8")
+
+    def bramble(episode: bool):
+        etat.write_text(json.dumps({"heure": datetime.now().isoformat(timespec="minutes"), "mode": "réel", "tache": {"nom": "EPISODE_SIMULE.bat", "episode": episode},
+                                    "episode": {"code": "simulé"} if episode else None}), encoding="utf-8")
+
+    def lancer(*args) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-m", "fabrique", *map(str, args)], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+
+    client = Client("claude", port=port, donnees=racine / "donnees")
+    videos = racine / "sessions" / "essais" / "videos"
+
+    def tache() -> dict:
+        return client.appeler("file")[0]  # la plus récente des actives d'abord : une seule à la fois ici
+
+    def fin(quoi: str) -> dict:
+        return banc.attendre(lambda: (t := tache())["etat"] in ("finie", "erreur") and t, 180, quoi, pas=0.2)
+
+    bramble(True)
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        banc.attendre(client.repond, 60, "le noyau répond")
+        dire("refus quand Bramble Studio fabrique…")
+        r = lancer("moteur", "essai", script)
+        time.sleep(8)  # quatre tours du noyau
+        t = tache()
+        points.append((r.returncode == 0 and "Bramble Studio fabrique" in r.stdout and t["etat"] == "attente" and t["raison"].startswith("Bramble Studio fabrique")
+                       and t["progression"] == f"0/{MORCEAUX}", f"refus quand Bramble Studio fabrique (état simulé) : « moteur » le dit, la tâche attend 8 s sans rien lancer "
+                                                               f"(« {t['raison']} », {t['progression']} morceaux)"))
+        dire("Bramble Studio libre : la recette d'essai de bout en bout…")
+        bramble(False)
+        t0 = time.monotonic()
+        t = fin("la recette d'essai est finie")
+        d = next(videos.iterdir())
+        duree = [json.loads((d / langue / "revue" / "video" / "rapport.json").read_text(encoding="utf-8"))["duree_s"] for langue in ("en", "fr")]
+        points.append((t["etat"] == "finie" and t["progression"] == f"{MORCEAUX}/{MORCEAUX}" and all(abs(x - 4) < 0.2 for x in duree) and not list(d.rglob("*.tmp")),
+                       f"en simulation, la recette d'essai de bout en bout dès la carte libre ({time.monotonic() - t0:.0f} s) : {t['progression']} morceaux (9 étapes, faux outils), "
+                       f"une vidéo par langue contrôlée (en {duree[0]:.1f} s, fr {duree[1]:.1f} s), aucun .tmp{'' if t['etat'] == 'finie' else ' — ' + t['raison']}"))
+        dire("exécuteur tué en plein milieu…")
+        assert lancer("moteur", "essai", script).returncode == 0
+        n = banc.attendre(lambda: (k := int(tache()["progression"].split("/")[0])) >= 6 and k, 60, "six morceaux finis", pas=0.05)
+        d2 = next(v for v in videos.iterdir() if v != d)
+        faits = {f: f.stat().st_mtime_ns for f in d2.rglob("resultat.json")}
+        pid = json.loads((racine / "donnees" / "taches" / "fabrication.json").read_text(encoding="utf-8"))["pid"]
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        t = fin("la vidéo reprise par le noyau est finie")
+        intacts = {f: f.stat().st_mtime_ns for f in faits} == faits
+        points.append((t["etat"] == "finie" and n < MORCEAUX and intacts and len(list(d2.rglob("resultat.json"))) == MORCEAUX and not list(d2.rglob("*.tmp")),
+                       f"exécuteur tué en plein milieu ({n}/{MORCEAUX} morceaux) : le noyau l'a relancé seul, reprise au premier morceau non fini, "
+                       f"les {len(faits)} morceaux déjà faits {'intacts' if intacts else 'REFAITS'}, {t['progression']}, aucun .tmp"))
+        r = lancer("commande", "file")
+        points.append((r.returncode == 0 and len(json.loads(r.stdout)) == 2, "Claude lit la file (« commande file ») : les deux essais finis"))
+    except AssertionError as e:
+        points.append((False, f"moteur en vrais processus : {e}"))
+    finally:
+        lancer("arreter")
+        noyau.kill()
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_moteur.py", "-k", "changer_l_outil or refus_quand_bramble or trois_essais or payant"],
+                       cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests : l'outil par défaut changé par une donnée (réglage du noyau, de la session, du format, du plan) sans que le code change "
+                                      "(empreinte identique) ; refus quand Bramble Studio fabrique, état figé ignoré, carte prise par un autre programme ; trois essais puis "
+                                      f"alerte ; outil payant (plafond à 0 €, une nouvelle tentative, repli) — {r.stdout.strip().splitlines()[-1]}"))
+    shutil.rmtree(tmp, ignore_errors=True)
+    return points
+
+
+def j2(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J2 (plan § 7.1) : le moteur en vrais processus (moteur()), les tests qui le prouvent, puis la construction et la recette d'installation de
+    J1 (avec un essai de recette par le programme installé), Bramble Studio intact du début à la fin."""
+    avant = bramble_avant(dire)
+    return moteur(dire) + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2}
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Recette d'un jalon de Fabrique (outil de développement)")
     p.add_argument("--jalon", required=True, choices=list(JALONS))
-    p.add_argument("--publier", action="store_true", help="la construction pose aussi l'installateur dans <studio>\FABRIQUE\versions")
+    p.add_argument("--publier", action="store_true", help=r"la construction pose aussi l'installateur dans <studio>\FABRIQUE\versions")
     a = p.parse_args(argv)
     debut = datetime.now()
     points = JALONS[a.jalon](lambda t: print(f"[verifier] {t}", flush=True), a.publier)

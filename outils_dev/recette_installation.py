@@ -177,6 +177,16 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         assert list((donnees / "_old").glob("restauration_*/donnees/noyau.sqlite3")), "l'état d'avant la restauration n'est pas gardé"
         point(f"sauvegarde au clic ({nom}), puis restauration : la clé enregistrée après elle a disparu, l'état d'avant est gardé dans donnees\\_old")
 
+        # 6 bis. un essai de recette par le programme installé : « moteur » (Claude) met la vidéo dans la file, le noyau la fait jouer
+        script = bac / "script.json"
+        script.write_text(json.dumps({"titre": "Essai installé", "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Bonjour."}]}]}), encoding="utf-8")
+        r = lancer(exe, "moteur", "essai", script, env=env)
+        assert r.returncode == 0 and "dans la file" in r.stdout, f"moteur : {r.returncode} {r.stdout} {r.stderr}"
+        t = banc.attendre(lambda: next((t for t in client.appeler("file") if t["titre"] == "Essai installé" and t["etat"] in ("finie", "erreur")), None), 180,
+                          f"l'essai est fabriqué ({client.appeler('file')})", pas=1)
+        assert t["etat"] == "finie" and t["progression"] == "15/15", t
+        point(f"essai de recette par le programme installé : « moteur essai » puis le noyau et son exécuteur (Fabrique.exe), faux outils, {t['progression']} morceaux")
+
         # 7. le noyau ne bat plus : la fenêtre le relance
         ancien = int((donnees / "noyau.pid").read_text())
         subprocess.run(["taskkill", "/PID", str(ancien), "/F"], capture_output=True)
