@@ -44,6 +44,8 @@ Window {
     property var coches: []
     property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []})
     property var langues: []
+    property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
+    property var controler: ({erreurs: [], avis: [], mesures: {}})  // les règles du brouillon, rejouées pendant la frappe
     readonly property var etats: ({attente: "en attente", en_cours: "en cours", pause: "en pause", finie: "finie", erreur: "en erreur", annulee: "annulée"})
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
@@ -56,7 +58,9 @@ Window {
     function choisir(id) { session = id; aFabriquer = ""; recharger() }
     function ouvrirVideo(id) { video = {id: id, titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}}; coches = []; ongletVideo = "fabrication"; aller("video") }
     function ouvrirScript(code) { script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []}
-                                  aFabriquer = ""; langues = []; aller("script") }
+                                  aFabriquer = ""; langues = []; brouillon = null; aller("script") }
+    function ecrire() { brouillon = JSON.parse(JSON.stringify(script.contenu)); controler = script.regles }
+    function regles() { return brouillon ? controler : script.regles }
     function basculer(l) { var c = langues.slice(); var i = c.indexOf(l); if (i >= 0) c.splice(i, 1); else c.push(l); langues = c }
     function duree(s) { return s >= 3600 ? (s / 3600).toFixed(1).replace(".", ",") + " h" : Math.max(1, Math.round(s / 60)) + " min" }
     function cocher(n) { var c = coches.slice(); var i = c.indexOf(n); if (i >= 0) c.splice(i, 1); else c.push(n); coches = c }
@@ -419,7 +423,7 @@ Window {
                     spacing: 12
                     Rectangle {
                         objectName: "bouton_fabriquer"
-                        property bool actif: !(script.regles.erreurs || []).length && !script.estimation.refus && script.versions.length > 0
+                        property bool actif: !(script.regles.erreurs || []).length && !script.estimation.refus && script.versions.length > 0 && !brouillon
                         width: tfs.implicitWidth + 32; height: 32; radius: 6; color: actif ? cAccent : cLeve; opacity: actif ? 1 : 0.5
                         T { id: tfs; text: "Fabriquer"; color: parent.actif ? cFond : cSecond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
                         Clic { enabled: parent.actif; onTapped: aFabriquer = script.code }
@@ -432,7 +436,19 @@ Window {
                         color: script.estimation.refus || (script.regles.erreurs || []).length ? cDefaut : cSecond }
                 }
                 Flow {
+                    visible: brouillon !== null
                     width: parent.width; spacing: 8
+                    Bouton { objectName: "enregistrer_version"; texte: "Enregistrer comme nouvelle version"
+                             onClic: { pont.agir("nouvelle_version", {id: session, code: script.code, corps: {contenu: brouillon}}); brouillon = null } }
+                    Bouton { objectName: "abandonner_brouillon"; texte: "Abandonner les changements"; onClic: brouillon = null }
+                    T { text: (controler.erreurs || []).length ? "Les règles signalent " + controler.erreurs.length + " erreur(s) : la version s'enregistre, la fabrication attendra."
+                              : "Les règles sont rejouées pendant la frappe."; color: (controler.erreurs || []).length ? cDefaut : cSecond
+                        wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
+                }
+                Flow {
+                    visible: brouillon === null
+                    width: parent.width; spacing: 8
+                    Bouton { objectName: "modifier_script"; texte: "Modifier le script"; actif: script.versions.length > 0; onClic: ecrire() }
                     Bouton { objectName: "demander_ecrire"; texte: "Demander à Claude une nouvelle version"; onClic: pont.agir("demander", {id: session, code: script.code, corps: {quoi: "ecrire", langue: ""}}) }
                     Repeater {
                         model: univers.langues.filter(l => l.code !== (script.contenu.language || "en"))
@@ -489,9 +505,9 @@ Window {
                     width: Math.min(parent.width - 16, 960); spacing: 12
                     Panneau {
                         titre: "Règles de l'univers"
-                        T { visible: !(script.regles.erreurs || []).length && !(script.regles.avis || []).length; text: "Aucune erreur, aucun avis."; color: cReussi; width: parent.width }
-                        Repeater { model: script.regles.erreurs || []; T { text: "[" + modelData[0] + "] " + modelData[1]; color: cDefaut; width: parent.width } }
-                        Repeater { model: script.regles.avis || []; T { text: "[" + modelData[0] + "] " + modelData[1]; color: cAttention; width: parent.width } }
+                        T { visible: !(regles().erreurs || []).length && !(regles().avis || []).length; text: "Aucune erreur, aucun avis."; color: cReussi; width: parent.width }
+                        Repeater { model: regles().erreurs || []; T { text: "[" + modelData[0] + "] " + modelData[1]; color: cDefaut; width: parent.width } }
+                        Repeater { model: regles().avis || []; T { text: "[" + modelData[0] + "] " + modelData[1]; color: cAttention; width: parent.width } }
                     }
                     Panneau {
                         visible: script.plans.length > 0
@@ -507,6 +523,43 @@ Window {
                         }
                     }
                     Panneau {
+                        visible: brouillon !== null
+                        titre: "Scènes (écriture)"
+                        Timer { id: aControler; interval: 600; onTriggered: pont.lire("controler", {id: session, code: script.code, corps: {contenu: brouillon}}) }
+                        Repeater {
+                            model: brouillon ? brouillon.scenes || [] : []  // le brouillon est changé sur place : la liste n'est pas refaite pendant la frappe
+                            Column {
+                                width: parent.width; spacing: 4
+                                property int scene: index
+                                property string sceneId: modelData.id
+                                Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
+                                Repeater {
+                                    model: ["narration", "image", "motion"].filter(c => c === "narration" || modelData[c] !== undefined)
+                                    Column {
+                                      width: parent.width; spacing: 2
+                                      property string nomChamp: ({narration: "Narration", image: "Image", motion: "Mouvement"})[modelData]
+                                      T { text: parent.nomChamp; color: cSecond; font.pixelSize: 12 }
+                                      Rectangle {
+                                        width: parent.width; height: Math.max(36, champScene.implicitHeight + 12); radius: 6; color: cLeve
+                                        border.width: champScene.activeFocus ? 2 : 1; border.color: champScene.activeFocus ? cSelection : cTrait
+                                        TextEdit {
+                                            id: champScene
+                                            objectName: "champ_" + modelData + "_" + scene
+                                            x: 8; y: 6; width: parent.width - 16; wrapMode: TextEdit.Wrap; selectByMouse: true
+                                            color: cTexte; selectionColor: cSelection; font.family: "Segoe UI Variable"; font.pixelSize: 14
+                                            text: brouillon.scenes[scene][modelData] || ""
+                                            onTextChanged: if (brouillon && brouillon.scenes[scene][modelData] !== text) { brouillon.scenes[scene][modelData] = text; aControler.restart() }
+                                            Accessible.role: Accessible.EditableText
+                                            Accessible.name: parent.parent.nomChamp + " de la scène " + sceneId
+                                        }
+                                      }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Panneau {
+                        visible: brouillon === null
                         titre: "Scènes"
                         Repeater {
                             model: script.contenu.scenes || []

@@ -22,7 +22,7 @@ from pathlib import Path
 DEPOT = Path(__file__).resolve().parents[1]
 SORTIE = DEPOT.parent / "fabrique_construction" / "egalite"
 os.environ["FABRIQUE_RACINE"] = str(SORTIE / "FABRIQUE")
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "fabrique.settings")
+os.environ["DJANGO_SETTINGS_MODULE"] = "fabrique.settings"  # jamais celui de Bramble Studio (config.settings), même lancé depuis lui
 sys.path.insert(0, str(DEPOT))
 
 BRAMBLE = "1.5.6"  # la version d'où F1 est repris (test_f1.ECARTS)

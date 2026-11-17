@@ -55,8 +55,9 @@ class Pont(QObject):
         self.fond.submit(self._lire, nom, dict(params))
 
     def _lire(self, nom: str, params: dict | None = None):
+        params = params or {}
         try:
-            self.recu.emit(nom, self.client.appeler(nom, None, **(params or {})))
+            self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon
         except (OSError, ErreurApi) as e:
             log.warning("lecture %s : %s", nom, e)
 

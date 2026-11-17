@@ -17,7 +17,7 @@ from fabrique.tests.fixes import Transport
 
 CAPTURES = Path(__file__).with_name("captures")
 TOLERANCE = 0.002  # part des octets qui peuvent différer (lissage du texte)
-LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
+LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
 
 
@@ -66,6 +66,20 @@ def test_parcours(qtbot):
     qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/fabriquer", {"langues": ["xx"], "version": 2}) in t.actions)
     clic(f, "traduire_xx")  # une demande à Claude : déposée, la discussion la prend
     qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/demander", {"quoi": "traduire", "langue": "xx"}) in t.actions)
+    clic(f, "modifier_script")  # écrire scène par scène : les règles sont rejouées pendant la frappe, rien n'est enregistré avant le clic
+    assert not element(f, "bouton_fabriquer").property("actif")
+    champ = element(f, "champ_narration_1")
+    champ.forceActiveFocus()
+    QTest.keyClick(f, Qt.Key.Key_End, Qt.KeyboardModifier.ControlModifier)
+    for lettre in " interdit":
+        QTest.keyClick(f, lettre)
+    qtbot.waitUntil(lambda: valeur(f, "controler")["erreurs"] == [["R-1", "mot interdit"]])
+    assert [a for a in t.actions if a[0].endswith("/versions")] == []
+    clic(f, "enregistrer_version")
+    qtbot.waitUntil(lambda: any(chemin.endswith("/versions") for chemin, _ in t.actions))
+    contenu = next(c for chemin, c in t.actions if chemin == "/api/sessions/s1/scripts/s1e01/versions")["contenu"]
+    assert contenu["scenes"][1]["narration"] == "Bonne nuit, petit renard. interdit" and contenu["scenes"][0] == valeur(f, "script")["contenu"]["scenes"][0]
+    assert valeur(f, "brouillon") is None
     clic(f, "retour_scripts")
     clic(f, "onglet_videos")
     clic(f, "video_0")

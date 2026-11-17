@@ -56,5 +56,7 @@ class Transport:
     def __call__(self, methode, chemin, corps=None):
         if methode == "POST":
             self.actions.append((chemin, corps))
+            if chemin.endswith("/controler"):  # les règles d'un brouillon : une erreur si « interdit » y est écrit
+                return {"erreurs": [["R-1", "mot interdit"]] if "interdit" in str(corps) else [], "avis": [], "mesures": {}}
             return {"message": f"fait : {chemin}"}
         return REPONSES[(methode, chemin)]
