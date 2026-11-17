@@ -100,6 +100,7 @@ class Video(models.Model):
     """Une vidéo fabriquée : son script et la recette qui l'a faite (copiés tels quels : une recette changée ensuite ne la touche pas)."""
     id = models.CharField(primary_key=True, max_length=32, default=identifiant, editable=False)
     titre = models.CharField(max_length=200)
+    nom = models.CharField(max_length=100, default="")  # nom de fichier du script (F1 : « <date>-<code> », comme Bramble Studio ; le code dit la saison)
     script = models.JSONField()
     recette = models.JSONField()
     cree = models.DateTimeField(auto_now_add=True)

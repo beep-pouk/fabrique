@@ -17,10 +17,10 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from fabrique.moteur.f1 import copies
-from fabrique.moteur.f1.outils import ComfySimule, Outils, charger
+from fabrique.moteur.f1.outils import ComfySimule, Lieux, Outils, charger
 
 BIREFNET = Path("ComfyUI") / "models" / "background_removal" / "BiRefNet-general.safetensors"  # = calques.BIREFNET, sous ComfyUI (CUI)
-PILOTE = "import sys; sys.path.insert(0, sys.argv[1]); sys.dont_write_bytecode = True; from moteur import anim; anim.principal(*sys.argv[2:])"
+PILOTE = "import sys; sys.path.insert(0, sys.argv[1]); sys.dont_write_bytecode = True; from fabrique.moteur.f1 import anim; anim.principal(*sys.argv[2:])"
 
 
 def installer(racine, cfg: dict, comfy=None, qwen_edit=None):
@@ -31,6 +31,7 @@ def installer(racine, cfg: dict, comfy=None, qwen_edit=None):
         p = sys.modules["production"] = types.ModuleType("production")
         p.remplacant = True
     p.CFG, p.ROOT, p.FFMPEG, p.comfy, p.qwen_edit = cfg, Path(racine), Outils(racine).ffmpeg, comfy, qwen_edit
+    p.UNIVERS = racine.univers()  # Fabrique : l'univers de la session (calques.py le lisait sous ROOT\PROJET\notes)
     sys.dont_write_bytecode = True
     dossier = str(copies.DOSSIER)  # J10 : calques.py et anime_calques.py copiés dans l'app
     if dossier not in sys.path:
@@ -43,7 +44,7 @@ def installer(racine, cfg: dict, comfy=None, qwen_edit=None):
 
 def faire(racine, dossier, data: dict, scenes: list[dict], cfg: dict, comfy=None, log=print):
     """= etape_anim (moteur calques), précédée de durees comme dans production.py (_etapes) : un clip par scène qui n'en a pas (Bramble à part)."""
-    from moteur import images, montage
+    from fabrique.moteur.f1 import images, montage
 
     dossier, o = Path(dossier), Outils(racine)
     montage.Montage(dossier, cfg, o).durees(scenes)
@@ -80,7 +81,7 @@ def faire(racine, dossier, data: dict, scenes: list[dict], cfg: dict, comfy=None
     nb = max(1, min(cfg.get("calques", {}).get("processus", 6), (os.cpu_count() or 4) - 2))  # 2. l'animation de tous les plans en parallèle (processeur)
     t = time.time()
     log(f"anim : {len(travaux)} plan(s) a animer, {nb} processus")
-    with ProcessPoolExecutor(max_workers=nb, initializer=installer, initargs=(str(racine), cfg)) as ex:
+    with ProcessPoolExecutor(max_workers=nb, initializer=installer, initargs=(racine, cfg)) as ex:
         for lignes in ex.map(calques.rendre_plan, travaux):
             for ligne in lignes:
                 log(ligne)
@@ -98,10 +99,10 @@ class SansComfy:
         raise RuntimeError("ComfyUI interdit ici : des calques seraient à refaire (illustration changée depuis les calques ?)")
 
 
-def principal(racine, dossier, scenario, mode="", fausse="", notes=""):
+def principal(studio, session, dossier, scenario, mode="", fausse="", notes=""):
     """Dans le Python de production.py : faire() sur `dossier` et `scenario`, réglages lus sur l'entrée standard. Mode « capture » : ComfyUI simulé
     (consignes notées, sorties = copies de `fausse`) ; « sans_comfy » : ComfyUI interdit ; sinon le vrai (consignes notées). `notes` : consignes et journal."""
-    cfg = json.loads(sys.stdin.read())
+    cfg, racine = json.loads(sys.stdin.read()), Lieux(studio, session)
     data, scenes, _ = charger(Outils(racine), Path(scenario))
     consignes, journal = [], []
     if mode == "capture":
@@ -130,7 +131,7 @@ def lancer(racine, dossier, scenario, cfg: dict, mode: str = "", fausse="", note
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
     sortie = []
     with tempfile.TemporaryFile() as err:  # stderr dans un fichier : jamais de tube plein qui bloquerait la lecture de stdout
-        p = subprocess.Popen([str(Outils(racine).python), "-B", "-c", PILOTE, str(Path(__file__).resolve().parents[1]), str(racine), str(dossier), str(scenario),
+        p = subprocess.Popen([str(Outils(racine).python), "-B", "-c", PILOTE, str(Path(__file__).resolve().parents[3]), str(racine.studio), str(racine.session), str(dossier), str(scenario),
                               mode, str(fausse), str(notes)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True, encoding="utf-8",
                              errors="replace", env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         p.stdin.write(json.dumps(cfg))

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from fabrique.garde import Refus
 from fabrique.moteur import outils
@@ -51,7 +51,7 @@ class Recette(Strict):
     nom: str
     version: int = Field(ge=1)
     reglages: Reglages
-    script: Literal["scenes-plans-narrateur"]
+    script: Literal["scenes-plans-narrateur", "scenario-bramble"]
     etapes: list[Etape] = Field(min_length=1)
     controles: str = ""
     outils: dict[str, str] = {}  # défaut du format : étape → outil
@@ -65,6 +65,8 @@ class Recette(Strict):
             raise ValueError(f"brique inconnue : {', '.join(inconnues)}")
         if etrangeres := set(self.outils) - set(ids):
             raise ValueError(f"outils pour des étapes absentes : {', '.join(sorted(etrangeres))}")
+        if self.script == "scenario-bramble" and any(e.par != "video" for e in self.etapes):
+            raise ValueError("un scénario de Bramble Studio se fabrique par vidéo entière (par: video) : ses étapes font tous les plans d'un coup")
         return self
 
 
@@ -84,6 +86,25 @@ class Script(Strict):
     scenes: list[Scene] = Field(min_length=1)
 
 
+class SceneBramble(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: int
+
+
+class ScenarioBramble(BaseModel):
+    """Un scénario de Bramble Studio (format 2) : contrôlé en entier par OUTILS\\ecriture\\schema.py à chaque étape de F1 ; ici l'essentiel."""
+    model_config = ConfigDict(extra="allow")
+    title: str
+    scenes: list[SceneBramble] = Field(min_length=1)
+
+    @property
+    def titre(self) -> str:
+        return self.title
+
+
+FORMES = {"scenes-plans-narrateur": Script, "scenario-bramble": ScenarioBramble}
+
+
 def recette(donnees: dict) -> Recette:
     if donnees.get("schema") != SCHEMA:
         raise Refus(f"recette refusée : schéma {donnees.get('schema')!r} inconnu (Fabrique lit le schéma {SCHEMA})")
@@ -93,8 +114,10 @@ def recette(donnees: dict) -> Recette:
     return r
 
 
-def script(donnees: dict) -> Script:
-    s = controler(Script, donnees, "script")
+def script(donnees: dict, forme: str = "scenes-plans-narrateur") -> Script | ScenarioBramble:
+    s = controler(FORMES[forme], donnees, "script")
+    if forme != "scenes-plans-narrateur":
+        return s
     ids = [(sc.id, p.id) for sc in s.scenes for p in sc.plans]
     if len(set(ids)) != len(ids) or len({sc.id for sc in s.scenes}) != len(s.scenes):
         raise Refus("script refusé : deux scènes ou deux plans d'une scène ont le même id")

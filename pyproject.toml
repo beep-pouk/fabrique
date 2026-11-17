@@ -8,6 +8,7 @@ dependencies = [
     "django-ninja>=1.4",
     "waitress>=3.0",
     "PySide6-Essentials>=6.12,<6.13",  # LGPL v3 : bibliothèques livrées à part, non modifiées
+    "pillow==13.0.0",  # F1 : celle de Bramble Studio (mêmes pixels pour la miniature et le grain du montage)
 ]
 
 [dependency-groups]

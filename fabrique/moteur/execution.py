@@ -5,6 +5,7 @@ fini. Trois échecs, puis arrêt avec la cause en clair. Outil payant (§ 5.5) :
 départ), vérifiés avant chaque appel ; une seule nouvelle tentative, sinon repli sur l'outil local de la brique, avec une alerte. Chaque
 morceau fini laisse son chrono ; « estimer » en prend la médiane par format, étape et outil."""
 import hashlib
+import json
 import logging
 import shutil
 import time
@@ -30,18 +31,26 @@ class Echec(Exception):
     """Un morceau a épuisé ses essais : la cause en clair."""
 
 
-def preparer(s: Session, recette: dict, script: dict) -> Video:
-    R, S = recettes.recette(recette), recettes.script(script)
+def preparer(s: Session, recette: dict, script: dict, nom: str = "") -> Video:
+    """La vidéo et ses morceaux ; le script aussi en fichier (videos\\<id>\\<nom>.json : les outils de toute une vidéo le lisent)."""
+    R = recettes.recette(recette)
+    S = recettes.script(script, R.script)
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
-        v = Video.objects.create(titre=S.titre, script=script, recette=recette)
+        v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
         morceaux = [Morceau(video=v, etape=e.id, brique=e.brique, unite=unite, langue=langue,
                             outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
                     for e in R.etapes for langue in (R.reglages.langues if e.langue else [""]) for unite, du_plan, _ in recettes.unites(S, e.par)]
         for i, m in enumerate(morceaux):
             m.ordre = i
         Morceau.objects.bulk_create(morceaux)
+    fichier_script(s, v).parent.mkdir(parents=True, exist_ok=True)
+    fichier_script(s, v).write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
     return v
+
+
+def fichier_script(s: Session, v: Video) -> Path:
+    return settings.SESSIONS / s.dossier / "videos" / v.id / f"{v.nom or 'script'}.json"
 
 
 def dossier(s: Session, m: Morceau) -> Path:
@@ -73,7 +82,9 @@ def demande(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: in
     texte = next(t for u, _, t in recettes.unites(S, R.etapes[i].par) if u == m.unite)
     graine = int(hashlib.sha256(f"{v.id}/{m.etape}/{m.unite}/{m.langue}".encode()).hexdigest()[:8], 16)  # stable : refaire donne la même chose
     return outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, texte=texte, entrees=entrees,
-                          sources={e.id: e.brique for e in R.etapes[:i]}, reglages=R.reglages.model_dump(), graine=graine)
+                          sources={e.id: e.brique for e in R.etapes[:i]}, reglages=R.reglages.model_dump(), graine=graine,
+                          session=str(settings.SESSIONS / s.dossier), script=str(fichier_script(s, v)),
+                          atelier=str(settings.SESSIONS / s.dossier / "videos" / v.id / (m.langue or "commun") / "atelier" / (v.nom or "video")))
 
 
 def depense_du_mois(**filtre) -> float:
@@ -169,7 +180,8 @@ def jouer(s: Session, video_id: str, alerter=lambda texte: None, progres=lambda:
     """Joue ce qui reste de la vidéo, étape par étape ; `progres()` après chaque morceau fini ; Echec si un morceau épuise ses essais."""
     with routeur.session(s):
         v = Video.objects.get(id=video_id)
-        R, S = recettes.Recette.model_validate(v.recette), recettes.Script.model_validate(v.script)
+        R = recettes.Recette.model_validate(v.recette)
+        S = recettes.script(v.script, R.script)
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         for i, e in enumerate(R.etapes):
             for m in v.morceaux.filter(etape=e.id).exclude(etat="fini").order_by("ordre"):

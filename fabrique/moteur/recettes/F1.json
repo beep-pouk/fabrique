@@ -1,0 +1,80 @@
+{
+ "schema": 1,
+ "id": "F1",
+ "nom": "Histoire animée longue",
+ "version": 1,
+ "reglages": {
+  "duree_s": [
+   900,
+   1080
+  ],
+  "cadre": "16:9",
+  "langues": [
+   "en"
+  ],
+  "sous_titres": "fichier",
+  "enfants": true,
+  "declaration_ia": true,
+  "plan_fixe_max_s": null
+ },
+ "script": "scenario-bramble",
+ "etapes": [
+  {
+   "id": "voix",
+   "brique": "voix",
+   "par": "video"
+  },
+  {
+   "id": "poses",
+   "brique": "images",
+   "par": "video"
+  },
+  {
+   "id": "images",
+   "brique": "images",
+   "par": "video"
+  },
+  {
+   "id": "anim",
+   "brique": "animation",
+   "par": "video"
+  },
+  {
+   "id": "musique",
+   "brique": "musique",
+   "par": "video"
+  },
+  {
+   "id": "bramble",
+   "brique": "levres",
+   "par": "video"
+  },
+  {
+   "id": "montage",
+   "brique": "montage",
+   "par": "video"
+  },
+  {
+   "id": "miniature",
+   "brique": "miniature",
+   "par": "video"
+  },
+  {
+   "id": "revue",
+   "brique": "controle",
+   "par": "video"
+  }
+ ],
+ "controles": "revue-bramble",
+ "outils": {
+  "voix": "f1_voix",
+  "poses": "f1_poses",
+  "images": "f1_images",
+  "anim": "f1_animation",
+  "musique": "f1_musique",
+  "bramble": "f1_levres",
+  "montage": "f1_montage",
+  "miniature": "f1_miniature",
+  "revue": "f1_revue"
+ }
+}

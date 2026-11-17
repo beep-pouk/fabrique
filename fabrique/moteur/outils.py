@@ -57,6 +57,9 @@ class Demande(Strict):
     sources: dict[str, str] = {}  # étape précédente → sa brique
     reglages: dict = {}  # ceux de la recette
     graine: int = 0
+    session: str = ""  # le dossier de la session (son univers, ses réglages)
+    script: str = ""  # le script de la vidéo, en fichier JSON
+    atelier: str = ""  # le dossier de travail de la vidéo pour cette langue, gardé d'une étape à l'autre (outils qui font toute la vidéo d'un coup)
 
 
 class Resultat(Strict):

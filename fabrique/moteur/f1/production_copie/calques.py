@@ -27,7 +27,7 @@ def especes():
     global _ESP
     if _ESP is None:
         try:
-            u = json.load(open(P.ROOT / "PROJET" / "notes" / "univers.json", encoding="utf-8"))["friends"]
+            u = json.load(open(P.UNIVERS, encoding="utf-8"))["friends"]
             _ESP = {n: v["species"].split("/")[0].strip() for n, v in u.items()}
         except Exception:
             _ESP = {}

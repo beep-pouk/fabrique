@@ -1,7 +1,9 @@
 """Ce que le nouveau moteur (J9) partage avec production.py : les outils du PC (ffmpeg / ffprobe d'OUTILS\\ffmpeg, poses de Bramble, papier,
 police), le lanceur de commandes (chaque commande notée pour les tests d'égalité), les modules d'OUTILS importés en lecture (rien d'écrit, pas de
 __pycache__) et le chargement du scénario (= charger de production.py, avec le vrai schema.py d'OUTILS\\ecriture). Sans Django : importable par le
-Python de production.py."""
+Python de production.py.
+Fabrique (F1) : « racine » est un Lieux : les outils partagés sous le dossier du studio (lus seulement) et le projet (personnages, univers.json,
+textes, règles) dans la session."""
 import hashlib
 import importlib.util
 import json
@@ -10,18 +12,36 @@ import subprocess
 import sys
 from pathlib import Path
 
-_REGISTRE = json.loads((Path(__file__).resolve().parents[1] / "composants.json").read_text(encoding="utf-8"))
+_REGISTRE = json.loads(Path(__file__).with_name("outils_partages.json").read_text(encoding="utf-8"))
 COMPOSANTS = {c["cle"]: c for c in _REGISTRE["composants"]}
-LIVRES = Path(__file__).resolve().parents[3] / "outils"  # <programme>\\outils quand l'app est installée : ffmpeg, polices, uv livrés avec elle
+
+
+class Lieux:
+    """Où F1 lit : `studio` (os.fspath : la « racine » du moteur de Bramble, pour ses outils partagés) et `session` (le projet repris)."""
+
+    def __init__(self, studio, session):
+        self.studio, self.session = Path(studio), Path(session)
+
+    def __fspath__(self) -> str:
+        return str(self.studio)
+
+    def univers(self) -> Path:
+        return self.session / "univers" / "univers.json"
+
+    def personnages(self) -> Path:
+        return self.session / "univers" / "personnages"
+
+    def textes(self) -> Path:
+        return self.session / "moteur" / "production_textes.py"
+
+    def regles(self) -> Path:
+        return self.session / "reglages" / "regles.json"
 
 
 def composant(racine, cle: str, *relatif) -> Path:
-    """Où est un composant du registre (studio/composants.json) sur ce PC, puis `relatif` dedans : sous le dossier du studio, livré avec le
-    programme (sinon dans les outils du studio : dépôt du code), ou absolu. Sans Django : lu aussi par le Python de ComfyUI (moteur/anim.py)."""
+    """Où est un outil partagé (outils_partages.json) sur ce PC, puis `relatif` dedans : sous le dossier du studio, ou absolu. Sans Django : lu
+    aussi par le Python de ComfyUI (anim.py)."""
     c = COMPOSANTS[cle]
-    if c["ou"] == "livre":
-        livre = LIVRES.joinpath(c["chemin"], *relatif)
-        return livre if livre.exists() else Path(racine).joinpath(_REGISTRE["outils_du_studio"], c["chemin"], *relatif)
     return (Path(c["chemin"]) if c["ou"] == "absolu" else Path(racine) / c["chemin"]).joinpath(*relatif)
 
 
@@ -36,11 +56,11 @@ def dans_wsl(cle: str, *relatif: str) -> str:
 
 
 class Outils:
-    def __init__(self, racine: Path):
-        self.racine = Path(racine)
+    def __init__(self, racine: Lieux):
+        self.racine = racine
         exe = lambda nom: str(p) if (p := composant(racine, "ffmpeg", f"{nom}.exe")).is_file() else (shutil.which(nom) or nom)  # noqa: E731 — PATH : tests sous Linux
         self.ffmpeg, self.ffprobe = exe("ffmpeg"), exe("ffprobe")
-        self.poses = self.racine / "PROJET" / "personnages" / "bramble" / "poses"
+        self.poses = racine.personnages() / "bramble" / "poses"
         self.papier = composant(racine, "production", "papier.png")
         self.police = composant(racine, "polices", "Fredoka.ttf")
         self.python = composant(racine, "comfyui", "python_embeded", "python.exe")  # celui des calques (ses numpy, scipy, Pillow)
@@ -60,6 +80,10 @@ class Outils:
 
     def module(self, cle: str, nom: str):
         """<nom>.py du composant `cle` (kit, scripts d'écriture) importé tel quel, sans rien écrire à côté (sys.dont_write_bytecode)."""
+        if (cle, nom) == ("kit", "comfy"):  # Fabrique : le lanceur de ComfyUI repris (comfy.py), son journal chez elle, jamais sous OUTILS
+            from fabrique.moteur.f1 import comfy
+
+            return comfy.pour(self.racine)
         chemin = composant(self.racine, cle, f"{nom}.py")
         spec = importlib.util.spec_from_file_location(f"outils_{cle}_{nom}", chemin)
         m = importlib.util.module_from_spec(spec)

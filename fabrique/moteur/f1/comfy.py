@@ -1,8 +1,21 @@
-"""Pilote ComfyUI (Windows) : demarrage, object_info, envoi d'un workflow API, attente, sorties."""
+"""Pilote ComfyUI (Windows) : demarrage, object_info, envoi d'un workflow API, attente, sorties.
+Fabrique (F1) : repris d'OUTILS\\kit\\comfy.py ; le ComfyUI du studio (outil partagé, un seul serveur), son journal chez Fabrique, PowerShell
+par son chemin et sans console (pour() avant tout usage)."""
 import json, os, subprocess, sys, time, urllib.request, uuid, shutil
-ROOT = r"D:\StudioKids"
-CUI = ROOT + r"\OUTILS\ComfyUI_windows_portable"
+CUI = JOURNAL = None
 URL = "http://127.0.0.1:8188"
+POWERSHELL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+
+
+def pour(lieux):
+    """Le ComfyUI des outils partagés ; le journal dans donnees\\journaux de Fabrique. Rend ce module (comme Outils.module)."""
+    global CUI, JOURNAL
+    from fabrique import dossiers
+    from fabrique.moteur.f1.outils import composant
+
+    CUI, JOURNAL = str(composant(lieux, "comfyui")), dossiers.donnees() / "journaux" / "comfyui.log"
+    return sys.modules[__name__]
+
 
 def get(path):
     with urllib.request.urlopen(URL + path, timeout=30) as r: return json.loads(r.read())
@@ -22,7 +35,7 @@ def start(wait=600):
     if up(): return
     subprocess.Popen([CUI + r"\python_embeded\python.exe", "-s", r"ComfyUI\main.py", "--windows-standalone-build", "--disable-auto-launch"],
                      cwd=CUI, creationflags=subprocess.CREATE_NO_WINDOW,  # J14 : sans fenetre (regle de RT)
-                     stdout=open(ROOT + r"\OUTILS\kit\comfy.log", "ab"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                     stdout=open(JOURNAL, "ab"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     t = time.time()
     while time.time() - t < wait:
         if up(): return
@@ -86,14 +99,10 @@ def stop():
         post("/free", {"unload_models": True, "free_memory": True})
     except Exception:
         pass
-    subprocess.run(["powershell", "-NoProfile", "-Command",
+    subprocess.run([POWERSHELL, "-NoProfile", "-Command",
                     "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*ComfyUI\\main.py*' } "
-                    "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True)
+                    "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
     t = time.time()
     while up() and time.time() - t < 60:
         time.sleep(2)
 
-if __name__ == "__main__":
-    start()
-    json.dump(get("/object_info"), open(os.path.join(os.path.dirname(__file__), "object_info.json"), "w"), indent=0)
-    print("object_info ok")

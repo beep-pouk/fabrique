@@ -78,8 +78,8 @@ def jouer(racine, scenario, etape: str, cfg: dict, dossier=None, ecran=print, fo
     ailleurs (comme production.py) ; une erreur arrête l'étape (exception : « || exit /b 1 » arrête le .bat)."""
     if etape not in ETAPES:
         raise ValueError(f"étape inconnue du nouveau moteur : {etape} (connues : {', '.join(ETAPES)})")
-    racine, scenario = Path(racine), Path(scenario)
-    run = Path(dossier) if dossier else racine / "PROJET" / "rendus" / scenario.stem
+    scenario = Path(scenario)
+    run = Path(dossier)  # Fabrique : toujours l'atelier de la vidéo (jamais PROJET\rendus)
     run.mkdir(parents=True, exist_ok=True)
     verrou = open(run / "en_cours.lock", "a+")  # noqa: SIM115 — gardé ouvert (verrouillé) jusqu'à la fin de l'étape, comme production.py
     def log(*a):  # = log de production.py : heure, console en ASCII (console Windows), journal.txt en UTF-8
@@ -116,10 +116,10 @@ def jouer(racine, scenario, etape: str, cfg: dict, dossier=None, ecran=print, fo
             elif etape == "poses":  # = etape_poses : les poses se font avec Gemini, jamais ici
                 todo = [p for p in sorted({s["bramble"] for s in scenes if s.get("bramble")}) if not (o.poses / f"{p}.png").exists()]
                 if todo:
-                    raise RuntimeError(f"poses de Bramble manquantes : {todo} -> a faire avec Gemini dans PROJET/personnages/bramble/poses/")
+                    raise RuntimeError(f"poses de Bramble manquantes : {todo} -> a faire avec Gemini dans univers/personnages/bramble/poses/ de la session")
                 log("poses : deja faites")
             elif etape == "images":
-                lus = [json.loads(f.read_text(encoding="utf-8")) for f in (composant(racine, "production", "regles.json"), racine / "PROJET" / "notes" / "univers.json")]
+                lus = [json.loads(f.read_text(encoding="utf-8")) for f in (racine.regles(), racine.univers())]
                 im = images.Images(run, cfg, o, lus[0], lus[1], images.constantes_production(racine))
                 im.log = log
                 im.faire(data, scenes, plans)

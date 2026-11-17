@@ -104,7 +104,7 @@ class Images:
 
     def en_hiver(self, n: str, texte: str) -> bool:
         """Vrai si l'image montre l'ami en pelage d'hiver et qu'une reference_hiver.png existe."""
-        if not (self.o.racine / "PROJET" / "personnages" / n.lower() / "reference_hiver.png").exists():
+        if not (self.o.racine.personnages() / n.lower() / "reference_hiver.png").exists():
             return False
         m = re.search(r"s\d+e(\d+)", self.dossier.name)
         if m and n in self.hiver_depuis and int(m.group(1)) >= self.hiver_depuis[n]:
@@ -122,7 +122,7 @@ class Images:
     def refs_pour(self, texte: str, cast: dict) -> list[tuple[str, Path]]:
         r = []
         for n in cast:
-            p = self.o.racine / "PROJET" / "personnages" / n.lower() / ("reference_hiver.png" if self.en_hiver(n, texte) else "reference.png")
+            p = self.o.racine.personnages() / n.lower() / ("reference_hiver.png" if self.en_hiver(n, texte) else "reference.png")
             if re.search(r"\b" + re.escape(n) + r"\b", texte) and p.exists():
                 r.append((n, p))
         return r

@@ -1,0 +1,91 @@
+{
+ "_": "Les outils partagés avec Bramble Studio que F1 lit (repris de son registre studio/composants.json, 1.5.6) : « studio » = sous le dossier du studio, « absolu », « wsl » = dans la distribution Linux. Fabrique ne les modifie jamais.",
+ "wsl_distribution": "Ubuntu-24.04",
+ "composants": [
+  {
+   "cle": "comfyui",
+   "ou": "studio",
+   "chemin": "OUTILS/ComfyUI_windows_portable"
+  },
+  {
+   "cle": "kit",
+   "ou": "studio",
+   "chemin": "OUTILS/kit"
+  },
+  {
+   "cle": "production",
+   "ou": "studio",
+   "chemin": "OUTILS/production"
+  },
+  {
+   "cle": "longcat",
+   "ou": "wsl",
+   "chemin": "/opt/studio/LongCat-Video"
+  },
+  {
+   "cle": "whisper",
+   "ou": "wsl",
+   "chemin": "/opt/studio/LongCat-Video/weights/LongCat-Video-Avatar-1.5/whisper-large-v3"
+  },
+  {
+   "cle": "voxcpm",
+   "ou": "wsl",
+   "chemin": "/opt/studio/voxcpm"
+  },
+  {
+   "cle": "chatterbox",
+   "ou": "studio",
+   "chemin": "OUTILS/chatterbox"
+  },
+  {
+   "cle": "cosyvoice",
+   "ou": "studio",
+   "chemin": "OUTILS/cosyvoice"
+  },
+  {
+   "cle": "qwen_tts",
+   "ou": "studio",
+   "chemin": "OUTILS/qwen_tts"
+  },
+  {
+   "cle": "poids_voix",
+   "ou": "absolu",
+   "chemin": "C:/StudioKids/modeles"
+  },
+  {
+   "cle": "cache_voix",
+   "ou": "studio",
+   "chemin": "OUTILS/cache_huggingface"
+  },
+  {
+   "cle": "cache_voix_linux",
+   "ou": "wsl",
+   "chemin": "/opt/studio/cache_huggingface"
+  },
+  {
+   "cle": "ffmpeg",
+   "ou": "studio",
+   "chemin": "OUTILS/ffmpeg"
+  },
+  {
+   "cle": "polices",
+   "ou": "studio",
+   "chemin": "OUTILS/polices"
+  },
+  {
+   "cle": "ecriture",
+   "ou": "studio",
+   "chemin": "OUTILS/ecriture"
+  },
+  {
+   "cle": "analyse",
+   "ou": "studio",
+   "chemin": "OUTILS/analyse"
+  },
+  {
+   "cle": "cles",
+   "ou": "studio",
+   "chemin": "OUTILS/installation"
+  }
+ ]
+}
