@@ -166,6 +166,11 @@ class VideoDetail(BaseModel):
     script: dict
 
 
+class Demande(BaseModel):
+    quoi: str  # « ecrire » (nouvelle version) ou « traduire »
+    langue: str = ""  # pour une traduction
+
+
 class Contenu(BaseModel):
     contenu: dict  # un script
 

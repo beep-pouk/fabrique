@@ -429,6 +429,15 @@ Window {
                             : "Environ " + duree(script.estimation.secondes) + ", " + String(script.estimation.cout_eur.toFixed(2)).replace(".", ",") + " €"
                         color: script.estimation.refus || (script.regles.erreurs || []).length ? cDefaut : cSecond }
                 }
+                Flow {
+                    width: parent.width; spacing: 8
+                    Bouton { objectName: "demander_ecrire"; texte: "Demander à Claude une nouvelle version"; onClic: pont.agir("demander", {id: session, code: script.code, corps: {quoi: "ecrire", langue: ""}}) }
+                    Repeater {
+                        model: univers.langues.filter(l => l.code !== (script.contenu.language || "en"))
+                        Bouton { objectName: "traduire_" + modelData.code; texte: "Traduire en " + modelData.code
+                                 onClic: pont.agir("demander", {id: session, code: script.code, corps: {quoi: "traduire", langue: modelData.code}}) }
+                    }
+                }
                 Rectangle {
                     visible: aFabriquer !== "" && aFabriquer === script.code
                     width: parent.width; height: confFabriquerScript.implicitHeight + 24; radius: 6; color: cLeve; border.width: 1; border.color: cAccent

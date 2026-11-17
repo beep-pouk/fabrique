@@ -38,6 +38,11 @@ def sessions(r: Path | None = None) -> Path:
     return (r or racine()) / "sessions"
 
 
+def depot(r: Path | None = None) -> Path:
+    """Demandes des discussions Claude (*.json, accusés dans faits\\) ; a_ecrire\\ et a_traduire\\ : ce que RT leur demande."""
+    return (r or racine()) / "depot"
+
+
 def versions(r: Path | None = None) -> Path:
     """Installateurs prêts et versions.json, posés par outils_dev\\construire.py --publier."""
     return (r or racine()) / "versions"

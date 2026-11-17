@@ -67,3 +67,23 @@ def controler(s: Session, contenu: dict, code: str = "") -> dict:
     except Exception as e:  # noqa: BLE001
         raise Indisponible(f"lint.py a planté : {type(e).__name__} : {e}") from e
     return {"erreurs": [[c, t] for c, t in erreurs], "avis": [[c, t] for c, t in avis], "mesures": dict(mesures)}
+
+
+def enregistrer(s: Session, code: str, contenu: dict, acteur: str) -> str:
+    """Une version de plus du script (rien d'existant n'est touché), avec le résultat des règles ; une erreur des règles bloque « Fabriquer »."""
+    from django.utils import timezone
+
+    from fabrique.noyau.models import noter
+
+    r = controler(s, contenu, code)
+    with routeur.session(s):
+        sc = m.Script.objects.filter(code=code).first()
+        if sc is None and "." in code and (base := m.Script.objects.filter(code=code.split(".")[0]).first()):  # une traduction : « s1e05.fr »
+            sc = m.Script.objects.create(code=code, titre=contenu.get("title") or base.titre, langue=code.split(".", 1)[1], statut="traduction",
+                                         date_prevue=base.date_prevue)
+        if sc is None:
+            raise Refus(f"script inconnu : {code}")
+        numero = (sc.versions.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
+        m.VersionScript.objects.create(script=sc, numero=numero, auteur=acteur, date=timezone.now(), contenu=contenu, regles=r)
+    noter(acteur, "version_script", session=s.id, script=code, numero=numero, erreurs=len(r["erreurs"]))
+    return f"{code} : version {numero} enregistrée — {len(r['erreurs'])} erreur(s), {len(r['avis'])} avis"

@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     role = args[0] if args and args[0] in SOUS_COMMANDES else "fenetre"
     try:
-        for d in (dossiers.donnees(), dossiers.sessions(), dossiers.versions()):
+        for d in (dossiers.donnees(), dossiers.sessions(), dossiers.versions(), dossiers.depot()):
             garde.verifier(d)  # avant toute écriture
     except garde.Refus as e:
         programme.SANS_CONSOLE = sys.stdout is None

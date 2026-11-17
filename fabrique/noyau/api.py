@@ -7,7 +7,6 @@ from functools import wraps
 from typing import Literal
 
 from django.conf import settings
-from django.utils import timezone
 from django.http import StreamingHttpResponse
 from ninja import NinjaAPI
 from ninja.errors import HttpError
@@ -23,7 +22,7 @@ from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
-    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", *GESTES},
+    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", *GESTES},
     "iphone": {"voir", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -140,16 +139,16 @@ def nouvelle_version(request, id: str, code: str, corps: schemas.Contenu):
     """Une version de plus du script (rien d'existant n'est touché), avec le résultat des règles ; une erreur des règles bloque « Fabriquer »."""
     from fabrique.session import regles
 
-    s = session_(id)
-    r = regles.controler(s, corps.contenu, code)
-    with routeur.session(s):
-        sc = m.Script.objects.filter(code=code).first()
-        if sc is None:
-            raise HttpError(404, f"script inconnu : {code}")
-        numero = (sc.versions.order_by("-numero").values_list("numero", flat=True).first() or 0) + 1
-        m.VersionScript.objects.create(script=sc, numero=numero, auteur=ACTEURS[request.auth], date=timezone.now(), contenu=corps.contenu, regles=r)
-    noter(ACTEURS[request.auth], "version_script", session=s.id, script=code, numero=numero, erreurs=len(r["erreurs"]))
-    return {"message": f"{code} : version {numero} enregistrée — {len(r['erreurs'])} erreur(s), {len(r['avis'])} avis"}
+    return {"message": regles.enregistrer(session_(id), code, corps.contenu, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/scripts/{code}/demander", response=schemas.Message)
+@droit("demander")
+def demander(request, id: str, code: str, corps: schemas.Demande):
+    """RT demande à Claude d'écrire une nouvelle version du script, ou de le traduire : une demande dans le dépôt, que la discussion prend."""
+    from fabrique.noyau import depot
+
+    return {"message": depot.demander(session_(id), code, corps.quoi, corps.langue, ACTEURS[request.auth])}
 
 
 @api.get("/sessions/{id}/univers", response=schemas.Univers)

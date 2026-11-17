@@ -12,7 +12,7 @@ from django.db import connections
 
 from fabrique import dossiers, programme
 from fabrique.moteur import file
-from fabrique.noyau import bases, etat, evenements, jetons, sauvegarde, taches
+from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
 from fabrique.noyau.models import Parametre, noter
 
 log = logging.getLogger(__name__)
@@ -32,10 +32,11 @@ def quitter_bientot(delai: float = 0.5):
 def tour(vu: dict, maintenant: datetime) -> dict:
     """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
     la tâche suivante lancée si la carte est libre (moteur/file.py)."""
-    try:  # une file en panne n'arrête ni l'état ni la sauvegarde du soir
+    try:  # une file ou un dépôt en panne n'arrêtent ni l'état ni la sauvegarde du soir
+        depot.traiter()
         file.tour()
     except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
-        log.exception("file : tour raté")
+        log.exception("dépôt ou file : tour raté")
     s, f = taches.lire("sauvegarde"), file.lister()
     change = s != vu.get("sauvegarde") or f != vu.get("file")
     if "sauvegarde" in vu:
