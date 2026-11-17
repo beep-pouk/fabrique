@@ -3,7 +3,7 @@ installateur D'ESSAI (« Fabrique (bac à sable) » : autre identifiant, autre i
 dans le dossier de construction : refus d'un dossier non vide et d'un dossier de studio ; installation silencieuse ; ce que Windows en voit
 (Applications installées, menu Démarrer, bureau, démarrage, signatures) ; lancement comme un clic, rien sur le chemin ; la fenêtre démarre le
 noyau ; sauvegarde du soir rattrapée ; contrôles du banc (programme fenêtré, sans droits d'administrateur, aucune bibliothèque hors du
-programme et de Windows) ; fenêtre fermée, revenue au 2e lancement, quittée, relancée ; sauvegarde au clic puis restauration ; noyau tué puis
+programme et de Windows) ; fenêtre fermée, revenue au 2e lancement, quittée, relancée ; sauvegarde au clic puis restauration ; essai de recette ; lecteur vidéo ; noyau tué puis
 relancé par la fenêtre ; programme jamais écrit ; mise à jour vers une version factice par « Mettre à jour » ; arrêt ; désinstallation : il ne
 reste que les données. Aucune console ; chaque processus s'appelle Fabrique.exe. Outil de développement (Windows) : jamais livré."""
 import json
@@ -31,6 +31,19 @@ GARDES = ("SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "USERPROFILE", "
 
 BRAMBLE = {"DJANGO_SETTINGS_MODULE": "config.settings", "PYTHONPATH": r"C:\absent\studio", "PYTHONHOME": r"C:\absent\runtime", "VIRTUAL_ENV": r"C:\absent\.venv"}
 # ce qu'un processus de Bramble Studio (ou la supervision lancée par lui) transmet à Fabrique : 17/11, noyau mort au démarrage chez RT
+LECTURE = """import os, sys
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtMultimedia import QMediaPlayer
+app = QGuiApplication([])
+p = QMediaPlayer()
+p.durationChanged.connect(lambda d: d > 0 and app.quit())
+QTimer.singleShot(20000, app.quit)
+p.setSource(QUrl.fromLocalFile(sys.argv[1]))
+app.exec()
+print(p.duration())
+"""  # le lecteur de Vérification dans le Python installé : un module de Qt retiré à tort par la construction se verrait ici
 
 
 def env_reduit() -> dict:
@@ -191,6 +204,13 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
                           f"l'essai est fabriqué ({client.appeler('file')})", pas=1)
         assert t["etat"] == "finie" and t["progression"] == "15/15", t
         point(f"essai de recette par le programme installé : « moteur essai » puis le noyau et son exécuteur (Fabrique.exe), faux outils, {t['progression']} morceaux")
+        from fabrique.moteur import faux
+
+        film = bac / "lecture.mp4"
+        lancer(faux.programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:d=6:r=25", "-pix_fmt", "yuv420p", film, creationflags=subprocess.CREATE_NO_WINDOW)
+        r = lancer(prog / "runtime" / "python.exe", "-c", LECTURE, film, env=env, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+        assert r.stdout.strip().isdigit() and int(r.stdout.strip()) > 5000, f"le Python installé ne lit pas une vidéo : {r.stdout} {r.stderr[-800:]}"
+        point(f"le lecteur de Vérification marche dans le programme installé (Qt Multimedia et son FFmpeg : vidéo d'essai de {int(r.stdout) / 1000:.1f} s lue)")
 
         # 7. le noyau ne bat plus : la fenêtre le relance
         ancien = int((donnees / "noyau.pid").read_text())
