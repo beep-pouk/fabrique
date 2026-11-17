@@ -61,8 +61,9 @@ def test_parcours(qtbot):
     qtbot.waitUntil(lambda: len(valeur(f, "script")["plans"]) == 2)
     clic(f, "bouton_fabriquer")
     assert f.property("aFabriquer") == "s1e01"
+    clic(f, "langue_xx")  # aussi en « xx » (sa traduction existe)
     clic(f, "confirmer_fabriquer")  # geste de RT : confirmé
-    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/fabriquer", None) in t.actions)
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/fabriquer", {"langues": ["xx"]}) in t.actions)
     clic(f, "traduire_xx")  # une demande à Claude : déposée, la discussion la prend
     qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/demander", {"quoi": "traduire", "langue": "xx"}) in t.actions)
     clic(f, "retour_scripts")

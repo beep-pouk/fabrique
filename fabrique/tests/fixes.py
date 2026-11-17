@@ -36,7 +36,7 @@ REPONSES = {
                                                            {"id": 2, "narration": "Bonne nuit, petit renard.", "bramble": "accueil"}]},
         "regles": {"erreurs": [], "avis": [["S-12", "une phrase un peu longue en scène 1"]], "mesures": {}},
         "plans": [{"n": 1, "image": "A small fox sleeps under a fern.", "scenes": [1], "bramble": False}, {"n": 2, "image": "", "scenes": [2], "bramble": True}],
-        "estimation": {"secondes": 41400.0, "cout_eur": 0.0, "carte_go": 16}},
+        "estimation": {"secondes": 41400.0, "cout_eur": 0.0, "carte_go": 16}, "traductions": ["xx"]},
     ("GET", "/api/sessions/s1/univers"): {"personnages": [{"nom": "Ami Un", "role": "ami", "statut": "actif", "references": 12}],
                                           "lieux": [{"nom": "La clairière", "description": "calme"}],
                                           "langues": [{"code": "en", "nom": "Anglais", "outil_voix": "", "voix_validee": True},

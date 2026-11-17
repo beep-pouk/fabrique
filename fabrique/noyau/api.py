@@ -112,6 +112,7 @@ def script_(request, id: str, code: str):
             raise HttpError(404, f"script inconnu : {code}")
         versions = list(sc.versions.order_by("-numero"))
         forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
+        traductions = sorted(t.code.split(".", 1)[1] for t in m.Script.objects.filter(code__startswith=f"{code}.") if t.versions.exists())
     contenu = versions[0].contenu if versions else {}
     try:
         recette = recettes.lire(forme)
@@ -121,7 +122,7 @@ def script_(request, id: str, code: str):
     plans = f1.planche(contenu) if recette.get("script") == "scenario-bramble" else []
     return {"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""),
             "versions": [{"numero": v.numero, "auteur": v.auteur, "date": v.date.isoformat(timespec="minutes"), "validee": v.validee} for v in versions],
-            "contenu": contenu, "regles": versions[0].regles if versions else {}, "plans": plans, "estimation": estimation}
+            "contenu": contenu, "regles": versions[0].regles if versions else {}, "plans": plans, "estimation": estimation, "traductions": traductions}
 
 
 @api.post("/sessions/{id}/scripts/{code}/controler", response=schemas.Regles)

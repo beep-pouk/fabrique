@@ -103,6 +103,7 @@ class ScriptDetail(BaseModel):
     regles: dict  # le résultat des règles de la plus récente
     plans: list["PlanVideo"]  # la planche : les plans qui seront fabriqués (F1)
     estimation: dict  # secondes, cout_eur, carte_go de sa fabrication au format de la session ; « refus » si le format ne peut pas le lire
+    traductions: list[str]  # les langues où il est traduit : à choisir avant « Fabriquer »
 
 
 class Personnage(BaseModel):

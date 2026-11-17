@@ -42,7 +42,8 @@ Window {
     property var video: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}})
     property string ongletVideo: "fabrication"
     property var coches: []
-    property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}})
+    property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []})
+    property var langues: []
     readonly property var etats: ({attente: "en attente", en_cours: "en cours", pause: "en pause", finie: "finie", erreur: "en erreur", annulee: "annulée"})
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
@@ -54,8 +55,9 @@ Window {
     }
     function choisir(id) { session = id; aFabriquer = ""; recharger() }
     function ouvrirVideo(id) { video = {id: id, titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}}; coches = []; ongletVideo = "fabrication"; aller("video") }
-    function ouvrirScript(code) { script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}}
-                                  aFabriquer = ""; aller("script") }
+    function ouvrirScript(code) { script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []}
+                                  aFabriquer = ""; langues = []; aller("script") }
+    function basculer(l) { var c = langues.slice(); var i = c.indexOf(l); if (i >= 0) c.splice(i, 1); else c.push(l); langues = c }
     function duree(s) { return s >= 3600 ? (s / 3600).toFixed(1).replace(".", ",") + " h" : Math.max(1, Math.round(s / 60)) + " min" }
     function cocher(n) { var c = coches.slice(); var i = c.indexOf(n); if (i >= 0) c.splice(i, 1); else c.push(n); coches = c }
     function aller(e) { if (e !== "") ecran = e; recharger() }
@@ -446,15 +448,32 @@ Window {
                         x: 12; y: 12; width: parent.width - 24; spacing: 12
                         T { text: "Fabriquer « " + script.titre + " » (environ " + duree(script.estimation.secondes) + ") ? La vidéo entre dans la file ; elle part quand la carte est libre."
                             width: parent.width }
+                        Flow {
+                            visible: script.traductions.length > 0
+                            width: parent.width; spacing: 8
+                            T { text: "Aussi en :"; color: cSecond; wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
+                            Repeater {
+                                model: script.traductions
+                                Rectangle {
+                                    objectName: "langue_" + modelData
+                                    width: tl.implicitWidth + 24; height: 32; radius: 6
+                                    color: langues.indexOf(modelData) >= 0 ? cTrait : "transparent"; border.width: 1; border.color: langues.indexOf(modelData) >= 0 ? cSelection : cTrait
+                                    T { id: tl; text: modelData; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+                                    Clic { onTapped: basculer(modelData) }
+                                    Accessible.role: Accessible.CheckBox; Accessible.name: "Langue " + modelData; Accessible.checked: langues.indexOf(modelData) >= 0
+                                    Accessible.onPressAction: basculer(modelData)
+                                }
+                            }
+                        }
                         Row {
                             spacing: 8
                             Rectangle {
                                 objectName: "confirmer_fabriquer"
                                 width: tcf.implicitWidth + 32; height: 32; radius: 6; color: cAccent
                                 T { id: tcf; text: "Fabriquer"; color: cFond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
-                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" } }
+                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer, corps: {langues: langues}}); aFabriquer = "" } }
                                 Accessible.role: Accessible.Button; Accessible.name: "Confirmer : fabriquer " + script.titre
-                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer}); aFabriquer = "" }
+                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer, corps: {langues: langues}}); aFabriquer = "" }
                             }
                             Bouton { texte: "Annuler"; onClic: aFabriquer = "" }
                         }
