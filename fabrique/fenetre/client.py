@@ -29,6 +29,12 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "enregistrer_cle": ("POST", "/api/cles/{nom}", s.Message),
     "arreter": ("POST", "/api/arreter", s.Message),
     "file": ("GET", "/api/file", list[s.TacheFile]),
+    "machine": ("GET", "/api/machine", s.Machine),
+    "scripts": ("GET", "/api/sessions/{id}/scripts", list[s.Script]),
+    "script": ("GET", "/api/sessions/{id}/scripts/{code}", s.ScriptDetail),
+    "univers": ("GET", "/api/sessions/{id}/univers", s.Univers),
+    "videos": ("GET", "/api/sessions/{id}/videos", list[s.VideoListe]),
+    "fabriquer": ("POST", "/api/sessions/{id}/scripts/{code}/fabriquer", s.Message),
     "agir_file": ("POST", "/api/file/{id}/{action}", s.Message),
 }
 

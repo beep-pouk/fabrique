@@ -2,6 +2,7 @@
 chaque route déclare son droit (@droit) ; les trois gestes (fabriquer, approuver, publier) n'existent que pour la fenêtre et l'iPhone, au clic
 de RT. Aucune règle dans la fenêtre : tout ce qu'elle montre et fait passe par ici."""
 import os
+import shutil
 from functools import wraps
 from typing import Literal
 
@@ -16,6 +17,7 @@ from fabrique.garde import Refus
 from fabrique.moteur import file
 from fabrique.noyau import cles, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, versions
 from fabrique.noyau.models import Session, noter
+from fabrique.session import models as m
 from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
@@ -74,12 +76,86 @@ def sessions(request):
 @api.get("/sessions/{id}", response=schemas.Fiche)
 @droit("voir")
 def fiche(request, id: str):
-    s = Session.objects.filter(id=id).first()
-    if s is None:
-        raise HttpError(404, f"session inconnue : {id}")
+    s = session_(id)
     with routeur.session(s):
         f = Fiche.objects.get(id=s.id)
     return {"id": f.id, "nom": f.nom}
+
+
+def session_(id: str) -> Session:
+    s = Session.objects.filter(id=id).first()
+    if s is None:
+        raise HttpError(404, f"session inconnue : {id}")
+    return s
+
+
+@api.get("/sessions/{id}/scripts", response=list[schemas.Script])
+@droit("voir")
+def scripts(request, id: str):
+    with routeur.session(session_(id)):
+        return [{"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""), "versions": sc.versions.count(),
+                 "validee": bool((v := sc.versions.order_by("-numero").first()) and v.validee)} for sc in m.Script.objects.order_by("date_prevue", "code")]
+
+
+@api.get("/sessions/{id}/scripts/{code}", response=schemas.ScriptDetail)
+@droit("voir")
+def script_(request, id: str, code: str):
+    with routeur.session(session_(id)):
+        sc = m.Script.objects.filter(code=code).first()
+        if sc is None:
+            raise HttpError(404, f"script inconnu : {code}")
+        versions = list(sc.versions.order_by("-numero"))
+        return {"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""),
+                "versions": [{"numero": v.numero, "auteur": v.auteur, "date": v.date.isoformat(timespec="minutes"), "validee": v.validee} for v in versions],
+                "contenu": versions[0].contenu if versions else {}, "regles": versions[0].regles if versions else {}}
+
+
+@api.get("/sessions/{id}/univers", response=schemas.Univers)
+@droit("voir")
+def univers(request, id: str):
+    with routeur.session(session_(id)):
+        return {"personnages": [{"nom": p.nom, "role": p.role, "statut": p.statut, "references": p.references.count()} for p in m.Personnage.objects.order_by("nom", "id")],
+                "lieux": [{"nom": l.nom, "description": l.description} for l in m.Lieu.objects.order_by("nom")],
+                "langues": [{"code": l.code, "nom": l.nom, "outil_voix": l.outil_voix, "voix_validee": l.voix_validee} for l in m.Langue.objects.order_by("ordre", "code")]}
+
+
+@api.get("/sessions/{id}/videos", response=list[schemas.VideoListe])
+@droit("voir")
+def videos(request, id: str):
+    with routeur.session(session_(id)):
+        return [{"id": v.id, "titre": v.titre, "nom": v.nom, "recette": f"{v.recette.get('id')} v{v.recette.get('version')}",
+                 "progression": f"{v.morceaux.filter(etat='fini').count()}/{v.morceaux.count()}", "erreurs": v.morceaux.filter(etat="erreur").count()}
+                for v in m.Video.objects.order_by("-cree")]
+
+
+@api.post("/sessions/{id}/scripts/{code}/fabriquer", response=schemas.Message)
+@droit("fabriquer")
+def fabriquer(request, id: str, code: str):
+    """Geste de RT : la vidéo du script (dernière version) découpée selon le format de la session (réglage « format », F1 par défaut), mise
+    dans la file."""
+    from fabrique.moteur import execution, file, recettes
+
+    s = session_(id)
+    with routeur.session(s):
+        sc = m.Script.objects.filter(code=code).first()
+        if sc is None or not (v := sc.versions.order_by("-numero").first()):
+            raise Refus(f"le script {code} n'a aucune version à fabriquer")
+        forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
+        date = (sc.date_prevue or v.date.date()).isoformat()
+    video = execution.preparer(s, recettes.lire(forme), v.contenu, nom=f"{date}-{sc.code}")
+    t = file.mettre(s, video.id, video.titre, ACTEURS[request.auth])
+    e = execution.estimer(s, video.id)
+    return {"message": f"« {video.titre} » dans la file (tâche {t.id}) : environ {round(e['secondes'] / 3600, 1)} h".replace(".", ",") + f", {execution.euros(e['cout_eur'])}"}
+
+
+@api.get("/machine", response=schemas.Machine)
+@droit("voir")
+def machine(request):
+    from fabrique.moteur import carte
+
+    g = carte.gpu()
+    return {"carte": f"{g[0]:.0f} % · {g[1] / 1024:.1f} / {g[2] / 1024:.0f} Go".replace(".", ",") if g else "indisponible",
+            "disque_go": round(shutil.disk_usage(settings.RACINE).free / 1e9), "carte_prise": carte.occupee()}
 
 
 @api.get("/evenements", openapi_extra={"responses": {200: {"description": "flux text/event-stream"}}})

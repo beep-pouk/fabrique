@@ -77,6 +77,72 @@ class Valeur(BaseModel):
     valeur: str
 
 
+class Script(BaseModel):
+    code: str
+    titre: str
+    statut: str
+    date_prevue: str  # AAAA-MM-JJ, vide : pas encore au calendrier
+    versions: int
+    validee: bool  # la dernière version est validée
+
+
+class VersionScript(BaseModel):
+    numero: int
+    auteur: str
+    date: str
+    validee: bool
+
+
+class ScriptDetail(BaseModel):
+    code: str
+    titre: str
+    statut: str
+    date_prevue: str
+    versions: list[VersionScript]  # la plus récente d'abord
+    contenu: dict  # celui de la plus récente
+    regles: dict  # le résultat des règles de la plus récente
+
+
+class Personnage(BaseModel):
+    nom: str
+    role: str
+    statut: str
+    references: int
+
+
+class Lieu(BaseModel):
+    nom: str
+    description: str
+
+
+class Langue(BaseModel):
+    code: str
+    nom: str
+    outil_voix: str
+    voix_validee: bool
+
+
+class Univers(BaseModel):
+    personnages: list[Personnage]
+    lieux: list[Lieu]
+    langues: list[Langue]
+
+
+class VideoListe(BaseModel):
+    id: str
+    titre: str
+    nom: str
+    recette: str  # « F1 v1 »
+    progression: str  # morceaux finis / tous
+    erreurs: int
+
+
+class Machine(BaseModel):
+    carte: str  # « 9 % · 2,3 / 16 Go », ou « indisponible »
+    disque_go: int
+    carte_prise: str  # vide : une fabrication peut partir
+
+
 class TacheFile(BaseModel):
     id: int
     titre: str
