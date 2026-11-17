@@ -78,7 +78,7 @@ def jouer(racine, scenario, etape: str, cfg: dict, dossier=None, ecran=print, fo
     ailleurs (comme production.py) ; une erreur arrête l'étape (exception : « || exit /b 1 » arrête le .bat)."""
     if etape not in ETAPES:
         raise ValueError(f"étape inconnue du nouveau moteur : {etape} (connues : {', '.join(ETAPES)})")
-    scenario = Path(scenario)
+    scenario, cfg = Path(scenario), racine.config(cfg)  # Fabrique : la voix de référence de la session
     run = Path(dossier)  # Fabrique : toujours l'atelier de la vidéo (jamais PROJET\rendus)
     run.mkdir(parents=True, exist_ok=True)
     verrou = open(run / "en_cours.lock", "a+")  # noqa: SIM115 — gardé ouvert (verrouillé) jusqu'à la fin de l'étape, comme production.py

@@ -85,9 +85,11 @@ def test_prise_f1_lie_les_sorties_de_l_etape(essais, tmp_path, monkeypatch):
 
 BRAMBLE = Path(r"D:\StudioKids\OUTILS\app\studio\moteur")  # le code de Bramble Studio (lu seulement), sur le PC
 ECARTS = {  # fichier → (lignes retirées, ajoutées) face à Bramble Studio, importations mises à part ; tout le reste est son code, à l'identique
-    "__init__.py": (0, 2), "anim.py": (5, 6), "copies.py": (39, 5), "etape.py": (4, 4), "images.py": (2, 2), "outils.py": (11, 35),
+    "__init__.py": (0, 2), "anim.py": (5, 6), "copies.py": (39, 5), "etape.py": (4, 4), "images.py": (2, 2), "outils.py": (11, 46), "langue.py": (9, 8),
     "production_copie/calques.py": (1, 1), "bramble.py": (0, 0), "montage.py": (0, 0), "musique.py": (0, 0), "voix.py": (0, 0),
     "production_copie/anime_calques.py": (0, 0), "production_copie/lipsync_batch.py": (0, 0), "production_copie/offload.py": (0, 0),
+    "langue_texte.py": (0, 0), "tts_chatterbox_mtl.py": (0, 0), "tts_cosyvoice3.py": (0, 0), "tts_qwen.py": (0, 0), "tts_voxcpm_wsl.py": (0, 0),
+    "vc_chatterbox.py": (0, 0), "whisper_langue_wsl.py": (0, 0),
 }
 
 
@@ -111,7 +113,7 @@ def test_le_moteur_f1_ne_lit_plus_rien_de_bramble():
     for f in (Path(adaptateur.__file__).parent).rglob("*.py"):
         texte = f.read_text(encoding="utf-8")
         code = "\n".join(l for l in texte.splitlines() if not l.lstrip().startswith("#"))
-        assert '"PROJET"' not in code and "DATA_DIR" not in code and "django" not in code, f
+        assert code.count('"PROJET"') == (f.name == "outils.py") and "DATA_DIR" not in code and "django" not in code, f  # outils.py : Lieux.config, qui le traduit en session
     assert garde.PROTEGES  # la garde reste celle de Fabrique : rien n'est écrit sous Bramble Studio
 
 
@@ -181,3 +183,12 @@ def test_je_coche_fabrique_refait(essais):
     execution.jouer(essais, v.id)
     with routeur.session(essais):
         assert {m.etat for m in Morceau.objects.filter(video=v)} == {"fini"}
+
+
+def test_la_voix_de_reference_est_celle_de_la_session(tmp_path):
+    from fabrique.moteur.f1.outils import Lieux
+
+    lieux = Lieux(tmp_path / "STUDIO", tmp_path / "session")
+    cfg = {"voix": {"ref_audio": str(tmp_path / "STUDIO" / "PROJET" / "voix" / "narrateur.wav"), "cfg": 0.5}, "style": "x"}
+    assert lieux.config(cfg) == {"voix": {"ref_audio": str(tmp_path / "session" / "univers" / "voix" / "narrateur.wav"), "cfg": 0.5}, "style": "x"}
+    assert lieux.config({"voix": {"ref_audio": "C:/ailleurs/voix.wav"}}) == {"voix": {"ref_audio": "C:/ailleurs/voix.wav"}}  # hors du projet : tel quel

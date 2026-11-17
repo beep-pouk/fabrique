@@ -5,7 +5,8 @@ DANS la langue (copie whisper_langue_wsl.py ; score normalisé par écriture), B
 morceaux anglais recalés à la nouvelle durée, fondu final sur la dernière phrase), montage (durées de la voix : plans ralentis par setpts comme
 l'anglais, jamais d'image figée au-delà), miniature au titre traduit (police libre de la langue ; texte composé par ffmpeg : harfbuzz + fribidi,
 arabe lié et de droite à gauche), sous-titres (final/sous_titres.srt), textes YouTube traduits avec mention IA et crédit de la voix dans la langue
-(PROJET/notes/langues.json, hors dépôt de l'app ; l'anglais sinon). Mêmes lignes de journal que les autres étapes. Sans Django."""
+(PROJET/notes/langues.json, hors dépôt de l'app ; l'anglais sinon). Mêmes lignes de journal que les autres étapes. Sans Django.
+Fabrique (F1) : l'atelier anglais est donné (jamais PROJET\\rendus), langues.json et la voix de référence de la langue sont ceux de la session."""
 import json
 import os
 import shutil
@@ -15,7 +16,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
-from core import dossiers
 from fabrique.moteur.f1 import bramble, etape, montage
 from fabrique.moteur.f1.langue_texte import score, srt
 from fabrique.moteur.f1.outils import Outils, charger, composant, dans_wsl, wsl
@@ -65,7 +65,7 @@ def dire(o: Outils, run: Path, lot: list[dict], langue: dict, ref: str):
     jf = run / "voix" / "_jobs_langue.json"
     r = langue.get("reglages", {})
     # ref_gen : la voix clonée (une référence native de la langue si le banc l'a retenue) ; ref : la voix 1, cible de la conversion « vc »
-    json.dump({"ref": ref, "ref_gen": str(o.racine / r["ref"]) if r.get("ref") else ref, "langue": langue["code"], "reglages": r, "jobs": lot,
+    json.dump({"ref": ref, "ref_gen": str(o.racine.session / r["ref"]) if r.get("ref") else ref, "langue": langue["code"], "reglages": r, "jobs": lot,
                "poids": str(composant(o.racine, "poids_voix"))},
               open(jf, "w", encoding="utf-8"), ensure_ascii=False)
     ici, outil = Path(__file__).parent, langue.get("outil")
@@ -218,7 +218,7 @@ def textes_youtube(racine: Path, run: Path, data: dict, scenes: list[dict], code
     (run / "final").mkdir(exist_ok=True)
     (run / "final" / "sous_titres.srt").write_text(srt(scenes), encoding="utf-8")
     try:
-        credits = json.loads((Path(racine) / "PROJET" / "notes" / "langues.json").read_text(encoding="utf-8"))[code]["credits"]
+        credits = json.loads(racine.langues().read_text(encoding="utf-8"))[code]["credits"]
     except (OSError, ValueError, KeyError):
         credits = ""
     if not credits:  # pas de crédit traduit : celui de l'anglais (obligatoire : licence de la voix, déclaration IA)
@@ -232,11 +232,10 @@ def textes_youtube(racine: Path, run: Path, data: dict, scenes: list[dict], code
     (run / "final" / "youtube.txt").write_text(txt, encoding="utf-8")
 
 
-def faire(racine, scenario, cfg: dict, langue: dict, ref: str, ecran=print, dossier=None) -> int:
+def faire(racine, scenario, cfg: dict, langue: dict, ref: str, ecran=print, dossier=None, anglais_run=None) -> int:
     """La version de langue en entier (étapes ETAPES), reprise là où elle s'était arrêtée ; mêmes journal.txt, chrono.csv et verrou que etape.jouer."""
-    racine, scenario = Path(racine), Path(scenario)
-    rendus = racine / "PROJET" / "rendus"
-    run, en_run = Path(dossier) if dossier else rendus / scenario.stem, rendus / anglais(scenario).stem
+    scenario = Path(scenario)
+    run, en_run = Path(dossier), Path(anglais_run)  # Fabrique : l'atelier de la langue et celui de l'anglais, toujours donnés
     run.mkdir(parents=True, exist_ok=True)
     verrou = open(run / "en_cours.lock", "a+")  # noqa: SIM115
     try:
@@ -277,7 +276,7 @@ def faire(racine, scenario, cfg: dict, langue: dict, ref: str, ecran=print, doss
             elif e == "montage":
                 m.durees(scenes); m.monter(data, scenes)
             elif e == "miniature":
-                miniature(o, run, data, scenes, cfg, dossiers.livre(racine, "polices", langue["police"]) if langue.get("police") else None)
+                miniature(o, run, data, scenes, cfg, composant(racine, "polices", langue["police"]) if langue.get("police") else None)
             elif e == "revue":
                 m.durees(scenes); textes_youtube(racine, run, data, scenes, langue["code"], langue.get("reglages", {}).get("credit", ""))
             minutes = (time.time() - t) / 60

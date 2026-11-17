@@ -37,6 +37,17 @@ class Lieux:
     def regles(self) -> Path:
         return self.session / "reglages" / "regles.json"
 
+    def langues(self) -> Path:
+        return self.session / "univers" / "langues.json"
+
+    def config(self, cfg: dict) -> dict:
+        """Les réglages du moteur, la voix de référence prise dans la session (config.json la nomme sous PROJET\\voix du studio, en absolu)."""
+        v = cfg.get("voix") or {}
+        ref, projet = str(v.get("ref_audio", "")), str(self.studio / "PROJET" / "voix") + "\\"
+        if ref.lower().replace("/", "\\").startswith(projet.lower()):
+            return {**cfg, "voix": {**v, "ref_audio": str(self.session / "univers" / "voix" / ref[len(projet):])}}
+        return cfg
+
 
 def composant(racine, cle: str, *relatif) -> Path:
     """Où est un outil partagé (outils_partages.json) sur ce PC, puis `relatif` dedans : sous le dossier du studio, ou absolu. Sans Django : lu
