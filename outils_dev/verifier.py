@@ -5,6 +5,8 @@ bac à sable (installée à côté de Bramble Studio ; fenêtre ouverte, fermée
 pendant que l'empreinte du dossier « Bramble Studio » et de « DONNEES » est prise avant et après : identique. Bramble Studio qui tourne réécrit
 lui-même son état, sa base et ses journaux : ces fichiers-là sont montrés à part.
 J2 : le moteur à recettes en vrais processus (moteur()), puis tout J1 (la recette d'installation joue aussi un essai de recette).
+J3 : les preuves des longs passages de nuit, carte libre (egalite.py : égalité étape par étape ; essai_long.py : essai pleine longueur), lues ;
+les tests de F1 et des écrans ; puis tout J2.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -199,7 +201,61 @@ def j2(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return moteur(dire) + construction(dire, publier) + bramble_points(avant)
 
 
-JALONS = {"J1": j1, "J2": j2}
+EGALES = ["montage", "miniature", "revue", "images", "carte_voix", "carte_images", "carte_anim", "carte_bramble"]  # toutes les étapes de F1 v1 qui produisent
+
+
+def preuves_j3() -> list[tuple[bool, str]]:
+    """Les rapports des passages de nuit (outils_dev/egalite.py et essai_long.py), écrits dans OUTILS/fabrique_construction/egalite."""
+    points = []
+    try:
+        r = json.loads((SORTIE / "egalite" / "RAPPORT.json").read_text(encoding="utf-8"))
+        e = r["etapes"]
+        manque = [x for x in EGALES if x not in e]
+        points.append((r["reglages_identiques"] and not manque and all(e[x]["egal"] for x in EGALES),
+                       f"égalité de F1 v1 avec le moteur de Bramble Studio, étape par étape ({r['date']}, rendu {r['rendu']}) : réglages "
+                       f"{'identiques' if r['reglages_identiques'] else 'DIFFÉRENTS'} ; " + " ; ".join(
+                           f"{x} {'égal' if e[x]['egal'] else 'DIFFÉRENT ' + str(e[x].get('differents'))} ({e[x].get('fichiers', 0)} fichiers)" for x in EGALES if x in e)
+                       + (f" ; MANQUE : {', '.join(manque)}" if manque else "")))
+    except (OSError, ValueError, KeyError) as x:
+        points.append((False, f"égalité étape par étape : pas de rapport lisible ({x})"))
+    try:
+        r = json.loads((SORTIE / "egalite" / "ESSAI_LONG.json").read_text(encoding="utf-8"))
+        c, f = r["controle"], r["fin"]
+        fixes = [d for d in c["defauts"] if "plan quasi fixe" in d["texte"]]
+        points += [
+            (f["etat"] == "finie" and "erreur" not in r, f"essai pleine longueur fabriqué en vrai ({r['debut']}, F1 dernière version, session Essais, jamais publié) : "
+                                                         f"{f['etat']}, {f['progression']} morceaux"),
+            (r["coupure"]["images_avant"] >= 3 and r["coupure"]["jamais_refaites"] and r["noyau_relance"]["seul"],
+             f"repris après une coupure : exécuteur tué avec {r['coupure']['images_avant']} images faites, "
+             f"{'jamais refaites' if r['coupure']['jamais_refaites'] else 'REFAITES'} ; noyau tué puis relancé, l'exécuteur "
+             f"{'continue seul' if r['noyau_relance']['seul'] else 'DOUBLÉ OU PERDU'}"),
+            (bool(r.get("duree_h")), f"durée réelle d'un épisode mesurée : {r.get('duree_h')} h (étapes : "
+                                     + ", ".join(f"{k} {v / 60:.0f} min" for k, v in r.get("etapes", {}).items()) + ")"),
+            (c["mesure"] and c["note"] is not None, f"analysé : note de Qwen {c['note']}/10, {len(c['defauts'])} défaut(s) minuté(s)"),
+            (not fixes, f"F1 v2 : aucun plan quasi fixe au-delà de plan_fixe_max_s" + (f" — {len(fixes)} trouvé(s) : {fixes[0]['texte']}" if fixes else "")),
+            ((rf := r.get("refaire") or {}).get("fin", {}).get("etat") == "finie" and rf["controle"]["mesure"],
+             f"corrigé par un « refaire » (plan {rf.get('plan')}) : {rf.get('fin', {}).get('etat', 'pas fait')} en {rf.get('duree_h')} h, recontrôlé "
+             f"(note {rf.get('controle', {}).get('note')})"),
+        ]
+    except (OSError, ValueError, KeyError, TypeError) as x:
+        points.append((False, f"essai pleine longueur : pas de rapport complet ({x!r})"))
+    return points
+
+
+def j3(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J3 (plan § 7.1) : preuves de nuit lues, tests de F1 et des écrans, puis tout J2 (moteur en vrais processus, construction, installation)."""
+    avant = bramble_avant(dire)
+    points = preuves_j3()
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_f1.py", "fabrique/tests/test_fenetre.py", "fabrique/tests/test_session_api.py",
+                        "fabrique/tests/test_import.py", "fabrique/tests/test_depot.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8",
+                       env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests de F1 et des écrans : code de F1 = moteur de Bramble à quelques lignes comptées près, F1 v2 sans carte, analyse, "
+                                      "« je coche, Fabrique refait », import de Bramble, écrans (Accueil, Sessions, Script, Vidéo, Vérification et son lecteur), "
+                                      f"dépôt des discussions — {r.stdout.strip().splitlines()[-1]}"))
+    return points + moteur(dire) + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3}
 
 
 def main(argv=None) -> int:
