@@ -19,6 +19,11 @@ if __name__ == "__main__":
     f.resize(round(largeur / float(echelle)), round(hauteur / float(echelle)))  # taille en pixels de l'écran
     f.show()
     pont.aller.emit(ecran)
+    if ecran == "video":  # la vidéo des données fixes, onglet Vérification, un plan coché
+        from PySide6.QtCore import Q_ARG, QMetaObject
+
+        QTimer.singleShot(300, lambda: (QMetaObject.invokeMethod(f, "ouvrirVideo", Q_ARG("QVariant", "v1")), f.setProperty("ongletVideo", "verification"),
+                                        f.setProperty("coches", [1])))
     boucle = QEventLoop()
     QTimer.singleShot(1500, boucle.quit)  # réponses fixes arrivées, animations finies
     boucle.exec()

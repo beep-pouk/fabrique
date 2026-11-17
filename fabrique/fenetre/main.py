@@ -65,7 +65,7 @@ class Pont(QObject):
         self.fond.submit(self._agir, nom, dict(params))
 
     def _agir(self, nom: str, params: dict):
-        corps = {"valeur": params.pop("valeur")} if "valeur" in params else None
+        corps = params.pop("corps", None) or ({"valeur": params.pop("valeur")} if "valeur" in params else None)
         try:
             self.fait.emit(nom, self.client.appeler(nom, corps, **params)["message"], True)
         except ErreurApi as e:

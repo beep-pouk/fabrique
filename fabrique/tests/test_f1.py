@@ -172,6 +172,9 @@ def test_je_coche_fabrique_refait(essais):
     assert list((settings.SESSIONS / essais.dossier / "videos" / v.id / "_refaits").glob("*/images/resultat.json"))  # l'avant, à côté
     t = Tache.objects.get(video_id=v.id)
     assert t.acteur == "RT" and t.etat == "attente"
+    d = Navigateur().get(f"/api/sessions/{essais.id}/videos/{v.id}", **entete("fenetre")).json()
+    assert [p["n"] for p in d["plans"]] == [1, 3, 4] and d["plans"][0]["scenes"] == [1, 2] and d["plans"][1]["bramble"]
+    assert {e["id"]: (e["finis"], e["total"]) for e in d["etapes"]}["images"] == (0, 1) and d["recette"] == "F1 v1"
     r = Navigateur().post(chemin, {"plans": [1]}, content_type="application/json", **entete("fenetre"))
     assert r.status_code == 409 and "encore dans la file" in r.json()["detail"]
     Tache.objects.all().delete()

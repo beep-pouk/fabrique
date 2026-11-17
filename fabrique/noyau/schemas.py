@@ -137,6 +137,33 @@ class VideoListe(BaseModel):
     erreurs: int
 
 
+class EtapeVideo(BaseModel):
+    id: str
+    brique: str
+    finis: int
+    total: int
+    erreur: str  # la cause en clair d'un morceau en erreur, vide sinon
+    outils: list[str]
+    secondes: float  # chrono des morceaux finis
+
+
+class PlanVideo(BaseModel):
+    n: int  # id de la première scène du plan
+    image: str  # ce que montre le plan (vide : scène où Bramble parle)
+    scenes: list[int]
+    bramble: bool
+
+
+class VideoDetail(BaseModel):
+    id: str
+    titre: str
+    nom: str
+    recette: str
+    etapes: list[EtapeVideo]
+    plans: list[PlanVideo]  # ce qui se coche dans Vérification (F1)
+    script: dict
+
+
 class Plans(BaseModel):
     plans: list[int]  # les plans cochés (id de leur première scène)
 

@@ -39,14 +39,20 @@ Window {
     property var videos: []
     property var univers: ({personnages: [], lieux: [], langues: []})
     property string aFabriquer: ""
+    property var video: ({id: "", titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}})
+    property string ongletVideo: "fabrication"
+    property var coches: []
     readonly property var etats: ({attente: "en attente", en_cours: "en cours", pause: "en pause", finie: "finie", erreur: "en erreur", annulee: "annulée"})
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
     function recharger() {
         ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions"].forEach(n => pont.charger(n))
         if (session !== "") ["scripts", "videos", "univers"].forEach(n => pont.lire(n, {id: session}))
+        if (ecran === "video" && video.id !== "") pont.lire("video", {id: session, video: video.id})
     }
     function choisir(id) { session = id; aFabriquer = ""; recharger() }
+    function ouvrirVideo(id) { video = {id: id, titre: "", nom: "", recette: "", etapes: [], plans: [], script: {}}; coches = []; ongletVideo = "fabrication"; aller("video") }
+    function cocher(n) { var c = coches.slice(); var i = c.indexOf(n); if (i >= 0) c.splice(i, 1); else c.push(n); coches = c }
     function aller(e) { if (e !== "") ecran = e; recharger() }
     function aFaire() { return file.filter(t => t.etat === "erreur" || t.alertes.length > 0 && t.etat !== "finie" && t.etat !== "annulee") }
     function derniere() {
@@ -108,8 +114,8 @@ Window {
                 Rectangle {
                     objectName: "nav_" + modelData.id
                     width: parent.width; height: 40; radius: 6
-                    color: ecran === modelData.id || survolNav.hovered ? cLeve : "transparent"
-                    Rectangle { visible: ecran === modelData.id; width: 3; height: 20; radius: 2; color: cSelection; anchors.verticalCenter: parent.verticalCenter }
+                    color: (ecran === "video" ? "sessions" : ecran) === modelData.id || survolNav.hovered ? cLeve : "transparent"
+                    Rectangle { visible: (ecran === "video" ? "sessions" : ecran) === modelData.id; width: 3; height: 20; radius: 2; color: cSelection; anchors.verticalCenter: parent.verticalCenter }
                     T { text: modelData.nom; x: 12; anchors.verticalCenter: parent.verticalCenter }
                     Mono { text: modelData.touche; color: cSecond; font.pixelSize: 12; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
                     HoverHandler { id: survolNav }
@@ -275,7 +281,11 @@ Window {
                     Repeater {
                         model: onglet === "videos" ? videos : []
                         Rectangle {
-                            width: parent.width; height: 52; radius: 6; color: cLeve
+                            objectName: "video_" + index
+                            width: parent.width; height: 52; radius: 6; color: survolVideo.hovered ? cTrait : cLeve
+                            HoverHandler { id: survolVideo }
+                            Clic { onTapped: ouvrirVideo(modelData.id) }
+                            Accessible.role: Accessible.Button; Accessible.name: "Vidéo " + modelData.titre; Accessible.onPressAction: ouvrirVideo(modelData.id)
                             T { text: modelData.titre; x: 12; width: parent.width - 360; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; wrapMode: Text.NoWrap }
                             Mono { text: modelData.recette + "  ·  " + modelData.progression + (modelData.erreurs ? "  ·  " + modelData.erreurs + " en erreur" : "")
                                    color: modelData.erreurs ? cDefaut : cSecond; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
@@ -300,6 +310,103 @@ Window {
                             model: onglet === "univers" ? univers.langues : []
                             T { text: modelData.code + " · " + modelData.nom + " · " + (modelData.outil_voix || "voix de la session") + (modelData.voix_validee ? "" : " (voix à valider)")
                                 width: parent.width; color: modelData.voix_validee ? cTexte : cAttention }
+                        }
+                    }
+                }
+            }
+        }
+
+        Item {
+            objectName: "ecran_video"
+            visible: ecran === "video"
+            anchors.fill: parent
+            Column {
+                id: enteteVideo
+                x: 24; y: 24; width: parent.width - 48; spacing: 12
+                Row {
+                    spacing: 12
+                    Bouton { objectName: "retour_session"; texte: "← Session"; onClic: aller("sessions") }
+                    T { text: video.titre; font.pixelSize: 28; font.weight: Font.DemiBold; wrapMode: Text.NoWrap }
+                }
+                Mono { text: video.recette + "  ·  " + video.nom; color: cSecond }
+                Row {
+                    spacing: 8
+                    Repeater {
+                        model: [{id: "fabrication", nom: "Fabrication"}, {id: "verification", nom: "Vérification"}, {id: "script", nom: "Script"}]
+                        Rectangle {
+                            objectName: "onglet_video_" + modelData.id
+                            width: nomOngletVideo.implicitWidth + 32; height: 36; radius: 6
+                            color: ongletVideo === modelData.id ? cLeve : "transparent"; border.width: 1; border.color: ongletVideo === modelData.id ? cSelection : cTrait
+                            T { id: nomOngletVideo; text: modelData.nom; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+                            Clic { onTapped: ongletVideo = modelData.id }
+                            Accessible.role: Accessible.PageTab; Accessible.name: modelData.nom; Accessible.onPressAction: ongletVideo = modelData.id
+                        }
+                    }
+                }
+                Row {
+                    visible: ongletVideo === "verification"
+                    spacing: 12
+                    Bouton { objectName: "refaire_coches"; texte: "Refaire les plans cochés (" + coches.length + ")"; actif: coches.length > 0
+                             onClic: { pont.agir("refaire", {id: session, video: video.id, corps: {plans: coches}}); coches = [] } }
+                    T { text: "Seules les pièces des plans cochés, et ce qui en dépend, sont refaites ; l'avant reste à côté."; color: cSecond; wrapMode: Text.NoWrap
+                        anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+            Flickable {
+                anchors { left: parent.left; leftMargin: 24; right: parent.right; rightMargin: 24; top: enteteVideo.bottom; topMargin: 12; bottom: parent.bottom }
+                contentHeight: pileVideo.height + 24; clip: true
+                ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+                Column {
+                    id: pileVideo
+                    width: Math.min(parent.width - 16, 960); spacing: 8
+                    Repeater {
+                        model: ongletVideo === "fabrication" ? video.etapes : []
+                        Rectangle {
+                            width: parent.width; height: ligneEtape.implicitHeight + 20; radius: 6; color: cLeve
+                            Column {
+                                id: ligneEtape
+                                x: 12; y: 10; width: parent.width - 24; spacing: 4
+                                Row {
+                                    spacing: 12
+                                    T { text: modelData.id; font.weight: Font.DemiBold; width: 120; wrapMode: Text.NoWrap }
+                                    Mono { text: modelData.finis + "/" + modelData.total; color: modelData.finis === modelData.total ? cReussi : cSecond; width: 60 }
+                                    Mono { text: modelData.secondes ? Math.round(modelData.secondes / 60) + " min" : ""; color: cSecond; width: 80 }
+                                    T { text: modelData.outils.join(", "); color: cSecond; wrapMode: Text.NoWrap }
+                                }
+                                T { visible: modelData.erreur !== ""; text: modelData.erreur; color: cDefaut; width: parent.width; font.pixelSize: 12 }
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: ongletVideo === "verification" ? video.plans : []
+                        Rectangle {
+                            objectName: "plan_" + index
+                            width: parent.width; height: 44; radius: 6; color: coches.indexOf(modelData.n) >= 0 ? cTrait : cLeve
+                            border.width: coches.indexOf(modelData.n) >= 0 ? 1 : 0; border.color: cSelection
+                            Rectangle {
+                                x: 12; anchors.verticalCenter: parent.verticalCenter; width: 18; height: 18; radius: 4; color: "transparent"; border.width: 2
+                                border.color: coches.indexOf(modelData.n) >= 0 ? cSelection : cSecond
+                                Rectangle { anchors.centerIn: parent; width: 8; height: 8; radius: 2; color: cSelection; visible: coches.indexOf(modelData.n) >= 0 }
+                            }
+                            Mono { text: "plan " + modelData.n; x: 44; anchors.verticalCenter: parent.verticalCenter }
+                            T { text: modelData.image || "Bramble parle face caméra"; x: 130; width: parent.width - 260; anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight; wrapMode: Text.NoWrap; color: modelData.image ? cTexte : cSecond }
+                            Mono { text: modelData.scenes.length + " scène(s)"; color: cSecond; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Clic { onTapped: cocher(modelData.n) }
+                            Accessible.role: Accessible.CheckBox; Accessible.name: "Plan " + modelData.n; Accessible.checked: coches.indexOf(modelData.n) >= 0
+                            Accessible.onPressAction: cocher(modelData.n)
+                        }
+                    }
+                    Repeater {
+                        model: ongletVideo === "script" ? (video.script.scenes || []) : []
+                        Rectangle {
+                            width: parent.width; height: ligneScene.implicitHeight + 16; radius: 6; color: cLeve
+                            Column {
+                                id: ligneScene
+                                x: 12; y: 8; width: parent.width - 24; spacing: 2
+                                Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
+                                T { text: modelData.narration || ""; width: parent.width }
+                            }
                         }
                     }
                 }

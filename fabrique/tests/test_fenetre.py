@@ -17,7 +17,7 @@ from fabrique.tests.fixes import Transport
 
 CAPTURES = Path(__file__).with_name("captures")
 TOLERANCE = 0.002  # part des octets qui peuvent différer (lissage du texte)
-LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
+LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
 
 
@@ -60,6 +60,19 @@ def test_parcours(qtbot):
     assert f.property("aFabriquer") == "s1e01"
     clic(f, "confirmer_fabriquer")  # geste de RT : confirmé
     qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/fabriquer", None) in t.actions)
+    clic(f, "onglet_videos")
+    clic(f, "video_0")
+    assert f.property("ecran") == "video"
+    qtbot.waitUntil(lambda: len(valeur(f, "video")["plans"]) == 3)
+    clic(f, "onglet_video_verification")
+    clic(f, "plan_0")
+    clic(f, "plan_2")
+    clic(f, "plan_0")  # décoché
+    clic(f, "plan_0")
+    clic(f, "refaire_coches")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/videos/v1/refaire", {"plans": [4, 1]}) in t.actions)
+    assert valeur(f, "coches") == []
+    clic(f, "retour_session")
     clic(f, "onglet_univers")
     assert f.property("onglet") == "univers"
     QTest.keyPress(f, Qt.Key.Key_3, Qt.KeyboardModifier.ControlModifier)

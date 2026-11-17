@@ -148,6 +148,28 @@ def fabriquer(request, id: str, code: str):
     return {"message": f"« {video.titre} » dans la file (tâche {t.id}) : environ {round(e['secondes'] / 3600, 1)} h".replace(".", ",") + f", {execution.euros(e['cout_eur'])}"}
 
 
+@api.get("/sessions/{id}/videos/{video}", response=schemas.VideoDetail)
+@droit("voir")
+def video_(request, id: str, video: str):
+    """Une vidéo : ses étapes (morceaux finis, en erreur, outil, durée), ses plans (ce qui se coche : F1), son script."""
+    from fabrique.moteur.f1 import refaire as f1
+
+    with routeur.session(session_(id)):
+        v = m.Video.objects.filter(id=video).first()
+        if v is None:
+            raise HttpError(404, f"vidéo inconnue : {video}")
+        etapes = []
+        for e in v.recette.get("etapes", []):
+            ms = list(v.morceaux.filter(etape=e["id"]))
+            etapes.append({"id": e["id"], "brique": e["brique"], "finis": sum(x.etat == "fini" for x in ms), "total": len(ms),
+                           "erreur": next((x.message for x in ms if x.etat == "erreur"), ""), "outils": sorted({x.outil for x in ms}),
+                           "secondes": round(sum(x.secondes or 0 for x in ms), 1)})
+        plans = [{"n": u["n"], "image": next((s.get("image", "") for s in v.script.get("scenes", []) if s.get("id") == u["n"]), "") if u["image"] else "",
+                  "scenes": u["scenes"], "bramble": u["bramble"]} for u in f1.unites(v.script.get("scenes", []))] if v.recette.get("script") == "scenario-bramble" else []
+        return {"id": v.id, "titre": v.titre, "nom": v.nom, "recette": f"{v.recette.get('id')} v{v.recette.get('version')}", "etapes": etapes, "plans": plans,
+                "script": v.script}
+
+
 @api.post("/sessions/{id}/videos/{video}/refaire", response=schemas.Message)
 @droit("refaire")
 def refaire(request, id: str, video: str, corps: schemas.Plans):
