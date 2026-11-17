@@ -3,9 +3,53 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
-## 17/11/2026 — J2 (moteur à recettes) : en cours
+## 17/11/2026 — J2 (moteur à recettes) : fait, recette verte (23 points), 0.2.0 publiée
 
-*Session Code du PC (Opus 5.5), pilotée par la supervision. Fabrique n'est pas encore installée chez RT (`FABRIQUE\` n'a que `versions`) : contrôles d'installation passés. GitHub : création refusée par le garde-fou de Claude Code → `docs\QUESTIONS.md`, commits locaux.*
+*Session Code du PC (Opus 5.5), pilotée par la supervision. Fabrique n'est pas encore installée chez RT (`FABRIQUE\` n'a que `versions`) : contrôles d'installation passés. GitHub : création refusée par le garde-fou de Claude Code → `docs\QUESTIONS.md` ; réponse de la supervision : **C**, commits locaux, **aucune commande Git vers le réseau** (`ls-remote`, `fetch`, `push`) tant qu'elle ne l'a pas écrit (la fenêtre « git credential helper selector » est apparue chez RT pendant la tentative).*
+
+### Ce qui existe (J2)
+
+- `fabrique\moteur\` :
+  - `recettes.py` : schéma pydantic versionné (`"schema": 1`, refus clair d'un autre), réglages (dont `plan_fixe_max_s`, présent, sans usage avant J3), étapes `par` plan / scène / vidéo, `langue` ; forme de script « scenes-plans-narrateur » (scènes → plans, texte, exception d'outils par plan) ; ids en minuscules, sans nom réservé de Windows ; `recettes\essai.json` (les 9 étapes de F1, faux outils, en + fr) ; une recette se donne par son id (livrée) ou par un chemin `.json` (essai d'un nouveau format).
+  - `briques.json` : les 8 rôles de F1, défaut, outil de simulation, contrat de sortie (extension du fichier principal, informations dues : mots horodatés pour la voix, défauts pour le contrôle) contrôlé après chaque morceau.
+  - `outils.py` : fiches (`fiches\*.json`, champs du § 5.2 + `faux`), `Demande` / `Resultat` / `Estimation` typés et rangés en JSON à côté des fichiers ; choix : plan → format → session (`outil.<brique>`) → noyau (réglage `outil.<brique>`) → brique ; en simulation un vrai outil cède la place au faux de sa brique ; langues des fiches respectées ; repli local = premier local parmi les défauts (session, noyau, brique).
+  - `faux.py` : un faux outil par brique (ffmpeg lavfi, fractions de seconde, sans carte) + `faux_images_en_ligne` (payant, 0,04 € l'appel, « en_panne » posé par les tests).
+  - `execution.py` : `preparer` (morceaux étape × unité × langue dans la base de la session, outil choisi d'avance, recette et script copiés dans la vidéo), `jouer` (étape par étape ; `.tmp` puis renommage patient ; un résultat sans ses fichiers est refait ; trois échecs — une coupure n'en est pas un — puis `Echec` en clair, pause de 2 s entre deux ; payant : plafonds du mois (réglage `plafond_mois_eur`) et de la session (`plafond_eur`) vérifiés avant chaque appel, 0 € au départ, une nouvelle tentative, puis repli local et alerte ; chaque appel noté dans `Depense`), `estimer` (médiane des chronos par format, étape, outil ; coût avec les outils qui serviront vraiment).
+  - `carte.py` : notre tâche lourde ; `DONNEES\etat.json` de Bramble Studio lu seulement (épisode en cours ; état de plus de 15 min ignoré ; récent mais illisible = attente) ; `nvidia-smi` (≥ 50 % ou la moitié de la mémoire prise ; muet = non bloquant).
+  - `file.py` : file unique (`Tache`, base du noyau) : sessions réelles avant « Essais », priorité de session, ordre de mise en file ; pause / reprendre / annuler (API, fenêtre seule) ; le noyau lance `executer fabrication <id>` (détaché) quand la carte est libre, sinon la raison s'affiche ; exécuteur pris en base d'un coup (jamais deux) ; relance d'une tâche dont l'exécuteur est mort (reprise), trois relances sans morceau fini = erreur et alerte ; un geste de RT pendant un tour l'emporte ; suspendue pendant une restauration ou une mise à jour.
+- Noyau : `Tache`, `Chrono`, `Depense`, `Session.priorite` (migration `noyau 0002`) ; session : `Reglage`, `Video`, `Morceau` (`session 0002`) ; `taches.py` connaît la tâche `fabrication` (état dans `donnees\taches\fabrication.json` : `libre`, restauration et mise à jour la voient ; la sauvegarde passe à côté, en priorité basse) ; `etat.json` montre la file, sa raison d'attente et ses alertes ; API `GET /file` (voir), `POST /file/{id}/{pause|reprendre|annuler}` (droit `file`, fenêtre) ; client : `file`, `agir_file`.
+- `Fabrique.exe moteur <recette> <script.json>` (Claude) : essai dans la session « Essais » seulement, estimation affichée, mis dans la file ; `commande file` (Claude lit la file). Seul « RT » met une vidéo d'une session réelle dans la file (`file.mettre`, refus sinon).
+- `outils_dev\verifier.py --jalon J2` : moteur en vrais processus sur un dossier temporaire (voir « Vérifié »), puis la construction et la recette d'installation de J1, qui joue aussi un essai de recette par le programme installé (étape 6 bis).
+- Version **0.2.0** (`pyproject.toml`, `uv.lock`, `nouveautes.json`).
+
+### Relecture à froid (sous-agent, 21 points) : corrigé / écarté
+
+- Corrigé : geste de RT écrasé par un lancement (mises à jour conditionnelles) ; relance sans fin d'un exécuteur qui plante (compteur `relances`, remis à 0 à chaque morceau fini) ; état de Bramble illisible pris pour « libre » ; exécuteur lancé à la main sans verrou (il revérifie Bramble et la carte quand sa vidéo demande la carte) ; nettoyage du `.tmp` hors essai, renommage refusé par un antivirus, essais enchaînés sans pause ; nouvelle tentative payante au-delà du plafond ; repli qui ignorait le défaut local de RT ; résultat vide accepté (contrat de sortie par brique) ; simulation qui aurait pris un vrai outil ; ids sensibles à la casse et noms réservés de Windows ; chronos sans format ; file en panne qui arrêtait la boucle du noyau ; écriture de `fabrication.json` refusée par un lecteur ; deux exécuteurs sur une vidéo (prise en base) ; lancement pendant une restauration ou une mise à jour ; fichiers du moteur dans la sauvegarde (et un résultat restauré sans son média, désormais refait) ; test « aucun code » qui ne prouvait rien (fiche ajoutée dans une copie, balayage : aucun outil nommé dans le code) ; recette : processus vraiment tué, reprise lue au journal, pause d'un exécuteur vivant ; raison d'attente stable ; langues des fiches ; coût estimé trompeur à plafond 0 ; priorité basse de la sauvegarde.
+- Écarté, avec la raison :
+  - « Toute tâche de Bramble occupe la carte » : sa file joue aussi des tâches légères et le pilote de la supervision (`SUP_PILOTE.bat`, en continu) ; ses tâches lourdes sans épisode (analyses) sont vues par `nvidia-smi` (utilisation ou mémoire).
+  - Une classe Python par brique : le contrat de chaque brique est une donnée (`briques.json`) contrôlée après chaque morceau ; les vrais adaptateurs de J3 diront s'il faut plus. Le signal « fin d'étape, libérer la carte » arrive avec ComfyUI (J3).
+  - Chrono « par unité » : la médiane est par format, étape et outil ; l'étape fixe l'unité (plan, scène, vidéo).
+  - Pid réutilisé par un autre `Fabrique.exe` : le noyau ne se tue jamais lui-même ; le reste est rare (même parade que Bramble Studio).
+
+### Choix faits sans demander
+
+- Ordre « strict dans une session » : une tâche en pause ou en erreur attend RT, les suivantes de la même session passent (sinon une vidéo en pause bloque toute la session) ; l'ordre de publication reste celui du calendrier (J4-J5).
+- Les recettes livrées vivent dans le code (`moteur\recettes`) ; `FABRIQUE\formats` et la table des versions de recettes arrivent avec l'écran des formats (J5-J7). Chaque vidéo garde déjà sa copie de recette.
+- Plafond payant « par mois et par session » : un plafond mensuel de Fabrique (réglage du noyau) **et** un plafond mensuel par session (réglage de la session), tous deux à 0 € au départ.
+- Une fabrication est toujours une tâche lourde (le verrou joue aussi en simulation, c'est ce que la simulation montre) ; l'exécuteur ne revérifie la carte que si sa vidéo en demande (faux outils : non).
+- Carte « prise par un autre programme » : utilisation ≥ 50 % (seuil de Bramble Studio) **ou** la moitié de la mémoire prise (un modèle de langue chargé, comme l'agent local de la supervision).
+- La migration `noyau 0002` a été refaite avant toute publication (jamais installée nulle part).
+
+### Vérifié
+
+- Suite : **58 tests verts** (`outils_dev\tester.py`), dont 16 du moteur.
+- **Recette J2 : tout vert, 23 points** (`python outils_dev\verifier.py --jalon J2 --publier`, 17/11 20 h 09, 4 min ; rapport `docs\VERIF_J2_PC.md`, non suivi) : refus quand Bramble Studio fabrique (état simulé : rien lancé en 8 s) ; recette d'essai de bout en bout dès la carte libre (38/38 morceaux, une vidéo par langue contrôlée) ; exécuteur tué en plein milieu (processus disparu, 8/38 sur le disque) puis relancé seul par le noyau (« reprise » au journal), morceaux déjà faits intacts, aucun `.tmp` ; pause par la fenêtre d'un exécuteur vivant, rien ne repart, puis « reprendre » ; tests du moteur ; construction 0.2.0 et recette d'installation en bac à sable (dont un essai de recette par le programme installé, 15/15) ; dossier « Bramble Studio » identique ; « DONNEES » identique hors 6 fichiers réécrits par Bramble Studio lui-même (dont une tâche `SUP_PUSH_FABRIQUE` de la supervision dans sa file).
+- Publié : `D:\StudioKids\FABRIQUE\versions\Fabrique 0.2.0 - Installation.exe` + `versions.json` (0.1.0 rangée dans `versions\_old` par `construire.py`).
+- Non vérifié : aucun vrai outil ni la carte (J3) ; la vraie verrou Bramble « épisode en cours » n'a été vu que simulé (Bramble en pause) ; nvidia-smi réel lu par la recette sans jamais bloquer (carte libre).
+
+### Ce qui attend RT
+
+- Rien de nouveau : installer Fabrique (désormais `Fabrique 0.2.0 - Installation.exe`, même geste qu'à J1) ; créer le dépôt GitHub vide (la supervision dira quand pousser).
 
 ### Plan du jalon
 
