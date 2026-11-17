@@ -42,7 +42,9 @@ CARTE = {  # étape → (scènes prises dans le scénario, entrées copiées du 
     "bramble": (lambda sc, r: [min((s["id"] for s in sc["scenes"] if s.get("bramble") and (r / "bramble" / f"s{s['id']:03d}.mp4").is_file()),
                                    key=lambda i: (r / "voix" / f"s{i:03d}.wav").stat().st_size)], ["voix"]),
 }
-HORS = {"journal.txt", "chrono.csv", "en_cours.lock"}  # écrits par chaque moteur avec l'heure : comparés sans elle
+# écrits par chaque moteur avec l'heure : comparés sans elle ; lipsync.log = sortie brute de LongCat (heures, adresses mémoire), sa ligne « OK »
+# est dans le journal comparé
+HORS = {"journal.txt", "chrono.csv", "en_cours.lock", "lipsync.log"}
 
 
 def md5(f: Path) -> str:
@@ -83,9 +85,12 @@ def produits(run: Path, avant: set[str], remplacer: list[tuple[str, str]] = ()) 
 
 
 def journal(run: Path) -> list[str]:
-    """Les lignes du journal sans l'heure ni les durées chronométrées (« --- etape X : N min », « plan 2 (166s) »)."""
-    lignes = (run / "journal.txt").read_text(encoding="utf-8").splitlines() if (run / "journal.txt").is_file() else []
-    return [re.sub(r"( : [0-9.]+ min| \(\d+s\))$", "", re.sub(r"^\d\d:\d\d:\d\d ", "", l)) for l in lignes]
+    """Les lignes du journal sans l'heure, ni les durées chronométrées (« --- etape X : N min », « plan 2 (166s) », « 1 segment(s), 106s »),
+    ni le chemin de l'atelier."""
+    t = (run / "journal.txt").read_text(encoding="utf-8") if (run / "journal.txt").is_file() else ""
+    for x in formes(run):
+        t = t.replace(x, "<atelier>")
+    return [re.sub(r"( : [0-9.]+ min| \(\d+s\)|, \d+s)$", "", re.sub(r"^\d\d:\d\d:\d\d ", "", l)) for l in t.splitlines()]
 
 
 def plans_images(scenario: dict, rendu: Path) -> list[int]:
@@ -118,11 +123,15 @@ def preparer(etape: str, studio: Path, ids: list[int] | None = None, entrees: li
     return scen, runs[0], runs[1], {f.relative_to(runs[0]).as_posix() for f in runs[0].rglob("*") if f.is_file()}
 
 
-def comparer(etape: str, b: Path, f: Path, avant: set[str], voix: tuple[Path, Path] | None = None) -> dict:
-    """`voix` : le dossier des voix de référence de Bramble Studio et celui de la session ; remplacés dans les textes seulement si chaque fichier
-    de l'un a son double identique dans l'autre (sinon la différence se voit)."""
-    pareil = voix and all((voix[1] / x.name).is_file() and md5(x) == md5(voix[1] / x.name) for x in voix[0].glob("*.wav"))
-    pb, pf = produits(b, avant, [(x, "<voix>") for x in formes(voix[0])] if pareil else []), produits(f, avant, [(x, "<voix>") for x in formes(voix[1])] if pareil else [])
+def comparer(etape: str, b: Path, f: Path, avant: set[str], dossiers: list[tuple[Path, Path]] = ()) -> dict:
+    """`dossiers` : des paires (dossier de Bramble Studio, son double dans la session : voix de référence, personnages) ; une paire est remplacée
+    dans les textes seulement si chaque fichier de l'un a son double identique dans l'autre (sinon la différence se voit)."""
+    rb, rf = [], []
+    for i, (db, ds) in enumerate(dossiers):
+        if all((ds / x.relative_to(db)).is_file() and md5(x) == md5(ds / x.relative_to(db)) for x in db.rglob("*") if x.is_file()):
+            rb += [(x, f"<dossier {i}>") for x in formes(db)]
+            rf += [(x, f"<dossier {i}>") for x in formes(ds)]
+    pb, pf = produits(b, avant, rb), produits(f, avant, rf)
     # deux fichiers identiques octet pour octet sont égaux (une entrée copiée porte le chemin de Bramble : il n'est remplacé que d'un côté)
     diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k) and not (k in pb and k in pf and md5(b / k) == md5(f / k)))
     return {"egal": bool(pb.keys() - avant) and not diff and journal(b) == journal(f), "fichiers": len(pb.keys() - avant), "differents": diff[:20],
@@ -227,7 +236,7 @@ def main(argv=None) -> int:
                 if raison := carte.occupee():
                     raise SystemExit(f"carte prise avant le moteur {qui} ({etape}) : {raison} — rien n'est lancé")
                 moteur.jouer(lieu, scen, etape, sans_juge(cfg), dossier=run, ecran=lambda *x: None, fond=lambda *x: False)
-            rapport["etapes"][f"carte_{etape}"] = {**comparer(etape, rb, rf, avant, (studio / "PROJET" / "voix", session / "univers" / "voix")), "scenes": ids, "date": datetime.now().isoformat(timespec="seconds")}
+            rapport["etapes"][f"carte_{etape}"] = {**comparer(etape, rb, rf, avant, [(studio / "PROJET" / d, session / "univers" / d) for d in ("voix", "personnages")]), "scenes": ids, "date": datetime.now().isoformat(timespec="seconds")}
             print(f"  {etape} : {'ÉGAL' if rapport['etapes'][f'carte_{etape}']['egal'] else 'DIFFÉRENT'} {rapport['etapes'][f'carte_{etape}']}", flush=True)
     (SORTIE / "RAPPORT.json").write_text(json.dumps(rapport, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0 if rapport["reglages_identiques"] and all(e["egal"] for e in rapport["etapes"].values()) else 1
