@@ -29,6 +29,6 @@
    "final/youtube.txt",
    "voix/s*.wav"
   ],
-  "secondes": 5400
+  "secondes_par_scene": 73
  }
 }

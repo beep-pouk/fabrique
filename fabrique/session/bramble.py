@@ -57,6 +57,8 @@ def lire_base(source: Path, dossier: Path) -> sqlite3.Connection:
             shutil.copyfile(wal, dossier / "studio.db-wal")
         if marque() == avant:
             break
+    else:
+        raise Refus("la base de Bramble Studio change sans cesse pendant sa copie (il écrit) : rien n'est importé, réessayer dans un instant")
     c = sqlite3.connect(dossier / "studio.db")
     if (r := c.execute("PRAGMA quick_check").fetchone()[0]) != "ok":
         c.close()
@@ -199,6 +201,18 @@ def importer(pour_de_vrai: bool = False, acteur: str = "claude", studio_: Path |
     return rapport
 
 
+def ranger(s: Session, raison: str):
+    """Une session de l'import (la précédente, ou une ratée) rangée dans donnees\\_old, sa ligne retirée."""
+    connections[routeur.ouvrir(s)].close()
+    garde.verifier(cible := settings.DONNEES / "_old" / f"{raison}_{datetime.now():%Y%m%d_%H%M%S}" / s.dossier)
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(settings.SESSIONS / s.dossier, cible)
+    except OSError as e:
+        raise Refus(f"la session « {s.nom} » est ouverte ailleurs ({e.__class__.__name__}) : arrêter Fabrique (Système) puis rejouer l'import") from e
+    s.delete()
+
+
 def vraiment(d: dict, fichiers: dict[str, Path], s0: Path, acteur: str) -> tuple[Session, str, list[str]]:
     """La session (remplacée si un import précédent n'a rien fabriqué), ses fichiers, sa base ; rend la session, l'empreinte des copies, les
     remarques."""
@@ -209,17 +223,21 @@ def vraiment(d: dict, fichiers: dict[str, Path], s0: Path, acteur: str) -> tuple
                 raise Refus(f"une session « {ancienne.nom} » existe déjà et ne vient pas de l'import : rien n'est remplacé")
             if m.Video.objects.exists():
                 raise Refus(f"la session « {ancienne.nom} » a déjà fabriqué : l'import ne se rejoue plus")
-        connections[routeur.ouvrir(ancienne)].close()
-        garde.verifier(cible := settings.DONNEES / "_old" / f"import_{datetime.now():%Y%m%d_%H%M%S}" / ancienne.dossier)
-        cible.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(settings.SESSIONS / ancienne.dossier, cible)
-        ancienne.delete()
+            if ecrites := m.VersionScript.objects.exclude(auteur__in=("import", "fichier")).count():
+                raise Refus(f"{ecrites} version(s) de script écrite(s) dans Fabrique depuis l'import : il ne se rejoue plus (elles seraient perdues)")
+        ranger(ancienne, "import")
     s = bases.creer(d["nom"])
-    racine = garde.verifier(settings.SESSIONS / s.dossier)
-    for rel, f in fichiers.items():
-        (racine / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(f, racine / rel)
-    (racine / "reglages" / "parametres_bramble.json").write_text(json.dumps(d["parametres"], ensure_ascii=False, indent=1), encoding="utf-8")
-    remarques = ecrire(s, d, s0)
+    try:
+        racine = garde.verifier(settings.SESSIONS / s.dossier)
+        for rel, f in fichiers.items():
+            (racine / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, racine / rel)
+        (racine / "reglages" / "parametres_bramble.json").write_text(json.dumps(d["parametres"], ensure_ascii=False, indent=1), encoding="utf-8")
+        remarques = ecrire(s, d, s0)
+    except Exception as e:  # un import raté ne laisse pas une session à moitié faite (le rejouer resterait refusé) : elle part dans _old
+        ranger(s, "import_rate")
+        if isinstance(e, (KeyError, ValueError)):
+            raise Refus(f"données de Bramble Studio inattendues ({type(e).__name__} : {e}) : rien n'est importé") from e
+        raise
     noter(acteur, "import_bramble", session=s.id, fichiers=len(fichiers), remplace=bool(ancienne))
     return s, empreinte({rel: racine / rel for rel in fichiers}), remarques

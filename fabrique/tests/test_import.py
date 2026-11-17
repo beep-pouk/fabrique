@@ -2,11 +2,13 @@
 le wal, fichiers copiés à l'identique, rien d'écrit chez Bramble, rejouable tant que rien n'est fabriqué, jamais les secrets."""
 import hashlib
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
 import pytest
 from django.conf import settings
+from django.db import connections
 
 from fabrique import garde
 from fabrique.garde import Refus
@@ -72,6 +74,10 @@ def studio(tmp_path, monkeypatch):
     monkeypatch.setattr(garde, "studio_bramble", lambda: s)
     yield s
     c.close()
+    for x in Session.objects.filter(nom="Session Factice"):  # chaque test part sans session importée
+        connections[routeur.ouvrir(x)].close()
+        shutil.rmtree(settings.SESSIONS / x.dossier, ignore_errors=True)
+        x.delete()
 
 
 def empreinte(d: Path) -> dict:
@@ -121,3 +127,27 @@ def test_sans_bramble_refus(monkeypatch):
     monkeypatch.setattr(garde, "studio_bramble", lambda: None)
     with pytest.raises(Refus, match="introuvable"):
         bramble.importer()
+
+
+def test_un_import_rate_ne_bloque_rien(studio):
+    c = sqlite3.connect(studio / "DONNEES" / "studio.db")
+    c.execute("insert into core_reference values (2, 99, 'PROJET/personnages/x.png', 'face', 'gemini', 1, 0, '2026-11-01 10:00:00')")  # orpheline
+    c.commit()
+    with pytest.raises(Refus, match="inattendues"):
+        bramble.importer(pour_de_vrai=True)
+    assert not Session.objects.filter(nom="Session Factice").exists() and list((settings.DONNEES / "_old").glob("import_rate_*"))
+    c.execute("delete from core_reference where id = 2")
+    c.commit()
+    c.close()
+    assert bramble.importer(pour_de_vrai=True)["copies_identiques"]  # rejouable
+
+
+def test_rejeu_refuse_si_des_versions_ont_ete_ecrites(studio):
+    from datetime import datetime, timezone
+
+    bramble.importer(pour_de_vrai=True)
+    s = Session.objects.get(nom="Session Factice")
+    with routeur.session(s):
+        m.VersionScript.objects.create(script=m.Script.objects.get(code="s1e01"), numero=9, auteur="RT", date=datetime.now(timezone.utc), contenu={})
+    with pytest.raises(Refus, match="écrite"):
+        bramble.importer(pour_de_vrai=True)

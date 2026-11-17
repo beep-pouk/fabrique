@@ -169,6 +169,7 @@ class VideoDetail(BaseModel):
 
 class Langues(BaseModel):
     langues: list[str] = []  # les langues fabriquées en plus de celle du script
+    version: int | None = None  # la version du script que RT a relue
 
 
 class Demande(BaseModel):

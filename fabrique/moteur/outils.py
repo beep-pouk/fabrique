@@ -130,6 +130,8 @@ def local(brique: str, langue: str, de_la_session: dict) -> Fiche:
 def controler_resultat(brique: str, r: Resultat, dossier: Path):
     """Ce que la brique doit rendre (briques.json) : des fichiers présents et non vides, le principal à la bonne extension, les informations dues."""
     b = BRIQUES[brique]
+    if not r.fichiers and r.infos.get("rien_a_faire"):  # une étape sans objet pour cette vidéo (aucune scène où le narrateur parle)
+        return
     if not r.fichiers:
         raise RuntimeError("l'outil n'a rendu aucun fichier")
     if vides := [f for f in r.fichiers if not (dossier / f).is_file() or not (dossier / f).stat().st_size]:

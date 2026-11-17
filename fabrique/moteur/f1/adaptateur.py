@@ -17,7 +17,9 @@ SESSION = "session:"
 
 
 def estimer(fiche: Fiche, demande: Demande) -> Estimation:
-    return Estimation(secondes=fiche.reglages.get("secondes", 60), carte_go=fiche.besoins.carte_go)
+    """Sans chrono : une durée fixe, ou par scène (relevées sur un épisode de Bramble Studio)."""
+    r = fiche.reglages
+    return Estimation(secondes=r.get("secondes", 0) + r.get("secondes_par_scene", 0) * demande.reglages.get("scenes", 0), carte_go=fiche.besoins.carte_go)
 
 
 def langue_de(session: Path, code: str) -> dict:
@@ -33,12 +35,18 @@ def langue_de(session: Path, code: str) -> dict:
     return {"code": l.code, "outil": l.outil_voix, "reglages": l.reglages_voix, "police": l.police}
 
 
+MEDIAS = {".wav", ".mp4", ".png", ".jpg"}  # écrits une fois puis remplacés : liés ; le reste (json, txt) est réécrit sur place par le moteur : copié
+
+
 def lier(source: Path, cible: Path):
     cible.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.link(source, cible)
-    except OSError:  # autre disque, ou lien refusé : une copie
-        shutil.copy2(source, cible)
+    if source.suffix.lower() in MEDIAS:
+        try:
+            os.link(source, cible)
+            return
+        except OSError:  # autre disque, ou lien refusé : une copie
+            pass
+    shutil.copy2(source, cible)  # une copie : l'avant gardé par un « refaire » ne suit jamais l'après
 
 
 def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
@@ -60,8 +68,8 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     if code or any("tourne deja" in ligne for ligne in lignes):
         raise RuntimeError(f"étape {fiche.reglages['etape']} : " + (lignes[-1] if lignes else f"code {code}"))
     fichiers = []
-    if fiche.reglages.get("rapport"):  # le contrôle de F1 v1 : aucun défaut relevé (l'analyse arrive avec l'écran Vérification)
-        (dossier / "rapport.json").write_text(json.dumps({"defauts": []}), encoding="utf-8")
+    if fiche.reglages.get("rapport"):  # le contrôle de F1 v1 : pas encore d'analyse (elle arrive avec l'écran Vérification) — dit tel quel
+        (dossier / "rapport.json").write_text(json.dumps({"defauts": None, "analyse": "absente"}), encoding="utf-8")
         fichiers.append("rapport.json")
     for motif in fiche.reglages["sorties"]:
         base = session if motif.startswith(SESSION) else atelier
@@ -69,5 +77,6 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
             if f.is_file() and (rel := f.relative_to(base).as_posix()) not in fichiers:
                 lier(f, dossier / rel)
                 fichiers.append(rel)
-    infos = {"journal": lignes[-20:], **({"mots": []} if demande.brique == "voix" else {}), **({"defauts": []} if demande.brique == "controle" else {})}
+    infos = {"journal": lignes[-20:], **({"mots": None} if demande.brique == "voix" else {}), **({"defauts": None} if demande.brique == "controle" else {}),
+             **({"rien_a_faire": True} if not fichiers and fiche.reglages.get("peut_etre_vide") else {})}  # None : pas mesuré (jamais « rien trouvé »)
     return Resultat(fichiers=fichiers, infos=infos)

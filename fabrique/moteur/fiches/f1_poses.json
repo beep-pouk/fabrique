@@ -25,6 +25,7 @@
   "sorties": [
    "session:univers/personnages/bramble/poses/*.png"
   ],
-  "secondes": 5
+  "secondes": 5,
+  "peut_etre_vide": true
  }
 }

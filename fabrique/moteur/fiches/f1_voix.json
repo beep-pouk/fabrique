@@ -26,6 +26,6 @@
    "voix/s*.wav",
    "voix/_controle.json"
   ],
-  "secondes": 900
+  "secondes_par_scene": 12
  }
 }

@@ -26,6 +26,7 @@
    "bramble/s*.mp4",
    "bramble/_jobs.json"
   ],
-  "secondes": 3600
+  "peut_etre_vide": true,
+  "secondes_par_scene": 49
  }
 }

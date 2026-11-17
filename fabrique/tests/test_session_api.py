@@ -54,10 +54,21 @@ def test_scripts_univers_videos(session):
 
 
 def test_fabriquer_est_un_geste_de_rt(session, monkeypatch):
+    from fabrique.session import regles
+
+    erreurs = []
+    monkeypatch.setattr(regles, "controler", lambda s, contenu, code="": {"erreurs": erreurs, "avis": [], "mesures": {}})  # lint.py : testé à part
     n = Navigateur()
     chemin = f"/api/sessions/{session.id}/scripts/s1e01/fabriquer"
     assert n.post(chemin, **entete("claude")).status_code == 403
+    assert n.post(f"/api/sessions/{session.id}/scripts/s9e99/fabriquer", **entete("fenetre")).status_code == 404
+    erreurs.append(["R-01", "une règle enfreinte"])  # rejouées au clic, quoi qu'ait dit la version enregistrée
     r = n.post(chemin, **entete("fenetre"))
+    assert r.status_code == 409 and "1 erreur(s) des règles" in r.json()["detail"]
+    erreurs.clear()
+    r = n.post(chemin, {"version": 1}, content_type="application/json", **entete("fenetre"))  # RT a relu la 1, la 2 est arrivée depuis
+    assert r.status_code == 409 and "arrivée depuis" in r.json()["detail"]
+    r = n.post(chemin, {"version": 2}, content_type="application/json", **entete("fenetre"))
     assert r.status_code == 200 and "dans la file" in r.json()["message"], r.content
     t = Tache.objects.get()
     assert (t.acteur, t.session_id, t.titre) == ("RT", session.id, "Une histoire factice")
@@ -65,6 +76,9 @@ def test_fabriquer_est_un_geste_de_rt(session, monkeypatch):
     assert len(v) == 1 and v[0]["nom"] == "2026-12-01-s1e01" and v[0]["recette"] == "F1 v1" and v[0]["progression"] == "0/9"
     with routeur.session(session):
         assert json.loads((settings.SESSIONS / session.dossier / "videos" / v[0]["id"] / "2026-12-01-s1e01.json").read_text(encoding="utf-8")) == SCENARIO
+    r = n.post(chemin, **entete("fenetre"))
+    assert r.status_code == 409 and "déjà dans la file" in r.json()["detail"]  # jamais deux fois le même script en même temps
+    Tache.objects.all().delete()
     r = n.post(chemin, {"langues": ["xx"]}, content_type="application/json", **entete("fenetre"))
     assert r.status_code == 409 and "pas de traduction en « xx »" in r.json()["detail"]
     with routeur.session(session):
@@ -102,6 +116,4 @@ def test_regles_en_direct_et_nouvelle_version(session):
     with routeur.session(session):
         v = m.VersionScript.objects.get(script__code="s1e01", numero=3)
         assert (v.auteur, v.regles["erreurs"]) == ("claude", erreurs)
-    if erreurs:  # un script factice si court enfreint les règles de longueur : « Fabriquer » refuse
-        r = n.post(f"/api/sessions/{session.id}/scripts/s1e01/fabriquer", **entete("fenetre"))
-        assert r.status_code == 409 and "erreur(s) des règles" in r.json()["detail"]
+    assert isinstance(erreurs, list)  # le blocage de « Fabriquer » par une erreur : test_fabriquer_est_un_geste_de_rt

@@ -226,3 +226,48 @@ def test_prise_f1_version_de_langue(essais, tmp_path, monkeypatch):
     (tmp_path / "m2").mkdir()
     with pytest.raises(RuntimeError, match="traduction"):
         adaptateur.fabriquer(outils.fiche("f1_langue", "montage"), d, tmp_path / "m2")
+
+
+def test_prise_f1_copie_les_textes_et_accepte_une_etape_sans_objet(essais, tmp_path, monkeypatch):
+    def jouer(lieux, script, nom, cfg, dossier, ecran, fond):
+        if nom == "voix":
+            (Path(dossier) / "voix").mkdir(parents=True, exist_ok=True)
+            (Path(dossier) / "voix" / "s001.wav").write_bytes(b"RIFF")
+            (Path(dossier) / "voix" / "_controle.json").write_text("{}", encoding="utf-8")
+        return 0  # lèvres : aucune scène où le narrateur parle, rien à faire
+
+    monkeypatch.setattr(etape, "jouer", jouer)
+    atelier = tmp_path / "atelier" / "2026-01-01-s1e01"
+    d = outils.Demande(brique="voix", etape="voix", unite="", session=str(settings.SESSIONS / essais.dossier), script=str(tmp_path / "s.json"), atelier=str(atelier))
+    (tmp_path / "m").mkdir()
+    r = adaptateur.fabriquer(outils.fiche("f1_voix", "voix"), d, tmp_path / "m")
+    assert r.fichiers == ["voix/s001.wav", "voix/_controle.json"] and r.infos["mots"] is None  # pas mesuré : jamais une liste vide trompeuse
+    assert (tmp_path / "m" / "voix" / "s001.wav").stat().st_ino == (atelier / "voix" / "s001.wav").stat().st_ino  # le média : lié
+    (atelier / "voix" / "_controle.json").write_text('{"refait": 1}', encoding="utf-8")  # le moteur réécrit ses textes sur place
+    assert (tmp_path / "m" / "voix" / "_controle.json").read_text(encoding="utf-8") == "{}"  # le morceau garde le sien (copie)
+    (tmp_path / "l").mkdir()
+    r = adaptateur.fabriquer(outils.fiche("f1_levres", "levres"), d.model_copy(update={"brique": "levres"}), tmp_path / "l")
+    assert r.fichiers == [] and r.infos["rien_a_faire"]
+    outils.controler_resultat("levres", r, tmp_path / "l")  # accepté : sans objet
+    with pytest.raises(RuntimeError, match="aucun fichier"):
+        outils.controler_resultat("images", outils.Resultat(fichiers=[]), tmp_path / "l")
+
+
+def test_refaire_rate_ne_bouge_rien(essais, monkeypatch):
+    from fabrique.moteur.f1 import refaire
+
+    v = execution.preparer(essais, recettes.lire("F1"), SCENES, nom="2026-01-01-s1e01")
+    execution.jouer(essais, v.id)
+    monkeypatch.setattr(refaire, "preparer", lambda *a, **k: (_ for _ in ()).throw(OSError("fichier ouvert")))  # l'atelier refuse de bouger
+    with pytest.raises(Refus, match="rien n'a bougé"):
+        execution.refaire(essais, v.id, [1], "RT")
+    with routeur.session(essais):
+        assert {m.etat for m in Morceau.objects.filter(video=v)} == {"fini"}
+        assert all(execution.resultat(essais, m) for m in Morceau.objects.filter(video=v))  # chaque morceau à sa place
+
+
+def test_estimation_f1_suit_la_longueur_du_script():
+    d = outils.Demande(brique="images", etape="images", unite="", reglages={"scenes": 10})
+    assert adaptateur.estimer(outils.fiche("f1_images", "images"), d).secondes == 770
+    assert adaptateur.estimer(outils.fiche("f1_images", "images"), d.model_copy(update={"reglages": {"scenes": 74}})).secondes == 74 * 77
+    assert adaptateur.estimer(outils.fiche("f1_miniature", "miniature"), d).secondes == 10  # une durée fixe

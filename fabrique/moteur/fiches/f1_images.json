@@ -27,6 +27,6 @@
    "images/_consigne.json",
    "images/_controle.json"
   ],
-  "secondes": 5700
+  "secondes_par_scene": 77
  }
 }

@@ -27,6 +27,6 @@
    "montage/s*.mp4",
    "montage/_liste.txt"
   ],
-  "secondes": 600
+  "secondes_par_scene": 8
  }
 }

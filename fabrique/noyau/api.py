@@ -174,21 +174,28 @@ def videos(request, id: str):
 @droit("fabriquer")
 def fabriquer(request, id: str, code: str):
     """Geste de RT : la vidéo du script (dernière version) découpée selon le format de la session (réglage « format », F1 par défaut), dans
-    les langues choisies avant le lancement (chacune a sa traduction : script « code.langue »), mise dans la file."""
+    les langues choisies avant le lancement (chacune a sa traduction : script « code.langue »), mise dans la file. La version fabriquée est
+    celle que RT a relue (« version » : refus si une autre est arrivée depuis) ; les règles sont rejouées au clic ; jamais deux fois le même
+    script en même temps."""
     from fabrique.moteur import execution, file, recettes
+    from fabrique.noyau.models import Tache
+    from fabrique.session import regles
 
     s = session_(id)
     try:  # corps facultatif {"langues": [...]} : sans corps, la langue du script seule
         corps = request.body if request.content_type == "application/json" and request.body else b"{}"
-        choisies = list(dict.fromkeys(schemas.Langues.model_validate_json(corps).langues))
+        demande = schemas.Langues.model_validate_json(corps)
+        choisies = list(dict.fromkeys(demande.langues))
     except ValueError as e:
         raise HttpError(400, f"langues illisibles : {e}") from None
     with routeur.session(s):
         sc = m.Script.objects.filter(code=code).first()
-        if sc is None or not (v := sc.versions.order_by("-numero").first()):
+        if sc is None:
+            raise HttpError(404, f"script inconnu : {code}")
+        if not (v := sc.versions.order_by("-numero").first()):
             raise Refus(f"le script {code} n'a aucune version à fabriquer")
-        if erreurs := v.regles.get("erreurs"):
-            raise Refus(f"le script {code} a {len(erreurs)} erreur(s) des règles de l'univers (version {v.numero}) : à corriger avant de fabriquer")
+        if demande.version is not None and demande.version != v.numero:
+            raise Refus(f"une version {v.numero} du script {code} est arrivée depuis la {demande.version} relue : la relire avant de fabriquer")
         forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
         date = (sc.date_prevue or v.date.date()).isoformat()
         traductions = {}
@@ -197,10 +204,17 @@ def fabriquer(request, id: str, code: str):
             if t is None or not (tv := t.versions.order_by("-numero").first()):
                 raise Refus(f"pas de traduction en « {langue} » pour {code} : la demander à Claude d'abord")
             traductions[langue] = tv.contenu
+    if erreurs := regles.controler(s, v.contenu, code)["erreurs"]:
+        raise Refus(f"le script {code} a {len(erreurs)} erreur(s) des règles de l'univers (version {v.numero}) : à corriger avant de fabriquer")
+    nom = f"{date}-{sc.code}"
+    with routeur.session(s):
+        en_cours = set(m.Video.objects.filter(nom=nom).values_list("id", flat=True))
+    if Tache.objects.filter(session_id=s.id, video_id__in=en_cours, etat__in=("attente", "en_cours", "pause")).exists():
+        raise Refus(f"« {sc.titre} » est déjà dans la file")
     recette = recettes.lire(forme)
     base = v.contenu.get("language") or recette["reglages"]["langues"][0]
     recette["reglages"]["langues"] = list(dict.fromkeys([base, *choisies]))
-    video = execution.preparer(s, recette, v.contenu, nom=f"{date}-{sc.code}", traductions=traductions)
+    video = execution.preparer(s, recette, v.contenu, nom=nom, traductions=traductions)
     t = file.mettre(s, video.id, video.titre, ACTEURS[request.auth])
     e = execution.estimer(s, video.id)
     return {"message": f"« {video.titre} » dans la file (tâche {t.id}) : environ {round(e['secondes'] / 3600, 1)} h".replace(".", ",") + f", {execution.euros(e['cout_eur'])}"}

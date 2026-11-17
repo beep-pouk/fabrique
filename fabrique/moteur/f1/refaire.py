@@ -56,8 +56,8 @@ def deplacer(atelier: Path, rels: list[str], horodatage: str) -> list[str]:
     return faits
 
 
-def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | None = None) -> dict:
-    """Range les pièces des plans cochés et décale leurs graines ; rend les étapes à refaire, ce qui a été rangé et l'horodatage."""
+def etapes(scenario: dict, plans: list[int]) -> tuple[list[int], list[str], bool]:
+    """Les plans cochés (contrôlés), les étapes à refaire, et si la miniature en est faite ; rien ne bouge."""
     par_n = {u["n"]: u for u in unites(scenario.get("scenes", []))}
     choisis = sorted(set(plans))
     if not choisis:
@@ -65,6 +65,13 @@ def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | 
     if inconnus := [n for n in choisis if n not in par_n]:
         raise Refus(f"plan(s) inconnu(s) : {inconnus}")
     miniature = any(str(m) == str(scenario.get("thumbnail_scene")) for n in choisis for m in par_n[n]["scenes"])
+    return choisis, ETAPES[:-1] + (["miniature"] if miniature else []) + ETAPES[-1:], miniature
+
+
+def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | None = None) -> dict:
+    """Range les pièces des plans cochés et décale leurs graines ; rend les étapes à refaire, ce qui a été rangé et l'horodatage."""
+    par_n = {u["n"]: u for u in unites(scenario.get("scenes", []))}
+    choisis, a_refaire, miniature = etapes(scenario, plans)
     fichiers = [f for n in choisis for f in fichiers_unite(par_n[n])]
     if not any((atelier / f).exists() for f in fichiers):
         raise Refus(f"plans {choisis} : aucune de leurs pièces dans l'atelier (vidéo pas encore fabriquée ?)")
@@ -78,7 +85,7 @@ def preparer(atelier: Path, scenario: dict, plans: list[int], quand: datetime | 
     ranges = deplacer(atelier, finale + fichiers + (["final/miniature.jpg"] if miniature else []), horodatage)
     graines_f.parent.mkdir(exist_ok=True)
     graines_f.write_text(json.dumps(graines, indent=1) + "\n", encoding="utf-8")
-    return {"etapes": ETAPES[:-1] + (["miniature"] if miniature else []) + ETAPES[-1:], "ranges": ranges, "horodatage": horodatage, "plans": choisis}
+    return {"etapes": a_refaire, "ranges": ranges, "horodatage": horodatage, "plans": choisis}
 
 
 def planche(scenario: dict) -> list[dict]:

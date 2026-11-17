@@ -7,6 +7,7 @@ morceau fini laisse son chrono ; « estimer » en prend la médiane par format, 
 import hashlib
 import json
 import logging
+from datetime import datetime
 import shutil
 import time
 from pathlib import Path
@@ -190,7 +191,7 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
     if depense:
         depense.reel_eur = r.infos.get("cout_eur")
         depense.save(update_fields=["reel_eur"])
-    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes)
+    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes / (len(S.scenes) if not m.unite else 1))  # vidéo entière : par scène
     m.etat, m.secondes, m.message = "fini", secondes, ""
     m.save(update_fields=["etat", "secondes", "message"])
 
@@ -225,11 +226,20 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
         if v.recette.get("script") != "scenario-bramble":
             raise Refus("refaire un plan : seulement pour une vidéo du format F1 à ce jalon")
         base = settings.SESSIONS / s.dossier / "videos" / v.id
-        r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans)
-        for m in v.morceaux.filter(etape__in=r["etapes"]):
-            if (d := dossier(s, m)).exists():
-                (cible := base / "_refaits" / r["horodatage"] / m.etape).parent.mkdir(parents=True, exist_ok=True)
-                d.rename(cible)
+        _, a_refaire, _ = f1.etapes(v.script, plans)  # les plans contrôlés avant que rien ne bouge
+        morceaux, horodatage, ranges = list(v.morceaux.filter(etape__in=a_refaire)), f"{datetime.now():%Y%m%d_%H%M%S_%f}", []
+        try:  # les morceaux d'abord, puis les pièces de l'atelier ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
+            for m in morceaux:
+                if (d := dossier(s, m)).exists():
+                    (cible := base / "_refaits" / horodatage / m.etape).parent.mkdir(parents=True, exist_ok=True)
+                    d.rename(cible)
+                    ranges.append((cible, d))
+            r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans)
+        except (OSError, Refus) as e:
+            for cible, d in reversed(ranges):
+                cible.rename(d)
+            raise e if isinstance(e, Refus) else Refus(f"un fichier de la vidéo est ouvert ailleurs ({e.__class__.__name__}) : rien n'a bougé, réessayer") from e
+        for m in morceaux:
             m.etat, m.essais, m.message = "attente", 0, ""
             m.save(update_fields=["etat", "essais", "message"])
     t = file.mettre(s, v.id, v.titre, acteur)
@@ -240,7 +250,8 @@ def estimer(s: Session, video_id: str) -> dict:
     """Ce qui reste à faire d'une vidéo (voir estimer_morceaux)."""
     with routeur.session(s):
         v = Video.objects.get(id=video_id)
-        return estimer_morceaux(s, v.recette["id"], list(v.morceaux.exclude(etat="fini")), dict(Reglage.objects.values_list("cle", "valeur")))
+        return estimer_morceaux(s, v.recette["id"], list(v.morceaux.exclude(etat="fini")), dict(Reglage.objects.values_list("cle", "valeur")),
+                                len(v.script.get("scenes", [])))
 
 
 def estimer_script(s: Session, recette: dict, script: dict) -> dict:
@@ -248,16 +259,16 @@ def estimer_script(s: Session, recette: dict, script: dict) -> dict:
     R = recettes.recette(recette)
     with routeur.session(s):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
-        return estimer_morceaux(s, R.id, decouper(R, recettes.script(script, R.script), reglages), reglages)
+        return estimer_morceaux(s, R.id, decouper(R, recettes.script(script, R.script), reglages), reglages, len(script.get("scenes", [])))
 
 
-def estimer_morceaux(s: Session, recette_id: str, morceaux: list[Morceau], reglages: dict) -> dict:
+def estimer_morceaux(s: Session, recette_id: str, morceaux: list[Morceau], reglages: dict, scenes: int = 0) -> dict:
     """Avec les outils qui serviront vraiment (un payant au-delà des plafonds cède la place à l'outil local) : durée (médiane des chronos par
     format, étape et outil, sinon l'estimation de l'outil), coût (prix des fiches × quantités), mémoire de carte la plus haute demandée."""
     secondes = cout = carte = 0.0
     medianes: dict[tuple[str, str], float | None] = {}
     for m in morceaux:
-        d = outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue)
+        d = outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, reglages={"scenes": scenes})
         f = outils.fiches()[m.outil]
         e = outils.adaptateur(f).estimer(f, d)
         if not f.local and refus_payant(s, f, e.cout_eur + cout, reglages):
@@ -266,6 +277,7 @@ def estimer_morceaux(s: Session, recette_id: str, morceaux: list[Morceau], regla
         if (m.etape, f.id) not in medianes:
             chronos = list(Chrono.objects.filter(recette=recette_id, etape=m.etape, outil=f.id).order_by("-date").values_list("secondes", flat=True)[:50])
             medianes[(m.etape, f.id)] = median(chronos) if chronos else None
-        secondes += e.secondes if medianes[(m.etape, f.id)] is None else medianes[(m.etape, f.id)]
+        par = scenes if not m.unite else 1  # les chronos d'une vidéo entière sont rangés par scène
+        secondes += e.secondes if medianes[(m.etape, f.id)] is None else medianes[(m.etape, f.id)] * max(1, par)
         cout, carte = cout + e.cout_eur, max(carte, e.carte_go)
     return {"secondes": round(secondes, 1), "cout_eur": round(cout, 2), "carte_go": carte}

@@ -27,6 +27,6 @@
    "clips/s*_last.png",
    "calques/plan_*/*"
   ],
-  "secondes": 21000
+  "secondes_par_scene": 284
  }
 }

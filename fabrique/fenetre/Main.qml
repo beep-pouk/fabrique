@@ -471,9 +471,9 @@ Window {
                                 objectName: "confirmer_fabriquer"
                                 width: tcf.implicitWidth + 32; height: 32; radius: 6; color: cAccent
                                 T { id: tcf; text: "Fabriquer"; color: cFond; font.weight: Font.DemiBold; anchors.centerIn: parent; wrapMode: Text.NoWrap }
-                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer, corps: {langues: langues}}); aFabriquer = "" } }
+                                Clic { onTapped: { pont.agir("fabriquer", {id: session, code: aFabriquer, corps: {langues: langues, version: script.versions[0].numero}}); aFabriquer = "" } }
                                 Accessible.role: Accessible.Button; Accessible.name: "Confirmer : fabriquer " + script.titre
-                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer, corps: {langues: langues}}); aFabriquer = "" }
+                                Accessible.onPressAction: { pont.agir("fabriquer", {id: session, code: aFabriquer, corps: {langues: langues, version: script.versions[0].numero}}); aFabriquer = "" }
                             }
                             Bouton { texte: "Annuler"; onClic: aFabriquer = "" }
                         }
