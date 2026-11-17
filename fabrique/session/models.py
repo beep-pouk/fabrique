@@ -122,3 +122,21 @@ class Morceau(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["video", "etape", "unite", "langue"], name="morceau_unique")]
+
+
+class Destination(models.Model):
+    """Où sont publiées les vidéos d'une langue : une par langue et par réseau (J4 : « youtube »), et à part en simulation (le faux YouTube :
+    jamais un vrai jeton, et une vraie chaîne jamais marquée refusée par le faux). Le jeton de rafraîchissement est chiffré par Windows
+    (noyau/cles.py) : jamais en clair, jamais rendu par l'API, jamais journalisé."""
+    langue = models.CharField(max_length=10)
+    reseau = models.CharField(max_length=20)
+    simulation = models.BooleanField(default=False)
+    chaine_id = models.CharField(max_length=100, default="")  # lus chez le réseau
+    chaine = models.CharField(max_length=200, default="")
+    playlists = models.JSONField(default=list)  # [{"id", "titre"}]
+    jeton = models.TextField(default="")  # chiffré ; vide : pas reliée
+    reliee = models.DateTimeField(null=True)  # date de connexion
+    refusee = models.DateTimeField(null=True)  # le réseau a refusé le jeton (invalid_grant) : à relier
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["langue", "reseau", "simulation"], name="destination_unique")]
