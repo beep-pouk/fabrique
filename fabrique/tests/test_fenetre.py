@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QObject, QPointF, Qt
+from PySide6.QtCore import Q_ARG, QObject, QPointF, Qt
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 
@@ -75,6 +75,11 @@ def test_parcours(qtbot):
         QTest.keyClick(f, lettre)
     qtbot.waitUntil(lambda: valeur(f, "controler")["erreurs"] == [["R-1", "mot interdit"]])
     assert [a for a in t.actions if a[0].endswith("/versions")] == []
+    f.metaObject().invokeMethod(f, "ouvrirScript", Q_ARG("QVariant", "s1e02"))  # un autre script ouvert entre-temps : le texte tapé reste
+    assert valeur(f, "brouillon") is None
+    f.metaObject().invokeMethod(f, "ouvrirScript", Q_ARG("QVariant", "s1e01"))
+    qtbot.waitUntil(lambda: valeur(f, "script")["contenu"] != {})
+    assert valeur(f, "brouillon")["scenes"][1]["narration"] == "Bonne nuit, petit renard. interdit"
     clic(f, "enregistrer_version")
     qtbot.waitUntil(lambda: any(chemin.endswith("/versions") for chemin, _ in t.actions))
     contenu = next(c for chemin, c in t.actions if chemin == "/api/sessions/s1/scripts/s1e01/versions")["contenu"]

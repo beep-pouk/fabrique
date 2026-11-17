@@ -48,6 +48,7 @@ Window {
     property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []})
     property var langues: []
     property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
+    property var brouillons: ({})  // les brouillons des autres scripts ouverts entre-temps : jamais perdus sans « Abandonner »
     property var controler: ({erreurs: [], avis: [], mesures: {}})  // les règles du brouillon, rejouées pendant la frappe
     readonly property var etats: ({attente: "en attente", en_cours: "en cours", pause: "en pause", finie: "finie", erreur: "en erreur", annulee: "annulée"})
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
@@ -62,8 +63,10 @@ Window {
     function ouvrirVideo(id) { video = Object.assign({}, videoVide, {id: id}); coches = []; ongletVideo = "fabrication"; aller("video") }
     function mmss(s) { s = Math.floor(s); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0") }
     function aller_a(s) { lecteur.position = Math.round(s * 1000) + 20; lecteur.pause() }  // + 20 ms : Qt Multimedia montre sinon l'image d'avant (banc du 16/11)
-    function ouvrirScript(code) { script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []}
-                                  aFabriquer = ""; langues = []; brouillon = null; aller("script") }
+    function ouvrirScript(code) { if (brouillon !== null && script.code !== code) brouillons[script.code] = brouillon
+                                  if (script.code !== code) { brouillon = brouillons[code] || null; delete brouillons[code] }
+                                  script = {code: code, titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []}
+                                  aFabriquer = ""; langues = []; if (brouillon) aControler.restart(); aller("script") }
     function ecrire() { brouillon = JSON.parse(JSON.stringify(script.contenu)); controler = script.regles }
     function regles() { return brouillon ? controler : script.regles }
     function basculer(l) { var c = langues.slice(); var i = c.indexOf(l); if (i >= 0) c.splice(i, 1); else c.push(l); langues = c }
