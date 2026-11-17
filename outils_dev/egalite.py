@@ -53,9 +53,33 @@ def md5(f: Path) -> str:
     return h.hexdigest()
 
 
-def produits(run: Path, avant: set[str]) -> dict[str, str]:
+TEXTES = {".json", ".txt", ".csv", ".md"}
+
+
+def formes(p: Path) -> list[str]:
+    """Un chemin tel qu'un fichier du moteur peut l'écrire : en JSON (antislashs doublés), tel quel, vu de Linux (/mnt/d/…)."""
+    w = str(p)
+    return [w.replace("\\", "\\\\"), w, "/mnt/" + w[0].lower() + w[2:].replace("\\", "/")]
+
+
+def empreinte(f: Path, remplacer: list[tuple[str, str]]) -> str:
+    """md5, sauf : un .wav par son audio seul (l'en-tête PEAK de libsndfile porte l'heure d'écriture), un texte avec ses chemins remplacés
+    (l'atelier de chaque moteur, la voix de référence du studio ou de la session)."""
+    if f.suffix not in TEXTES | {".wav"}:
+        return md5(f)
+    b = f.read_bytes()
+    if f.suffix == ".wav":
+        return hashlib.md5(b[b.find(b"data"):]).hexdigest()
+    t = b.decode("utf-8", errors="replace")
+    for ancien, nouveau in remplacer:
+        t = t.replace(ancien, nouveau)
+    return hashlib.md5(t.encode("utf-8")).hexdigest()
+
+
+def produits(run: Path, avant: set[str], remplacer: list[tuple[str, str]] = ()) -> dict[str, str]:
     """L'empreinte de TOUT l'atelier après passage : ce qui a été produit, et les entrées (une entrée réécrite ou abîmée se voit aussi)."""
-    return {f.relative_to(run).as_posix(): md5(f) for f in sorted(run.rglob("*")) if f.is_file() and f.name not in HORS}
+    remplacer = [(x, "<atelier>") for x in formes(run)] + list(remplacer)
+    return {f.relative_to(run).as_posix(): empreinte(f, remplacer) for f in sorted(run.rglob("*")) if f.is_file() and f.name not in HORS}
 
 
 def journal(run: Path) -> list[str]:
@@ -94,8 +118,11 @@ def preparer(etape: str, studio: Path, ids: list[int] | None = None, entrees: li
     return scen, runs[0], runs[1], {f.relative_to(runs[0]).as_posix() for f in runs[0].rglob("*") if f.is_file()}
 
 
-def comparer(etape: str, b: Path, f: Path, avant: set[str]) -> dict:
-    pb, pf = produits(b, avant), produits(f, avant)
+def comparer(etape: str, b: Path, f: Path, avant: set[str], voix: tuple[Path, Path] | None = None) -> dict:
+    """`voix` : le dossier des voix de référence de Bramble Studio et celui de la session ; remplacés dans les textes seulement si chaque fichier
+    de l'un a son double identique dans l'autre (sinon la différence se voit)."""
+    pareil = voix and all((voix[1] / x.name).is_file() and md5(x) == md5(voix[1] / x.name) for x in voix[0].glob("*.wav"))
+    pb, pf = produits(b, avant, [(x, "<voix>") for x in formes(voix[0])] if pareil else []), produits(f, avant, [(x, "<voix>") for x in formes(voix[1])] if pareil else [])
     diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k))
     return {"egal": bool(pb.keys() - avant) and not diff and journal(b) == journal(f), "fichiers": len(pb.keys() - avant), "differents": diff[:20],
             "journal_identique": journal(b) == journal(f)}
@@ -194,7 +221,7 @@ def main(argv=None) -> int:
                 if raison := carte.occupee():
                     raise SystemExit(f"carte prise avant le moteur {qui} ({etape}) : {raison} — rien n'est lancé")
                 moteur.jouer(lieu, scen, etape, sans_juge(cfg), dossier=run, ecran=lambda *x: None, fond=lambda *x: False)
-            rapport["etapes"][f"carte_{etape}"] = {**comparer(etape, rb, rf, avant), "scenes": ids, "date": datetime.now().isoformat(timespec="seconds")}
+            rapport["etapes"][f"carte_{etape}"] = {**comparer(etape, rb, rf, avant, (studio / "PROJET" / "voix", session / "univers" / "voix")), "scenes": ids, "date": datetime.now().isoformat(timespec="seconds")}
             print(f"  {etape} : {'ÉGAL' if rapport['etapes'][f'carte_{etape}']['egal'] else 'DIFFÉRENT'} {rapport['etapes'][f'carte_{etape}']}", flush=True)
     (SORTIE / "RAPPORT.json").write_text(json.dumps(rapport, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0 if rapport["reglages_identiques"] and all(e["egal"] for e in rapport["etapes"].values()) else 1

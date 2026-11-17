@@ -33,6 +33,7 @@ def up():
 
 def start(wait=600):
     if up(): return
+    JOURNAL.parent.mkdir(parents=True, exist_ok=True)  # Fabrique : son dossier de journaux peut ne pas exister encore (racine neuve)
     subprocess.Popen([CUI + r"\python_embeded\python.exe", "-s", r"ComfyUI\main.py", "--windows-standalone-build", "--disable-auto-launch"],
                      cwd=CUI, creationflags=subprocess.CREATE_NO_WINDOW,  # J14 : sans fenetre (regle de RT)
                      stdout=open(JOURNAL, "ab"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
