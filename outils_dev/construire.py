@@ -35,6 +35,8 @@ MARQUE = "construit_par_construire.txt"
 ICONE = DEPOT / "fabrique" / "fenetre" / "icone.ico"
 PTH = "Lib\nDLLs\nLib\\site-packages\n..\\app\n"  # les chemins de Python : jamais PYTHONHOME ni PYTHONPATH (les outils lancés en hériteraient)
 GIT = OUTILS / "git" / "cmd" / "git.exe"
+INUTILES = ["opengl32sw.dll", "Qt6Quick3D*.dll", "Qt63D*.dll", "Qt6Charts*.dll", "Qt6Graphs*.dll", "Qt6DataVisualization*.dll", "Qt6Location*.dll",
+            "Qt6Designer*.dll", "designer.exe"]  # modules de Qt jamais chargés par Fabrique (liste de la maquette du banc, + Designer) : ~ 60 Mo de moins
 
 
 def dire(texte: str):
@@ -123,6 +125,9 @@ def paquets(python: Path, cible: Path, travail: Path):
     except SystemExit:
         uv(*installer)
     shutil.rmtree(cible / "bin", ignore_errors=True)
+    for motif in INUTILES:
+        for f in (cible / "PySide6").glob(motif):
+            f.unlink()
 
 
 def assembler(prog: Path):
