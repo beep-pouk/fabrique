@@ -385,6 +385,15 @@ def test_commande_moteur(essais, tmp_path):
     assert r.returncode == 0 and "dans la file de la session Essais" in r.stdout, r.stdout + r.stderr
     t = Tache.objects.get()
     assert (t.acteur, t.etat, t.titre) == ("claude", "attente", "Un plan")
+    with routeur.session(essais):
+        assert {m.langue for m in Morceau.objects.filter(video_id=t.video_id)} == {"", "en", "fr"}
+    (tmp_path / "script.de.json").write_text(json.dumps(UN_PLAN), encoding="utf-8")  # une traduction à côté : fabriquée aussi
+    r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "essai", str(script)], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=120)
+    t = Tache.objects.exclude(id=t.id).get()
+    with routeur.session(essais):
+        assert {m.langue for m in Morceau.objects.filter(video_id=t.video_id)} == {"", "en", "de"}  # comme « Fabriquer » : la langue du script et les traductions données
+    assert list((settings.SESSIONS / essais.dossier / "videos" / t.video_id).glob("*.de.json"))
     r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "essai", str(tmp_path / "absent.json")], cwd=DEPOT, capture_output=True, text=True,
                        encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=120)
     assert r.returncode == 1 and "refusé" in r.stdout

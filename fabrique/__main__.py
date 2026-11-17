@@ -1,8 +1,10 @@
 """« Fabrique.exe [sous-commande] » et « python -m fabrique [sous-commande] » : la seule porte d'entrée (plan § 3.2).
 Sans sous-commande (ou « --fond ») : la fenêtre. Sous-commandes : noyau, executer <tâche>, moteur, commande <action>, diagnostic, migrer,
 relais <journal> <…>, arreter, libre."""
+import glob
 import json
 import sys
+from pathlib import Path
 
 from fabrique import dossiers, garde, journaux, programme
 
@@ -46,7 +48,8 @@ def commande(args: list[str]) -> int:
 
 def moteur(args: list[str]) -> int:
     """« moteur <recette (id ou .json)> <script.json> » : un essai de construction (Claude), toujours dans la session « Essais » : la vidéo est
-    découpée en morceaux et mise dans la file ; le noyau la lance quand la carte est libre."""
+    découpée en morceaux et mise dans la file ; le noyau la lance quand la carte est libre. Les traductions posées à côté du script
+    (« histoire.fr.json ») sont fabriquées aussi, comme les langues cochées à « Fabriquer »."""
     from django.core.exceptions import ObjectDoesNotExist
     from django.db import DatabaseError
 
@@ -61,8 +64,12 @@ def moteur(args: list[str]) -> int:
         recette = recettes.lire(args[0])
         with open(args[1], encoding="utf-8") as f:
             script = json.load(f)
+        base = Path(args[1])
+        traductions = {f.name[len(base.stem) + 1:-5]: json.loads(f.read_text(encoding="utf-8")) for f in base.parent.glob(f"{glob.escape(base.stem)}.*.json")}
+        if traductions:
+            recette["reglages"]["langues"] = list(dict.fromkeys([script.get("language") or recette["reglages"]["langues"][0], *traductions]))
         s = Session.objects.get(essais=True)
-        v = execution.preparer(s, recette, script)
+        v = execution.preparer(s, recette, script, traductions=traductions)
         t = file.mettre(s, v.id, v.titre, "claude")
     except (ObjectDoesNotExist, DatabaseError):
         print("refusé : les bases de Fabrique ne sont pas prêtes (lancer Fabrique une fois)")
