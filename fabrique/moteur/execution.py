@@ -1,9 +1,9 @@
 """Exécution d'une recette (plan § 5.3). « preparer » découpe la vidéo en morceaux (étape × unité × langue) rangés dans la base de la session,
 l'outil de chacun choisi d'avance ; « jouer » les joue étape par étape (toutes les voix, puis toutes les images… : chaque modèle n'est chargé
 qu'une fois par étape). Un morceau s'écrit dans <dossier>.tmp puis prend son nom : fini = gardé ; une coupure reprend au premier morceau non
-fini. Trois essais, puis arrêt avec la cause en clair. Outil payant (§ 5.5) : seulement sous les plafonds du mois et de la session (0 € au
-départ), une seule nouvelle tentative, sinon repli sur l'outil local de la brique, avec une alerte. Chaque morceau fini laisse son chrono ;
-« estimer » en prend la médiane par étape et outil."""
+fini. Trois échecs, puis arrêt avec la cause en clair. Outil payant (§ 5.5) : seulement sous les plafonds du mois et de la session (0 € au
+départ), vérifiés avant chaque appel ; une seule nouvelle tentative, sinon repli sur l'outil local de la brique, avec une alerte. Chaque
+morceau fini laisse son chrono ; « estimer » en prend la médiane par format, étape et outil."""
 import hashlib
 import logging
 import shutil
@@ -22,6 +22,7 @@ from fabrique.session.models import Morceau, Reglage, Video
 
 log = logging.getLogger(__name__)
 ESSAIS, ESSAIS_PAYANT = 3, 2  # un appel payant n'est retenté qu'une fois
+PAUSE_S = 2.0  # entre deux essais : une panne passagère ne les brûle pas d'un coup
 RESULTAT = "resultat.json"
 
 
@@ -34,7 +35,8 @@ def preparer(s: Session, recette: dict, script: dict) -> Video:
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, script=script, recette=recette)
-        morceaux = [Morceau(video=v, etape=e.id, brique=e.brique, unite=unite, langue=langue, outil=outils.choisir(e.brique, e.id, du_plan, R.outils, reglages))
+        morceaux = [Morceau(video=v, etape=e.id, brique=e.brique, unite=unite, langue=langue,
+                            outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
                     for e in R.etapes for langue in (R.reglages.langues if e.langue else [""]) for unite, du_plan, _ in recettes.unites(S, e.par)]
         for i, m in enumerate(morceaux):
             m.ordre = i
@@ -51,8 +53,14 @@ def couvre(a: str, b: str) -> bool:
     return not a or not b or a == b or a.startswith(b + "/") or b.startswith(a + "/")
 
 
-def resultat(s: Session, m: Morceau) -> outils.Resultat:
-    return outils.Resultat.model_validate_json((dossier(s, m) / RESULTAT).read_text(encoding="utf-8"))
+def resultat(s: Session, m: Morceau) -> outils.Resultat | None:
+    """Le résultat d'un morceau dont tous les fichiers sont là ; None sinon."""
+    d = dossier(s, m)
+    try:
+        r = outils.Resultat.model_validate_json((d / RESULTAT).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return r if all((d / f).is_file() for f in r.fichiers) else None
 
 
 def demande(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: int, m: Morceau) -> outils.Demande:
@@ -65,7 +73,7 @@ def demande(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: in
     texte = next(t for u, _, t in recettes.unites(S, R.etapes[i].par) if u == m.unite)
     graine = int(hashlib.sha256(f"{v.id}/{m.etape}/{m.unite}/{m.langue}".encode()).hexdigest()[:8], 16)  # stable : refaire donne la même chose
     return outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, texte=texte, entrees=entrees,
-                          reglages=R.reglages.model_dump(), graine=graine)
+                          sources={e.id: e.brique for e in R.etapes[:i]}, reglages=R.reglages.model_dump(), graine=graine)
 
 
 def depense_du_mois(**filtre) -> float:
@@ -86,46 +94,64 @@ def euros(x: float) -> str:
     return f"{x:.2f}".replace(".", ",") + " €"
 
 
-def repli(m: Morceau, raison: str, alerter) -> outils.Fiche:
-    f = outils.local(m.brique)
+def repli(m: Morceau, raison: str, reglages: dict, alerter) -> outils.Fiche:
+    f = outils.local(m.brique, m.langue, reglages)
     alerter(f"{raison} : repli sur l'outil local {f.nom}")
     m.outil, m.essais = f.id, 0
     m.save(update_fields=["outil", "essais"])
     return f
 
 
+def renommer(tmp: Path, final: Path):
+    """Le .tmp prend son nom ; sous Windows, un antivirus ou l'indexation tiennent parfois un fichier neuf un instant."""
+    for i in range(5):
+        try:
+            tmp.rename(final)
+            return
+        except PermissionError:
+            if i == 4:
+                raise
+            time.sleep(0.5)
+
+
 def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: int, m: Morceau, reglages: dict, alerter):
     final = dossier(s, m)
-    if (final / RESULTAT).is_file():  # renommé juste avant une coupure : fini
+    if resultat(s, m):  # renommé juste avant une coupure : fini
         m.etat = "fini"
         m.save(update_fields=["etat"])
         return
     d = demande(s, v, R, S, i, m)
-    f = outils.fiche(m.outil, m.brique)
-    if not f.local and (raison := refus_payant(s, f, outils.adaptateur(f).estimer(f, d).cout_eur, reglages)):
-        f = repli(m, raison, alerter)
+    f = outils.fiche(m.outil, m.brique, m.langue)
     tmp = final.with_name(final.name + ".tmp")
     while True:
-        m.essais += 1
-        m.save(update_fields=["essais"])
-        shutil.rmtree(tmp, ignore_errors=True)
-        tmp.mkdir(parents=True)
-        depense = None if f.local else Depense.objects.create(session_id=s.id, outil=f.id, estime_eur=outils.adaptateur(f).estimer(f, d).cout_eur)
-        debut = time.monotonic()
+        if not f.local and (raison := refus_payant(s, f, outils.adaptateur(f).estimer(f, d).cout_eur, reglages)):
+            f = repli(m, raison, reglages, alerter)
+        depense = None
         try:
+            if final.exists():  # sans résultat complet : abîmé, refait
+                shutil.rmtree(final)
+            if tmp.exists():
+                shutil.rmtree(tmp)
+            tmp.mkdir(parents=True)
+            if not f.local:
+                depense = Depense.objects.create(session_id=s.id, outil=f.id, estime_eur=outils.adaptateur(f).estimer(f, d).cout_eur)
+            debut = time.monotonic()
             r = outils.adaptateur(f).fabriquer(f, d, tmp)
+            outils.controler_resultat(m.brique, r, tmp)
             (tmp / "demande.json").write_text(d.model_dump_json(indent=1), encoding="utf-8")
             (tmp / RESULTAT).write_text(r.model_dump_json(indent=1), encoding="utf-8")
-            tmp.rename(final)
+            renommer(tmp, final)
             break
         except Exception as e:  # noqa: BLE001 — l'outil peut tout lever : essai suivant, repli, ou arrêt avec la cause
-            log.warning("%s %s %s, essai %s : %s", m.etape, m.unite or "vidéo", m.langue or "commun", m.essais, e)
+            m.essais += 1  # seuls les échecs comptent : une coupure en plein morceau n'en est pas un
+            log.warning("%s %s %s, échec %s : %s", m.etape, m.unite or "vidéo", m.langue or "commun", m.essais, e)
             m.message = f"{f.nom} : {e}"[:500]
-            m.save(update_fields=["message"])
+            m.save(update_fields=["essais", "message"])
             if m.essais < (ESSAIS if f.local else ESSAIS_PAYANT):
+                time.sleep(PAUSE_S)
                 continue
             if not f.local:
-                f = repli(m, f"{f.nom} a échoué {m.essais} fois ({e})", alerter)
+                f = repli(m, f"{f.nom} a échoué {m.essais} fois ({e})", reglages, alerter)
                 continue
             m.etat = "erreur"
             m.save(update_fields=["etat"])
@@ -134,13 +160,13 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
     if depense:
         depense.reel_eur = r.infos.get("cout_eur")
         depense.save(update_fields=["reel_eur"])
-    Chrono.objects.create(etape=m.etape, outil=f.id, secondes=secondes)
+    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes)
     m.etat, m.secondes, m.message = "fini", secondes, ""
     m.save(update_fields=["etat", "secondes", "message"])
 
 
-def jouer(s: Session, video_id: str, alerter=lambda texte: None):
-    """Joue ce qui reste de la vidéo, étape par étape ; Echec si un morceau épuise ses essais."""
+def jouer(s: Session, video_id: str, alerter=lambda texte: None, progres=lambda: None):
+    """Joue ce qui reste de la vidéo, étape par étape ; `progres()` après chaque morceau fini ; Echec si un morceau épuise ses essais."""
     with routeur.session(s):
         v = Video.objects.get(id=video_id)
         R, S = recettes.Recette.model_validate(v.recette), recettes.Script.model_validate(v.script)
@@ -148,21 +174,28 @@ def jouer(s: Session, video_id: str, alerter=lambda texte: None):
         for i, e in enumerate(R.etapes):
             for m in v.morceaux.filter(etape=e.id).exclude(etat="fini").order_by("ordre"):
                 jouer_morceau(s, v, R, S, i, m, reglages, alerter)
+                progres()
 
 
 def estimer(s: Session, video_id: str) -> dict:
-    """Ce qui reste à faire : durée (médiane des chronos par étape et outil, sinon l'estimation de l'outil), coût (prix des fiches × quantités),
-    mémoire de carte la plus haute demandée."""
+    """Ce qui reste à faire, avec les outils qui serviront vraiment (un payant au-delà des plafonds cède la place à l'outil local) : durée
+    (médiane des chronos par format, étape et outil, sinon l'estimation de l'outil), coût (prix des fiches × quantités), mémoire de carte la
+    plus haute demandée."""
     secondes = cout = carte = 0.0
     medianes: dict[tuple[str, str], float | None] = {}
     with routeur.session(s):
         v = Video.objects.get(id=video_id)
+        reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         for m in v.morceaux.exclude(etat="fini"):
+            d = outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue)
             f = outils.fiches()[m.outil]
-            e = outils.adaptateur(f).estimer(f, outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue))
+            e = outils.adaptateur(f).estimer(f, d)
+            if not f.local and refus_payant(s, f, e.cout_eur + cout, reglages):
+                f = outils.local(m.brique, m.langue, reglages)
+                e = outils.adaptateur(f).estimer(f, d)
             if (m.etape, f.id) not in medianes:
-                chronos = list(Chrono.objects.filter(etape=m.etape, outil=f.id).order_by("-date").values_list("secondes", flat=True)[:50])
+                chronos = list(Chrono.objects.filter(recette=v.recette["id"], etape=m.etape, outil=f.id).order_by("-date").values_list("secondes", flat=True)[:50])
                 medianes[(m.etape, f.id)] = median(chronos) if chronos else None
-            secondes += medianes[(m.etape, f.id)] or e.secondes
+            secondes += e.secondes if medianes[(m.etape, f.id)] is None else medianes[(m.etape, f.id)]
             cout, carte = cout + e.cout_eur, max(carte, e.carte_go)
     return {"secondes": round(secondes, 1), "cout_eur": round(cout, 2), "carte_go": carte}

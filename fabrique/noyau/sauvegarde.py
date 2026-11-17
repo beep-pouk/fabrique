@@ -83,7 +83,7 @@ def sauvegarder(quand: datetime | None = None) -> Path:
                 z.write(travail / rel, rel)
             for f in sorted(settings.SESSIONS.rglob("*")):
                 rel = f.relative_to(settings.RACINE)
-                if f.is_file() and f.suffix in TEXTES and not {"_old", "_corbeille"} & set(rel.parts):
+                if f.is_file() and f.suffix in TEXTES and not {"_old", "_corbeille", "videos"} & set(rel.parts):  # videos : fichiers du moteur, refaits au besoin
                     z.write(f, rel.as_posix())
         tmp.replace(zip_)
     finally:

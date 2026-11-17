@@ -10,8 +10,10 @@ import argparse
 import fnmatch
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -144,24 +146,48 @@ def moteur(dire) -> list[tuple[bool, str]]:
         d2 = next(v for v in videos.iterdir() if v != d)
         faits = {f: f.stat().st_mtime_ns for f in d2.rglob("resultat.json")}
         pid = json.loads((racine / "donnees" / "taches" / "fabrication.json").read_text(encoding="utf-8"))["pid"]
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)  # son code dit aussi les enfants déjà finis (ffmpeg) : on regarde le processus
+        tue = banc.attendre(lambda: pid not in banc.processus(), 10, "l'exécuteur est tué", pas=0.05)
+        coupe = len(list(d2.rglob("resultat.json")))
         t = fin("la vidéo reprise par le noyau est finie")
         intacts = {f: f.stat().st_mtime_ns for f in faits} == faits
-        points.append((t["etat"] == "finie" and n < MORCEAUX and intacts and len(list(d2.rglob("resultat.json"))) == MORCEAUX and not list(d2.rglob("*.tmp")),
-                       f"exécuteur tué en plein milieu ({n}/{MORCEAUX} morceaux) : le noyau l'a relancé seul, reprise au premier morceau non fini, "
-                       f"les {len(faits)} morceaux déjà faits {'intacts' if intacts else 'REFAITS'}, {t['progression']}, aucun .tmp"))
+        with closing(sqlite3.connect(f"file:{racine / 'donnees' / 'noyau.sqlite3'}?mode=ro", uri=True)) as base:
+            reprises = [json.loads(d) for (d,) in base.execute("SELECT detail FROM noyau_journal WHERE acteur = 'noyau' AND action = 'file'")]
+        repris = any(x.get("quoi") == "reprise" and x.get("tache") == t["id"] for x in reprises)
+        points.append((tue and coupe < MORCEAUX and repris and t["etat"] == "finie" and intacts and len(list(d2.rglob("resultat.json"))) == MORCEAUX
+                       and not list(d2.rglob("*.tmp")),
+                       f"exécuteur tué en plein milieu (taskkill {'réussi' if tue else 'RATÉ'}, {coupe}/{MORCEAUX} morceaux sur le disque) : le noyau l'a relancé seul "
+                       f"({'« reprise » au journal' if repris else 'AUCUNE reprise au journal'}), reprise au premier morceau non fini, les {len(faits)} morceaux déjà "
+                       f"faits {'intacts' if intacts else 'REFAITS'}, {t['progression']}, aucun .tmp"))
+        dire("pause d'un exécuteur vivant, puis reprise…")
+        fenetre = Client("fenetre", port=port, donnees=racine / "donnees")
+        assert lancer("moteur", "essai", script).returncode == 0
+        banc.attendre(lambda: int(tache()["progression"].split("/")[0]) >= 6, 60, "six morceaux finis", pas=0.05)
+        pid = json.loads((racine / "donnees" / "taches" / "fabrication.json").read_text(encoding="utf-8"))["pid"]
+        fenetre.appeler("agir_file", id=tache()["id"], action="pause")
+        arrete = banc.attendre(lambda: pid not in banc.processus(), 15, "l'exécuteur est arrêté")
+        avant = tache()
+        time.sleep(6)  # trois tours du noyau : rien ne repart
+        apres = tache()
+        fenetre.appeler("agir_file", id=apres["id"], action="reprendre")
+        t = fin("la vidéo reprise après la pause est finie")
+        points.append((arrete and avant["etat"] == apres["etat"] == "pause" and avant["progression"] == apres["progression"] and t["etat"] == "finie"
+                       and t["progression"] == f"{MORCEAUX}/{MORCEAUX}",
+                       f"pause par la fenêtre pendant la fabrication : exécuteur arrêté, rien ne repart en 6 s ({apres['progression']}), « reprendre » : {t['progression']}"))
         r = lancer("commande", "file")
-        points.append((r.returncode == 0 and len(json.loads(r.stdout)) == 2, "Claude lit la file (« commande file ») : les deux essais finis"))
+        points.append((r.returncode == 0 and [x["etat"] for x in json.loads(r.stdout)] == ["finie"] * 3, "Claude lit la file (« commande file ») : les trois essais finis"))
     except AssertionError as e:
         points.append((False, f"moteur en vrais processus : {e}"))
     finally:
         lancer("arreter")
         noyau.kill()
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_moteur.py", "-k", "changer_l_outil or refus_quand_bramble or trois_essais or payant"],
-                       cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    points.append((r.returncode == 0, "tests : l'outil par défaut changé par une donnée (réglage du noyau, de la session, du format, du plan) sans que le code change "
-                                      "(empreinte identique) ; refus quand Bramble Studio fabrique, état figé ignoré, carte prise par un autre programme ; trois essais puis "
-                                      f"alerte ; outil payant (plafond à 0 €, une nouvelle tentative, repli) — {r.stdout.strip().splitlines()[-1]}"))
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_moteur.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests du moteur : l'outil par défaut changé par une donnée (une fiche ajoutée ; réglage du noyau, de la session, du format, du "
+                                      "plan) sans que le code change (empreinte identique, aucun outil nommé dans le code), un vrai outil jamais pris en simulation ; refus "
+                                      "quand Bramble Studio fabrique, état figé ignoré, état illisible = attente, carte prise par un autre programme ; trois échecs puis "
+                                      "alerte ; plantage en boucle arrêté après trois relances ; pause pendant un tour ; exécuteur unique ; outil payant (plafond à 0 €, "
+                                      f"plafond vérifié avant chaque appel, une nouvelle tentative, repli) — {r.stdout.strip().splitlines()[-1]}"))
     shutil.rmtree(tmp, ignore_errors=True)
     return points
 

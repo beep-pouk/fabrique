@@ -32,7 +32,10 @@ def quitter_bientot(delai: float = 0.5):
 def tour(vu: dict, maintenant: datetime) -> dict:
     """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
     la tâche suivante lancée si la carte est libre (moteur/file.py)."""
-    file.tour()
+    try:  # une file en panne n'arrête ni l'état ni la sauvegarde du soir
+        file.tour()
+    except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
+        log.exception("file : tour raté")
     s, f = taches.lire("sauvegarde"), file.lister()
     change = s != vu.get("sauvegarde") or f != vu.get("file")
     if "sauvegarde" in vu:

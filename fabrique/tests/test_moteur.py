@@ -37,12 +37,35 @@ def voix_seule(**plus) -> dict:
 
 
 @pytest.fixture
-def essais():
+def essais(monkeypatch):
+    monkeypatch.setattr(execution, "PAUSE_S", 0)
     yield Session.objects.get(essais=True)
     Tache.objects.all().delete()
+    Depense.objects.all().delete()
     taches.fichier("fabrication").unlink(missing_ok=True)
     for cle in ("outil.voix", "plafond_mois_eur"):
         Parametre.ecrire(cle, "")
+    with routeur.session(Session.objects.get(essais=True)):
+        Reglage.objects.all().delete()
+
+
+@pytest.fixture
+def fiches_en_plus(tmp_path, monkeypatch):
+    """Un nouvel outil = une fiche de plus (dans une copie du dossier des fiches), sans une ligne de code."""
+    d = tmp_path / "moteur"
+    (d / "fiches").mkdir(parents=True)
+    for f in (outils.ICI / "fiches").glob("*.json"):
+        (d / "fiches" / f.name).write_bytes(f.read_bytes())
+
+    def ajouter(id: str, **plus):
+        fiche = {**json.loads((outils.ICI / "fiches" / "faux_voix.json").read_text(encoding="utf-8")), "id": id, "nom": id, **plus}
+        (d / "fiches" / f"{id}.json").write_text(json.dumps(fiche), encoding="utf-8")
+        outils.fiches.cache_clear()
+
+    monkeypatch.setattr(outils, "ICI", d)
+    outils.fiches.cache_clear()
+    yield ajouter
+    outils.fiches.cache_clear()
 
 
 def fichiers(s: Session, video_id: str) -> Path:
@@ -97,6 +120,7 @@ def test_tuee_en_plein_milieu_reprend_sans_rien_perdre(essais):
     assert Tache.objects.get(id=t.id).etat == "en_cours" and file.ordre()[0].id == t.id  # le noyau la relancera
     assert file.executer(str(t.id)) == 0
     assert {m.etat for m in morceaux(essais, v.id)} == {"fini"} and not list(fichiers(essais, v.id).rglob("*.tmp"))
+    assert {m.essais for m in morceaux(essais, v.id)} == {0}  # la coupure n'est pas un échec de l'outil
     assert {i: f.stat().st_mtime_ns for i, f in finis.items()} == dates  # rien de fini n'a été refait
     assert Tache.objects.get(id=t.id).etat == "finie"
 
@@ -104,13 +128,23 @@ def test_tuee_en_plein_milieu_reprend_sans_rien_perdre(essais):
 def empreinte_du_code() -> str:
     h = hashlib.sha256()
     for f in sorted((DEPOT / "fabrique").rglob("*")):
-        if f.is_file() and "__pycache__" not in f.parts and f.suffix in (".py", ".json", ".qml"):
+        if f.is_file() and "__pycache__" not in f.parts and "tests" not in f.parts and f.suffix in (".py", ".json", ".qml"):
             h.update(f.read_bytes())
     return h.hexdigest()
 
 
-def test_changer_l_outil_par_defaut_ne_change_aucun_code(essais):
+def test_aucun_outil_nomme_dans_le_code():
+    """Le code ne connaît aucun outil : ni l'id d'une fiche, ni le module d'un adaptateur (hors l'adaptateur lui-même)."""
+    noms = {f.id for f in outils.fiches().values()} | {f.module.rsplit(".", 1)[1] for f in outils.fiches().values()}
+    for py in (DEPOT / "fabrique").rglob("*.py"):
+        if "tests" not in py.parts and py.stem not in noms:
+            texte = py.read_text(encoding="utf-8")
+            assert not [n for n in noms if f'"{n}"' in texte or f"'{n}'" in texte or f"import {n}" in texte], py
+
+
+def test_changer_l_outil_par_defaut_ne_change_aucun_code(essais, fiches_en_plus):
     code = empreinte_du_code()
+    fiches_en_plus("voix_grave", faux=True, reglages={"hauteur_hz": 220})  # un nouvel outil : une fiche, rien d'autre
 
     def voix(rec, script=UN_PLAN):
         v = execution.preparer(essais, rec, script)
@@ -119,17 +153,22 @@ def test_changer_l_outil_par_defaut_ne_change_aucun_code(essais):
         return m.outil, (fichiers(essais, v.id) / "en" / "voix" / "s1" / "p1" / "voix.wav").read_bytes()
 
     defaut, son = voix(voix_seule())
-    Parametre.ecrire("outil.voix", "faux_voix_grave")  # le défaut de la brique, réglé dans la base du noyau (écran Outils, verdict d'un banc)
+    Parametre.ecrire("outil.voix", "voix_grave")  # le défaut de la brique, réglé dans la base du noyau (écran Outils, verdict d'un banc)
     grave, son_grave = voix(voix_seule())
-    assert (defaut, grave) == ("faux_voix", "faux_voix_grave") and son != son_grave
+    assert (defaut, grave) == ("faux_voix", "voix_grave") and son != son_grave
     with routeur.session(essais):
         Reglage.objects.update_or_create(cle="outil.voix", defaults={"valeur": "faux_voix"})  # la session passe avant le noyau
     assert voix(voix_seule())[0] == "faux_voix"
-    assert voix(voix_seule(outils={"voix": "faux_voix_grave"}))[0] == "faux_voix_grave"  # le format passe avant la session
+    assert voix(voix_seule(outils={"voix": "voix_grave"}))[0] == "voix_grave"  # le format passe avant la session
     plan = {"titre": "Exception", "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "x", "outils": {"voix": "faux_voix"}}]}]}
-    assert voix(voix_seule(outils={"voix": "faux_voix_grave"}), plan)[0] == "faux_voix"  # le plan passe avant tout
+    assert voix(voix_seule(outils={"voix": "voix_grave"}), plan)[0] == "faux_voix"  # le plan passe avant tout
+    fiches_en_plus("vraie_voix", faux=False, langues=["en"])
+    Parametre.ecrire("outil.voix", "vraie_voix")
     with routeur.session(essais):
         Reglage.objects.filter(cle="outil.voix").delete()
+    assert voix(voix_seule())[0] == "faux_voix"  # simulation : un vrai outil cède la place au faux de sa brique
+    with pytest.raises(Refus, match="ne parle pas"):
+        execution.preparer(essais, voix_seule(outils={"voix": "vraie_voix"}, reglages={"langues": ["fr"]}), UN_PLAN)
     assert empreinte_du_code() == code
 
 
@@ -150,9 +189,12 @@ def test_refus_quand_bramble_fabrique(essais, monkeypatch, tmp_path):
     assert raison.startswith("Bramble Studio fabrique") and not lances and Tache.objects.get(id=t.id).raison == raison
     bramble(datetime.now() - timedelta(hours=1), tache={"nom": "EPISODE.bat", "episode": True})  # état figé : Bramble Studio est arrêté
     assert carte.occupee() == ""
-    bramble(datetime.now(), tache={"nom": "AUTRE.bat", "episode": False}, episode=None)
+    etat.write_text('{"heure": "', encoding="utf-8")  # réécrit par Bramble Studio à cet instant
+    assert carte.occupee() == "l'état de Bramble Studio est illisible pour l'instant"
+    bramble(datetime.now(), tache={"nom": "AUTRE.bat", "episode": False}, episode=None)  # une tâche sans épisode : la carte dira si elle est lourde
+    assert carte.occupee() == ""
     monkeypatch.setattr(carte, "gpu", lambda: (12.0, 9000.0, 16384.0))  # un modèle de langue chargé
-    assert file.tour(lancer=lambda *a, **k: lances.append(a)).startswith("un autre programme occupe la carte") and not lances
+    assert file.tour(lancer=lambda *a, **k: lances.append(a)) == "un autre programme occupe la carte" and not lances
     monkeypatch.setattr(carte, "gpu", lambda: (9.0, 2300.0, 16384.0))
     assert file.tour(lancer=lambda *a, **k: lances.append(a)) == "" and lances == [("executer", "fabrication", t.id)]
     t.refresh_from_db()
@@ -171,9 +213,13 @@ def test_ordre_de_la_file_pause_reprise_annulation(essais, monkeypatch):
     assert [t.id for t in file.ordre()] == [b1.id, a1.id, a2.id, e1.id]
     tues = []
     monkeypatch.setattr(programme, "tuer", tues.append)
-    taches.ecrire("fabrication", {"etat": "en_cours", "pid": os.getpid(), "tache": b1.id})
+    Tache.objects.filter(id=b1.id).update(etat="en_cours", executeur=12345)
     file.agir(b1.id, "pause", "RT")
-    assert tues == [os.getpid()] and [t.id for t in file.ordre()] == [a1.id, a2.id, e1.id]
+    assert tues == [12345] and [t.id for t in file.ordre()] == [a1.id, a2.id, e1.id]
+    Tache.objects.filter(id=a1.id).update(executeur=os.getpid())
+    file.agir(a1.id, "pause", "RT")  # jamais le noyau lui-même (un pid réutilisé)
+    file.agir(a1.id, "reprendre", "RT")
+    assert tues == [12345]
     file.agir(b1.id, "reprendre", "RT")
     file.agir(a1.id, "annuler", "RT")
     assert [t.id for t in file.ordre()] == [b1.id, a2.id, e1.id]
@@ -204,7 +250,7 @@ def test_trois_essais_puis_alerte(essais, monkeypatch):
 def test_outil_payant_plafond_nouvelle_tentative_repli(essais, monkeypatch):
     payant = recette(outils={"images": "faux_images_en_ligne"}, reglages={"langues": ["en"]})
     v = execution.preparer(essais, payant, UN_PLAN)
-    assert execution.estimer(essais, v.id)["cout_eur"] == 0.04
+    assert execution.estimer(essais, v.id)["cout_eur"] == 0  # plafond à 0 € : c'est l'outil local qui servira
     alertes = []
     execution.jouer(essais, v.id, alertes.append)  # plafond à 0 € : aucun outil payant ne sert
     assert {m.outil for m in morceaux(essais, v.id) if m.etape == "images"} == {"faux_images"} and not Depense.objects.exists()
@@ -213,6 +259,7 @@ def test_outil_payant_plafond_nouvelle_tentative_repli(essais, monkeypatch):
     with routeur.session(essais):
         Reglage.objects.update_or_create(cle="plafond_eur", defaults={"valeur": "1"})
     v = execution.preparer(essais, payant, UN_PLAN)
+    assert execution.estimer(essais, v.id)["cout_eur"] == 0.04
     execution.jouer(essais, v.id, alertes.append)
     assert {m.outil for m in morceaux(essais, v.id) if m.etape == "images"} == {"faux_images_en_ligne"} and len(alertes) == 1
     assert Depense.objects.get().reel_eur == 0.04
@@ -221,9 +268,10 @@ def test_outil_payant_plafond_nouvelle_tentative_repli(essais, monkeypatch):
     execution.jouer(essais, v.id, alertes.append)
     assert Depense.objects.count() == 3  # l'appel raté et sa seule nouvelle tentative, notés au prix estimé
     assert "a échoué 2 fois" in alertes[-1] and {m.outil for m in morceaux(essais, v.id) if m.etape == "images"} == {"faux_images"}
-    with routeur.session(essais):
-        Reglage.objects.filter(cle="plafond_eur").delete()
-    Depense.objects.all().delete()
+    Parametre.ecrire("plafond_mois_eur", "0.17")  # 0,12 € déjà engagés : un appel passe, sa nouvelle tentative dépasserait
+    v = execution.preparer(essais, payant, UN_PLAN)
+    execution.jouer(essais, v.id, alertes.append)
+    assert Depense.objects.count() == 4 and "plafond du mois est de 0,17 € (0,16 € déjà dépensés)" in alertes[-1]
 
 
 def test_recettes_et_scripts_controles():
@@ -232,23 +280,101 @@ def test_recettes_et_scripts_controles():
     for mauvaise, motif in ((recette(schema=2), "schéma 2 inconnu"), (recette(etapes=[{"id": "x", "brique": "chant", "par": "plan"}]), "brique inconnue"),
                             (recette(etapes=[{"id": "x", "brique": "voix", "par": "plan"}] * 2), "même id"),
                             (recette(outils={"voix": "inconnu"}), "n'existe pas"), (recette(outils={"absente": "faux_voix"}), "étapes absentes"),
-                            (recette(couleur="rouge"), "couleur"), (recette(reglages={"langues": []}), "langues")):
+                            (recette(couleur="rouge"), "couleur"), (recette(reglages={"langues": []}), "langues"),
+                            (recette(reglages={"langues": ["en", "en"]}), "en double"), (recette(reglages={"langues": ["EN"]}), "langues"),
+                            (recette(etapes=[{"id": "Voix", "brique": "voix", "par": "plan"}]), "etapes"),
+                            (recette(etapes=[{"id": "con", "brique": "voix", "par": "plan"}]), "réservé")):
         with pytest.raises(Refus, match=motif):
             recettes.recette(mauvaise)
     with pytest.raises(Refus, match="même id"):
         recettes.script({"titre": "x", "scenes": [{"id": "s1", "plans": [{"id": "p1"}, {"id": "p1"}]}]})
-    with pytest.raises(Refus, match="script"):
-        recettes.script({"titre": "x", "scenes": [{"id": "s 1", "plans": [{"id": "p1"}]}]})
+    for mauvais in ("s 1", "S1", "nul"):  # Windows : ni espace, ni majuscule (« S1 » = « s1 »), ni nom réservé
+        with pytest.raises(Refus, match="script"):
+            recettes.script({"titre": "x", "scenes": [{"id": mauvais, "plans": [{"id": "p1"}]}]})
     assert {f.id for f in outils.fiches().values() if f.etat == "en_service"} >= {b["defaut"] for b in outils.BRIQUES.values()}
+    assert all(outils.fiches()[b["simulation"]].faux for b in outils.BRIQUES.values())
 
 
 def test_estimation_par_mediane(essais):
     v = execution.preparer(essais, voix_seule(reglages={"langues": ["en", "fr"]}), SCRIPT)
     Chrono.objects.filter(etape="voix").delete()
     for s in (1, 2, 100):
-        Chrono.objects.create(etape="voix", outil="faux_voix", secondes=s)
+        Chrono.objects.create(recette="voix", etape="voix", outil="faux_voix", secondes=s)
+    Chrono.objects.create(recette="autre", etape="voix", outil="faux_voix", secondes=1000)  # un autre format : d'autres durées
     assert execution.estimer(essais, v.id)["secondes"] == 8 * 2
     Chrono.objects.filter(etape="voix").delete()
+
+
+def test_morceau_renomme_avant_la_coupure_pas_refait(essais):
+    v = execution.preparer(essais, voix_seule(), UN_PLAN)
+    execution.jouer(essais, v.id)
+    m = morceaux(essais, v.id)[0]
+    d = execution.dossier(essais, m)
+    date = (d / execution.RESULTAT).stat().st_mtime_ns
+    with routeur.session(essais):
+        Morceau.objects.filter(id=m.id).update(etat="attente")  # renommé, mais la base pas encore à jour
+    execution.jouer(essais, v.id)
+    assert morceaux(essais, v.id)[0].etat == "fini" and (d / execution.RESULTAT).stat().st_mtime_ns == date
+    (d / "voix.wav").unlink()  # un résultat sans son fichier (restauration, ménage) : refait
+    with routeur.session(essais):
+        Morceau.objects.filter(id=m.id).update(etat="attente")
+    execution.jouer(essais, v.id)
+    assert (d / "voix.wav").is_file() and (d / execution.RESULTAT).stat().st_mtime_ns != date
+
+
+def test_un_outil_qui_ne_rend_rien_echoue(essais, monkeypatch):
+    from fabrique.moteur import faux
+
+    monkeypatch.setattr(faux, "fabriquer", lambda fiche, d, dossier: outils.Resultat(fichiers=["absent.wav"], infos={"mots": []}))
+    v = execution.preparer(essais, voix_seule(), UN_PLAN)
+    with pytest.raises(execution.Echec, match="absents ou vides"):
+        execution.jouer(essais, v.id)
+
+
+def test_plantage_en_boucle_arrete_apres_trois_relances(essais, monkeypatch):
+    monkeypatch.setattr(carte, "occupee", lambda *a: "")
+    v = execution.preparer(essais, voix_seule(), UN_PLAN)
+    t = file.mettre(essais, v.id, v.titre, "claude")
+    lances = []
+    for _ in range(4):
+        file.tour(lancer=lambda *a, **k: lances.append(a))
+        taches.fichier("fabrication").unlink()  # l'exécuteur meurt sans finir un morceau
+    t.refresh_from_db()
+    assert len(lances) == 4 and (t.etat, t.relances) == ("en_cours", 3)
+    file.tour(lancer=lambda *a, **k: lances.append(a))
+    t.refresh_from_db()
+    assert len(lances) == 4 and t.etat == "erreur" and "4 fois" in t.raison and t.alertes == [t.raison]
+
+
+def test_pause_pendant_un_tour_rien_ne_part(essais, monkeypatch):
+    v = execution.preparer(essais, voix_seule(), UN_PLAN)
+    t = file.mettre(essais, v.id, v.titre, "claude")
+
+    def rt_clique(*a):  # pendant que nvidia-smi répond
+        file.agir(t.id, "pause", "RT")
+        return ""
+
+    monkeypatch.setattr(carte, "occupee", rt_clique)
+    lances = []
+    assert file.tour(lancer=lambda *a, **k: lances.append(a)) == "" and not lances and Tache.objects.get(id=t.id).etat == "pause"
+
+
+def test_l_executeur_prend_sa_tache_et_verifie_la_carte(essais, fiches_en_plus, monkeypatch):
+    fiches_en_plus("voix_lourde", faux=True, besoins={"carte_go": 6, "disque_go": 0})
+    v = execution.preparer(essais, voix_seule(outils={"voix": "voix_lourde"}), UN_PLAN)
+    t = file.mettre(essais, v.id, v.titre, "claude")
+    monkeypatch.setattr(carte, "bramble", lambda maintenant: "Bramble Studio fabrique (X.bat)")
+    assert file.executer(str(t.id)) == 3 and Tache.objects.get(id=t.id).raison.startswith("Bramble") and morceaux(essais, v.id)[0].etat == "attente"
+    monkeypatch.setattr(carte, "bramble", lambda maintenant: "")
+    monkeypatch.setattr(carte, "gpu", lambda: None)
+    autre = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], creationflags=subprocess.CREATE_NO_WINDOW)
+    try:
+        Tache.objects.filter(id=t.id).update(executeur=autre.pid)  # un autre exécuteur, vivant, la tient
+        assert file.executer(str(t.id)) == 3
+    finally:
+        autre.kill()
+        autre.wait(10)
+    assert file.executer(str(t.id)) == 0 and Tache.objects.get(id=t.id).executeur == os.getpid()
 
 
 def test_commande_moteur(essais, tmp_path):

@@ -25,11 +25,15 @@ def test_sauvegarder_puis_restaurer(dossier):
     s = bases.creer("Sauvegardée")
     regles = settings.SESSIONS / s.dossier / "regles.json"
     regles.write_text('{"a": 1}', encoding="utf-8")
+    morceau = settings.SESSIONS / s.dossier / "videos" / "v" / "commun" / "voix" / "video" / "resultat.json"
+    morceau.parent.mkdir(parents=True)
+    morceau.write_text("{}", encoding="utf-8")
     with routeur.session(s):
         Fiche.objects.filter(id=s.id).update(nom="avant")
     z = sauvegarde.sauvegarder()
     with zipfile.ZipFile(z) as f:
         assert {"donnees/noyau.sqlite3", f"sessions/{s.dossier}/session.sqlite3", f"sessions/{s.dossier}/regles.json"} <= set(f.namelist())
+        assert not [n for n in f.namelist() if "/videos/" in n]  # les fichiers du moteur sont refaits au besoin, jamais sauvegardés
     with routeur.session(s):
         Fiche.objects.filter(id=s.id).update(nom="après")
     Parametre.ecrire("temoin", "après")

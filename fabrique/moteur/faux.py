@@ -43,7 +43,10 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     sortie = dossier / SORTIES[demande.brique]
     infos = {"cout_eur": fiche.prix_unite_eur} if not fiche.local else {}
     if demande.brique == "controle":  # le contrôle mesure ce que le montage a produit
-        video = next(f for fichiers in demande.entrees.values() for f in fichiers if f.endswith("video.mp4"))
+        montages = [fichiers[0] for etape, fichiers in demande.entrees.items() if demande.sources.get(etape) == "montage" and fichiers]
+        if not montages:
+            raise RuntimeError("le contrôle demande une étape de montage avant lui dans la recette")
+        video = montages[-1]
         duree = float(lancer(programme("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video).strip())
         sortie.write_text(json.dumps({"video": Path(video).name, "duree_s": duree, "defauts": []}, ensure_ascii=False), encoding="utf-8")
         return Resultat(fichiers=[sortie.name], duree_s=duree, infos={**infos, "defauts": []})

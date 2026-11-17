@@ -1,5 +1,6 @@
 """Verrou de la carte (plan § 5.4), vérifié avant chaque tâche lourde : 1) une seule des nôtres à la fois ; 2) Bramble Studio ne fabrique rien
-(son DONNEES\\etat.json, lu sans jamais l'écrire : il le réécrit au moins chaque minute, un état de plus de 15 min veut dire qu'il est arrêté) ;
+(son DONNEES\\etat.json, lu sans jamais l'écrire : il le réécrit au moins chaque minute, un état de plus de 15 min veut dire qu'il est arrêté ;
+récent mais illisible : on attend ; seule une tâche d'épisode compte, ses autres tâches lourdes (analyses) sont vues par la règle 3) ;
 3) aucun autre gros programme sur la carte (nvidia-smi : utilisation d'au moins 50 %, le seuil de Bramble Studio, ou la moitié de sa mémoire
 prise, par exemple un modèle de langue chargé). Rend la raison en clair ; vide : libre. nvidia-smi muet : non bloquant (repris de Bramble
 Studio, core/pipeline/machine.py et core/pilotage.py)."""
@@ -17,12 +18,17 @@ REQUETE = ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
 
 def bramble(maintenant: datetime) -> str:
     for studio in garde.studios():
+        f = studio / "DONNEES" / "etat.json"
         try:
-            e = json.loads((studio / "DONNEES" / "etat.json").read_text(encoding="utf-8-sig"))
+            if maintenant - datetime.fromtimestamp(f.stat().st_mtime) > FRAIS:
+                continue
+            e = json.loads(f.read_text(encoding="utf-8-sig"))
             if maintenant - datetime.fromisoformat(e["heure"]) > FRAIS:
                 continue
-        except (OSError, ValueError, KeyError, TypeError):
+        except FileNotFoundError:
             continue
+        except (OSError, ValueError, KeyError, TypeError):  # récent mais illisible : Bramble Studio le réécrit à cet instant
+            return "l'état de Bramble Studio est illisible pour l'instant"
         tache = e.get("tache") or {}
         if e.get("episode") or tache.get("episode"):
             return f"Bramble Studio fabrique ({tache.get('nom') or 'un épisode'})"
@@ -42,7 +48,7 @@ def gpu() -> tuple[float, float, float] | None:
 def autre_programme() -> str:
     g = gpu()
     if g and (g[0] >= SEUIL_PCT or g[1] >= g[2] / 2):
-        return f"un autre programme occupe la carte ({g[0]:.0f} %, {g[1] / 1024:.1f} / {g[2] / 1024:.0f} Go)".replace(".", ",")
+        return "un autre programme occupe la carte"  # texte stable : la raison est réécrite seulement quand elle change
     return ""
 
 

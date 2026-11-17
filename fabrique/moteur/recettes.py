@@ -4,9 +4,9 @@ faite (session/models.py, Video.recette). Recettes livrées : recettes\\<id>.jso
 format). Le script d'une vidéo a sa forme, nommée par la recette (« scenes-plans-narrateur »)."""
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import AfterValidator, Field, model_validator
 
 from fabrique.garde import Refus
 from fabrique.moteur import outils
@@ -14,12 +14,24 @@ from fabrique.moteur.outils import Strict, controler
 
 SCHEMA = 1
 LIVREES = Path(__file__).parent / "recettes"
+RESERVES = {"con", "prn", "aux", "nul", *(f"{p}{i}" for p in ("com", "lpt") for i in range(10))}  # noms interdits par Windows
+
+
+def pas_reserve(nom: str) -> str:
+    if nom in RESERVES:
+        raise ValueError(f"« {nom} » est un nom réservé par Windows")
+    return nom
+
+
+# des noms de dossiers : minuscules seulement (Windows ne distingue pas « P1 » de « p1 »)
+Nom = Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,40}$"), AfterValidator(pas_reserve)]
+Langue = Annotated[str, Field(pattern=r"^[a-z]{2,3}(-[a-z0-9]+)?$"), AfterValidator(pas_reserve)]
 
 
 class Reglages(Strict):
     duree_s: tuple[int, int] | None = None
     cadre: str = "16:9"
-    langues: list[str] = Field(min_length=1)
+    langues: list[Langue] = Field(min_length=1)
     sous_titres: Literal["fichier", "incrustes", "aucun"] = "fichier"
     enfants: bool = True
     declaration_ia: bool = True
@@ -27,7 +39,7 @@ class Reglages(Strict):
 
 
 class Etape(Strict):
-    id: str
+    id: Nom
     brique: str
     par: Literal["plan", "scene", "video"]
     langue: bool = False
@@ -47,8 +59,8 @@ class Recette(Strict):
     @model_validator(mode="after")
     def coherente(self):
         ids = [e.id for e in self.etapes]
-        if len(set(ids)) != len(ids):
-            raise ValueError("deux étapes ont le même id")
+        if len(set(ids)) != len(ids) or len(set(self.reglages.langues)) != len(self.reglages.langues):
+            raise ValueError("deux étapes ont le même id, ou une langue est en double")
         if inconnues := [e.brique for e in self.etapes if e.brique not in outils.BRIQUES]:
             raise ValueError(f"brique inconnue : {', '.join(inconnues)}")
         if etrangeres := set(self.outils) - set(ids):
@@ -57,13 +69,13 @@ class Recette(Strict):
 
 
 class Plan(Strict):
-    id: str = Field(pattern=r"^[\w-]+$")
+    id: Nom
     texte: str = ""
     outils: dict[str, str] = {}  # exception du plan : étape → outil
 
 
 class Scene(Strict):
-    id: str = Field(pattern=r"^[\w-]+$")
+    id: Nom
     plans: list[Plan] = Field(min_length=1)
 
 

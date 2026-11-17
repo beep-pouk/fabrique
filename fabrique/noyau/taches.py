@@ -4,6 +4,7 @@ d'une vidéo de la file (moteur/file.py), tâche lourde. L'état de chacune est 
 import json
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 
 from fabrique import dossiers, programme
@@ -30,7 +31,14 @@ def ecrire(nom: str, etat: dict):
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(f)
+    for i in range(10):  # Windows : un lecteur (noyau, « libre », Claude) tient le fichier un instant
+        try:
+            tmp.replace(f)
+            return
+        except PermissionError:
+            if i == 9:
+                raise
+            time.sleep(0.1)
 
 
 def vivante(e: dict) -> bool:
@@ -85,6 +93,10 @@ def executer(nom: str = "", *args) -> int:
         return 3
     from fabrique.noyau import sauvegarde
 
+    if os.name == "nt":  # tâche légère : priorité basse, elle passe à côté d'une fabrication
+        import ctypes
+
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)  # BELOW_NORMAL_PRIORITY_CLASS
     ecrire(nom, {"etat": "en_cours", "pid": os.getpid(), "debut": datetime.now().isoformat(timespec="seconds")})
     try:
         z = sauvegarde.sauvegarder()

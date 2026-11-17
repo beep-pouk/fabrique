@@ -54,20 +54,24 @@ class Tache(models.Model):
     etat = models.CharField(max_length=10, default="attente")
     raison = models.CharField(max_length=500, default="")  # pourquoi elle attend (carte prise) ou s'est arrêtée, en clair
     alertes = models.JSONField(default=list)
+    executeur = models.IntegerField(default=0)  # le pid de l'exécuteur qui la tient (pris d'un coup, en base : jamais deux à la fois)
+    relances = models.IntegerField(default=0)  # relancée sans qu'un morceau ait fini depuis (plantage, coupures) : à 3, erreur
     cree = models.DateTimeField(auto_now_add=True)
     lancee = models.DateTimeField(null=True)
     fin = models.DateTimeField(null=True)
 
 
 class Chrono(models.Model):
-    """La durée d'un morceau fini, toutes sessions confondues : les estimations en prennent la médiane par étape et outil."""
+    """La durée d'un morceau fini, toutes sessions confondues : les estimations en prennent la médiane par format, étape (donc unité : plan,
+    scène ou vidéo) et outil."""
+    recette = models.CharField(max_length=50)
     etape = models.CharField(max_length=50)
     outil = models.CharField(max_length=50)
     secondes = models.FloatField()
     date = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        indexes = [models.Index(fields=["etape", "outil"])]
+        indexes = [models.Index(fields=["recette", "etape", "outil"])]
 
 
 class Depense(models.Model):

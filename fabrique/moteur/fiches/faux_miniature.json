@@ -18,6 +18,7 @@
  "version": "1",
  "dernier_banc": null,
  "etat": "en_service",
+ "faux": true,
  "module": "fabrique.moteur.faux",
  "reglages": {}
 }

@@ -1,3 +1,4 @@
 {
+ "0.2.0": ["Le moteur à recettes : chaque format est une recette, chaque rôle (voix, images, animation, musique, lèvres, montage, miniature, contrôle) a sa prise et ses outils ; une fabrication reprend là où elle s'était arrêtée ; une seule à la fois, jamais pendant un rendu de Bramble Studio ; outils payants seulement sous un plafond (0 € au départ). En simulation pour l'instant : rien n'est encore fabriqué pour de vrai."],
  "0.1.0": ["Le socle de Fabrique : la fenêtre, l'écran Système (sauvegardes, mises à jour, journal, clés), la sauvegarde du soir."]
 }

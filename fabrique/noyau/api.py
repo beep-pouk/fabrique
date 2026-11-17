@@ -113,9 +113,13 @@ def sauvegarder(request):
 @api.post("/sauvegardes/{nom}/restaurer", response=schemas.Message)
 @droit("restaurer")
 def restaurer(request, nom: str):
-    if o := taches.occupe():
-        raise Refus(f"la {o} est en cours : restaurer quand elle sera finie")
-    message = sauvegarde.restaurer(nom)
+    file.suspendue.set()  # d'abord : la file ne lance plus rien pendant que les bases sont remplacées
+    try:
+        if o := taches.occupe():
+            raise Refus(f"la {o} est en cours : restaurer quand elle sera finie")
+        message = sauvegarde.restaurer(nom)
+    finally:
+        file.suspendue.clear()
     noter(ACTEURS[request.auth], "restauration", sauvegarde=nom)
     evenements.publier("restauration", message=message)
     return {"message": message}
@@ -130,7 +134,12 @@ def lire_versions(request):
 @api.post("/versions/mettre-a-jour", response=schemas.Message)
 @droit("mettre_a_jour")
 def mettre_a_jour(request):
-    return {"message": versions.mettre_a_jour(ACTEURS[request.auth])}
+    file.suspendue.set()  # l'app va se fermer : plus rien n'est lancé
+    try:
+        return {"message": versions.mettre_a_jour(ACTEURS[request.auth])}
+    except Exception:
+        file.suspendue.clear()
+        raise
 
 
 @api.get("/cles", response=list[schemas.Cle])
