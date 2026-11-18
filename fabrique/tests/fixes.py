@@ -1,7 +1,7 @@
 """Données fixes de la fenêtre (captures de référence, parcours) : les réponses du noyau, noms factices."""
 from pathlib import Path
 
-REFERENCE = str(Path(__file__).with_name("reference_factice.png"))  # une image dessinée par Qt (tests/test_fenetre.py), jamais une vraie
+REFERENCE = str(Path(__file__).with_name("reference_factice.png"))  # une image dessinée par Qt, jamais une vraie
 REPONSES = {
     ("GET", "/api/sante"): {"nom": "Fabrique (développement)", "version": "0.1.0", "mode": "simulation", "appelant": "fenetre", "pid": 1},
     ("GET", "/api/sauvegardes"): {
@@ -12,14 +12,41 @@ REPONSES = {
     ("GET", "/api/versions"): {"installee": "0.1.0", "proposee": "0.1.1", "nouveautes": ["Une nouveauté d'exemple."], "raison": ""},
     ("GET", "/api/journal"): [{"date": "2026-11-15 22:10:00", "niveau": "à surveiller", "source": "noyau", "message": "exemple d'avertissement"}],
     ("GET", "/api/file"): [{"id": 2, "titre": "Le petit renard", "session": "Session factice", "etat": "en_cours", "raison": "", "alertes": [], "acteur": "RT",
-                            "progression": "3/9"},
+                            "progression": "3/9", "reste_s": 30600.0, "cout_eur": 0.0, "pret_vers": "01/12 18:40"},
                            {"id": 3, "titre": "La lune et le hibou", "session": "Session factice", "etat": "attente", "raison": "", "alertes": [], "acteur": "RT",
-                            "progression": "0/9"},
+                            "progression": "0/9", "reste_s": 39600.0, "cout_eur": 0.0, "pret_vers": "02/12 16:40"},
                            {"id": 1, "titre": "Un essai", "session": "Essais", "etat": "erreur", "raison": "étape voix, vidéo : Fausse voix a échoué 3 fois — le service ne répond pas",
                             "alertes": ["étape voix, vidéo : Fausse voix a échoué 3 fois — le service ne répond pas"], "acteur": "claude", "progression": "0/9"}],
     ("GET", "/api/machine"): {"carte": "9 % · 2,3 / 16 Go", "disque_go": 85, "carte_prise": "une fabrication est déjà en cours"},
-    ("GET", "/api/sessions"): [{"id": "s1", "nom": "Session factice", "dossier": "session_factice", "essais": False},
-                               {"id": "s2", "nom": "Essais", "dossier": "essais", "essais": True}],
+    ("GET", "/api/sessions"): [{"id": "s1", "nom": "Session factice", "dossier": "session_factice", "essais": False, "assistant": "fini", "videos": 12,
+                                "derniere": "Le petit renard", "a_faire": 2, "prochain": "02/12 La lune et le hibou", "rendement": "1 234 vues sur 28 jours"},
+                               {"id": "s3", "nom": "Comptines factices", "dossier": "comptines", "essais": False, "pause": True, "assistant": "5"},
+                               {"id": "s2", "nom": "Essais", "dossier": "essais", "essais": True, "videos": 3, "derniere": "Un essai"}],
+    ("GET", "/api/formats"): [{"id": "F1", "nom": "Histoire illustrée", "version": 2, "script": "scenario-bramble",
+                               "etapes": [{"id": "voix", "brique": "voix", "par": "video"}, {"id": "images", "brique": "images", "par": "video"},
+                                          {"id": "montage", "brique": "montage", "par": "video"}]},
+                              {"id": "essai", "nom": "Recette d'essai", "version": 1, "script": "scenes-plans-narrateur",
+                               "etapes": [{"id": "voix", "brique": "voix", "par": "plan"}, {"id": "montage", "brique": "montage", "par": "video"}]}],
+    ("GET", "/api/modeles"): [{"nom": "Modèle factice", "fichier": "modele_factice.fabrique"}],
+    ("GET", "/api/sessions/s1/reglages"): {
+        "nom": "Session factice", "pause": False, "public": "enfants de 3 à 6 ans", "promesse": "une histoire calme avant de dormir", "style": "aquarelle douce",
+        "difference": "un ami et un lieu différents à chaque histoire", "objectif": "1 000 abonnés", "arret": "moins de 50 vues après 20 vidéos", "format": "F1",
+        "formats": ["F1"], "assistant": "fini", "plafond_eur": 0.0, "duree_min": 12.0, "duree_max": 18.0, "enfants": True, "declaration_ia": True,
+        "ordre_strict": True, "langues": [{"code": "en", "nom": "Anglais"}, {"code": "xx", "nom": "Langue factice"}], "manque": []},
+    ("GET", "/api/sessions/s1/idees"): [{"id": 1, "titre": "Le hérisson qui comptait les étoiles", "resume": "", "source": "claude", "statut": "nouvelle", "creee": "17/11/2026"}],
+    ("GET", "/api/sessions/s1/historique"): [{"date": "18/11/2026 10:00", "acteur": "RT", "quoi": "référence profil.png importée pour « Ami Un » (à valider)"},
+                                             {"date": "17/11/2026 21:00", "acteur": "claude", "quoi": "lieu « La clairière » ajouté"}],
+    ("GET", "/api/calendrier"): [  # la requête (debut, fin, session) ne change pas la réponse fixe
+        {"session": "s1", "session_nom": "Session factice", "code": "s1e00", "titre": "Le grand chêne", "date": "2026-11-30", "statut": "publiee", "statut_nom": "publiée", "pret_vers": ""},
+        {"session": "s1", "session_nom": "Session factice", "code": "s1e01", "titre": "Le petit renard", "date": "2026-12-01", "statut": "fabrication", "statut_nom": "en fabrication",
+         "pret_vers": "01/12 18:40"},
+        {"session": "s1", "session_nom": "Session factice", "code": "s1e02", "titre": "La lune et le hibou", "date": "2026-12-02", "statut": "prete", "statut_nom": "prête", "pret_vers": ""},
+        {"session": "s1", "session_nom": "Session factice", "code": "s1e03", "titre": "La pluie d'été", "date": "2026-12-04", "statut": "reportee", "statut_nom": "reportée", "pret_vers": ""},
+        {"session": "s1", "session_nom": "Session factice", "code": "s1e04", "titre": "Le pont de bois", "date": "2026-12-08", "statut": "approuvee", "statut_nom": "approuvée", "pret_vers": ""},
+        {"session": "s1", "session_nom": "Session factice", "code": "s1e05", "titre": "La première neige", "date": "", "statut": "idee", "statut_nom": "idée", "pret_vers": ""}],
+    ("GET", "/api/sessions/s1/videos/v1/suivi"): [
+        {"langue": "en", "statut": "planifiee", "titre": "Le petit renard | Histoire factice", "lien": "https://youtu.be/AAAAAAAAAAA", "vues": 1234, "heures": 40.5, "abonnes": 12,
+         "jours": [{"date": f"{j:02d}/11", "vues": v} for j, v in zip(range(1, 18), (5, 40, 120, 160, 140, 110, 90, 85, 70, 66, 60, 58, 52, 50, 47, 41, 39))]}],
     ("GET", "/api/sessions/s1/scripts"): [{"code": "s1e01", "titre": "Le petit renard", "statut": "scenario", "date_prevue": "2026-12-01", "versions": 2, "validee": True},
                                           {"code": "s1e02", "titre": "La lune et le hibou", "statut": "scenario", "date_prevue": "2026-12-02", "versions": 1, "validee": True}],
     ("GET", "/api/sessions/s1/videos"): [{"id": "v1", "titre": "Le petit renard", "nom": "2026-12-01-s1e01", "recette": "F1 v1", "progression": "3/9", "erreurs": 0}],
@@ -98,5 +125,7 @@ class Transport:
                 return {"code": "123456", "expire": "21:05"}
             if chemin.endswith("/relier"):  # sans adresse : la fenêtre n'ouvre rien pendant les tests
                 return {"message": "La page de Google est ouverte dans le navigateur.", "url": ""}
+            if chemin == "/api/sessions":
+                return {"message": "Session « Nouvelle factice » créée.", "id": "s1"}
             return {"message": f"fait : {chemin}"}
-        return REPONSES[(methode, chemin)]
+        return REPONSES[(methode, chemin.split("?")[0])]

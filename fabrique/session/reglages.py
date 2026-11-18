@@ -56,6 +56,8 @@ def ecrire(s: Session, champs: dict, acteur: str) -> str:
         nouveau["format"] = nouveau["formats"][0]
     if nouveau["format"] not in ids:
         raise Refus(f"format inconnu : {nouveau['format']}")
+    if "assistant" in champs and nouveau["assistant"] not in {"2", "3", "4", "5", "6", "7"}:
+        raise Refus("étape de la nouvelle session inconnue")
     if "difference" in champs and not nouveau["difference"].strip():
         raise Refus("dire ce qui rend chaque vidéo différente (histoire, personnages) : YouTube écarte le « contenu en série sur gabarit »")
     if any(nouveau[k] is not None and nouveau[k] < 0 for k in NOMBRES):

@@ -70,6 +70,7 @@ class ChangerReglages(BaseModel):
     declaration_ia: bool | None = None
     ordre_strict: bool | None = None
     langues: list[dict] | None = None
+    assistant: str | None = None  # l'étape où en est la nouvelle session (« 3 » à « 7 ») ; « fini » : seulement par « Terminer »
 
 
 class NouvelleSession(BaseModel):

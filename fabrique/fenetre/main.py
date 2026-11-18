@@ -24,7 +24,7 @@ from fabrique.fenetre.client import Client, ErreurApi
 log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
 GARDE_MS = 30_000
-VK_1, VK_2, VK_3 = 0x31, 0x32, 0x33  # touches 1, 2 et 3 du haut du clavier, quelle que soit la disposition (AZERTY : « & » et « é »)
+VK_1, VK_2, VK_3, VK_4 = 0x31, 0x32, 0x33, 0x34  # touches 1 à 4 du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
 
 
 class Pont(QObject):
@@ -57,8 +57,11 @@ class Pont(QObject):
     def _lire(self, nom: str, params: dict | None = None):
         params = params or {}
         try:
-            self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon
-        except (OSError, ErreurApi) as e:
+            self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon, une nouvelle session
+        except ErreurApi as e:  # un refus (nouvelle session : nom pris…) est dit à RT
+            log.warning("lecture %s : %s", nom, e)
+            self.fait.emit(nom, str(e)[:1].upper() + str(e)[1:] + ".", False)
+        except OSError as e:
             log.warning("lecture %s : %s", nom, e)
 
     @Slot(str, "QVariantMap")
@@ -93,7 +96,8 @@ class Pont(QObject):
             repetee = e.isAutoRepeat() or e.key() in self.tenues
             self.tenues.add(e.key())
             ctrl = bool(e.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "systeme")) if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
+            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "systeme"))
+                           if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
             ecran = touche or ("" if e.key() == Qt.Key.Key_F5 else None)
             if ecran is not None:
                 if not repetee:
