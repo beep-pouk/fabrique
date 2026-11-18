@@ -17,6 +17,8 @@ vidéo suivante le prend ; un outil en ligne (faux service payant) refusé à 0 
 Claude ; l'outil en ligne réel si RT a donné sa clé ; la construction et l'installation.
 J7 : F2 (compilation), F3 tirée d'une vidéo longue et F3 seule, en vrais processus et en simulation, contrôlées sans défaut bloquant ; les
 mêmes en vrai, lus dans la racine des essais réels ; la construction et l'installation.
+J8 : F4 (voix off + images) en vrais processus et en simulation (forme de script, outils par plan, critères de contrôle), vidéo pilote au format
+F4 ; F4 et F3 seule en vrai (outils réels par plan), lus dans la racine des essais réels ; la construction et l'installation.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -92,6 +94,8 @@ def j1(dire, publier: bool = False) -> list[tuple[bool, str]]:
 
 
 SCRIPT = {"titre": "Essai de la recette J2", "scenes": [{"id": f"s{i}", "plans": [{"id": f"p{j}", "texte": f"Texte factice {i}.{j}."} for j in (1, 2)]} for i in (1, 2)]}
+VOIX_OFF = {**SCRIPT, "description": "Description factice.", "scenes": [{**sc, "plans": [{**p, "image": f"image factice {p['texte']}", "mouvement": m}
+                                                                                         for p, m in zip(sc["plans"], ("avancee", "fixe"))]} for sc in SCRIPT["scenes"]]}
 MORCEAUX = 38  # recette d'essai sur 2 scènes de 2 plans, en et fr
 
 
@@ -956,7 +960,7 @@ def formats_j7(dire) -> list[tuple[bool, str]]:
                        f"F3 tirée d'une vidéo longue en simulation : {m['largeur']} × {m['hauteur']}, {m['duree_s']:.1f} s (de 1 à 3 s de la source), "
                        f"{r['infos']['incrustes']} sous-titre(s) incrusté(s), contrôle technique sans défaut bloquant"))
         dire("F3 créée seule…")
-        t = fabriquer("F3s", {**SCRIPT, "titre": "Courte verticale de la recette J7"})
+        t = fabriquer("F3s", {**VOIX_OFF, "titre": "Courte verticale de la recette J7"})
         vf, r, rap = resultats(dossier, video(essais["id"], "Courte verticale de la recette J7")["id"], "verticale")
         m = montages.mesure(vf)
         points.append((t["etat"] == "finie" and (m["largeur"], m["hauteur"]) == (1080, 1920) and r["infos"]["incrustes"] >= 1 and not [d for d in rap["defauts"] if d["gravite"] == "forte"],
@@ -1022,7 +1026,134 @@ def j7(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return formats_j7(dire) + en_vrai_j7() + construction(dire, publier) + bramble_points(avant)
 
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7}
+def mesure(v: Path) -> dict:
+    """Cadre, durée et son d'une vidéo (ffprobe, sans Django : le noyau tourne à part)."""
+    r = json.loads(subprocess.run([ffprobe(), "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", str(v)],
+                                  capture_output=True, text=True, encoding="utf-8").stdout)
+    im = next(x for x in r["streams"] if x["codec_type"] == "video")
+    return {"largeur": im["width"], "hauteur": im["height"], "duree_s": float(r["format"]["duration"]), "son": any(x["codec_type"] == "audio" for x in r["streams"])}
+
+
+def formats_j8(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire : F4 par la commande « moteur » de Claude (session Essais ; la recette livrée,
+    bornes de durée élargies : les fausses voix durent 1 s), contrôlée ; refus d'un script sans consigne d'image ; vidéo pilote d'une session au
+    format F4 (nouvelle session, comme la fenêtre)."""
+    import os
+    import socket
+    import tempfile
+
+    from fabrique.fenetre.client import Client, ErreurApi
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j8_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+
+    def lancer(*args) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-m", "fabrique", *map(str, args)], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    f = Client("fenetre", port=port, donnees=racine / "donnees")
+    f4 = json.loads((DEPOT / "fabrique" / "moteur" / "recettes" / "F4.json").read_text(encoding="utf-8"))
+    (recette := tmp / "F4.json").write_text(json.dumps({**f4, "reglages": {**f4["reglages"], "duree_s": [1, 60]}}), encoding="utf-8")
+    try:
+        banc.attendre(f.repond, 60, "le noyau répond")
+        essais = next(x for x in f.appeler("sessions") if x["essais"])
+        dossier = racine / "sessions" / essais["dossier"]
+        dire("F4 : voix off + images…")
+        (fs := tmp / "voix_off.json").write_text(json.dumps({**VOIX_OFF, "titre": "Voix off de la recette J8"}), encoding="utf-8")
+        r = lancer("moteur", recette, fs)
+        assert r.returncode == 0, r.stdout + r.stderr
+        t = banc.attendre(lambda: (x := [x for x in f.appeler("file") if x["titre"] == "Voix off de la recette J8"]) and x[0]["etat"] in ("finie", "erreur") and x[0], 300,
+                          "F4 finie")
+        vid = next(x for x in f.appeler("videos", id=essais["id"]) if x["titre"] == "Voix off de la recette J8")["id"]
+        d = dossier / "videos" / vid
+        r = json.loads((d / "en" / "montage" / "video" / "resultat.json").read_text(encoding="utf-8"))
+        m = mesure(d / "en" / "montage" / "video" / "video.mp4")
+        rap = json.loads((d / "en" / "revue" / "video" / "rapport.json").read_text(encoding="utf-8"))
+        srt = (d / "en" / "montage" / "video" / "video.srt").read_text(encoding="utf-8")
+        anim = json.loads((d / "commun" / "animation" / "s1" / "p2" / "demande.json").read_text(encoding="utf-8"))
+        points.append((t["etat"] == "finie" and (m["largeur"], m["hauteur"]) == (1920, 1080) and m["son"] and abs(m["duree_s"] - 4 * 1.6) < 0.2
+                       and [p["unite"] for p in r["infos"]["plans"]] == ["s1/p1", "s1/p2", "s2/p1", "s2/p2"] and srt.count("-->") == 4 and "Texte factice 2.2." in srt
+                       and anim["consigne"] == {"image": "image factice Texte factice 1.2.", "mouvement": "fixe"}
+                       and (d / "en" / "miniature" / "video" / "miniature.jpg").is_file() and not [x for x in rap["defauts"] if x["gravite"] == "forte"],
+                       f"F4 en simulation (commande « moteur » de Claude, forme « voix-off ») : {m['largeur']} × {m['hauteur']}, {m['duree_s']:.1f} s (4 plans, chacun sa voix "
+                       f"+ 0,6 s), un sous-titre par plan, consigne d'image et mouvement transmis à la caméra, miniature ; contrôle (technique, voix, plans quasi "
+                       f"fixes) sans défaut bloquant ({len(rap['defauts'])} défaut(s))"))
+        (fs := tmp / "sans_image.json").write_text(json.dumps({**SCRIPT, "titre": "Sans consigne d'image"}), encoding="utf-8")
+        r = lancer("moteur", recette, fs)
+        points.append((r.returncode == 1 and "image" in r.stdout, f"un script F4 sans consigne d'image est refusé tout de suite : {r.stdout.strip()[:160]}"))
+        dire("vidéo pilote d'une session au format F4…")
+        sid = f.appeler("nouvelle_session", {"nom": "Session de la recette J8", "langues": [{"code": "en", "nom": "Anglais"}], "public": "enfants factices",
+                                             "promesse": "des faits calmes et factices"})["id"]
+        f.appeler("ecrire_reglages", {"formats": ["F4"], "style": "aquarelle factice", "difference": "un lieu différent à chaque vidéo"}, id=sid)
+        f.appeler("finir_session", id=sid)
+        f.appeler("pilote", id=sid)
+        v = banc.attendre(lambda: (x := f.appeler("videos", id=sid)) and x[0]["progression"].split("/")[0] == x[0]["progression"].split("/")[1] and x[0], 240,
+                          "la vidéo pilote finie")
+        vd = f.appeler("video", id=sid, video=v["id"])
+        script = vd["script"] if isinstance(vd.get("script"), dict) else {}
+        points.append((v["erreurs"] == 0 and all(e["finis"] == e["total"] for e in vd["etapes"]) and [e["id"] for e in vd["etapes"]] == [e["id"] for e in f4["etapes"]]
+                       and all(p.get("image") and p.get("mouvement") for sc in script.get("scenes", []) for p in sc["plans"]),
+                       f"vidéo pilote d'une session au format F4 (nouvelle session, « Terminer », vidéo pilote) : fabriquée par la file en simulation, "
+                       f"{len(vd['etapes'])} étapes de F4, chaque plan avec sa consigne d'image et son mouvement"))
+    except (AssertionError, ErreurApi, OSError, ValueError, KeyError, StopIteration) as e:
+        points.append((False, f"recette J8 interrompue : {type(e).__name__} : {e}"))
+    finally:
+        try:
+            f.appeler("arreter")
+        except (OSError, ErreurApi):
+            pass
+        try:
+            noyau.wait(30)
+        except subprocess.TimeoutExpired:
+            noyau.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_formats.py", "fabrique/tests/test_moteur.py", "fabrique/tests/test_sessions.py",
+                        "fabrique/tests/test_publication.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests de F4 (deux langues : texte de chaque morceau dans sa traduction ; voix peu intelligible et plan quasi fixe minutés ; "
+                                      "jamais une image fixe au-delà de la limite ; refus de la forme ; outils réels choisis en mode réel ; mode réel, modèles simulés : "
+                                      "un lot par langue, un démarrage de ComfyUI, reprise) ; publication de F2, F3, F4 ; vidéo pilote ; moteur ; sessions — " + dernier(r)))
+    return points
+
+
+def en_vrai_j8() -> list[tuple[bool, str]]:
+    """F4 et F3 seule en vrai (session Essais, jamais publiées, outils réels par plan : aucun faux outil), lues dans la racine des essais réels sans
+    rien y écrire : finie, durée dans les bornes du format, contrôle sans défaut bloquant. Rouges tant que l'essai de nuit n'est pas fait."""
+    racine = SORTIE / "egalite" / "FABRIQUE" / "sessions" / "essais"
+    faits = {}
+    try:
+        with closing(sqlite3.connect(f"file:{racine / 'session.sqlite3'}?mode=ro", uri=True)) as c:
+            for vid, recette in c.execute("SELECT id, recette FROM session_video"):
+                r = json.loads(recette)
+                if r.get("id") not in ("F4", "F3s") or r.get("script") != "voix-off":
+                    continue
+                if c.execute("SELECT 1 FROM session_morceau WHERE video_id = ? AND (outil LIKE 'faux%' OR etat != 'fini')", (vid,)).fetchone():
+                    continue
+                for rapport in sorted((racine / "videos" / vid).glob("*/revue/video/rapport.json")):
+                    rap = json.loads(rapport.read_text(encoding="utf-8"))
+                    if not [x for x in rap["defauts"] if x["gravite"] == "forte"]:
+                        faits.setdefault(r["id"], (vid, rapport.parent.parent.parent.name, rap))
+    except (sqlite3.Error, OSError, ValueError):
+        pass
+    attente = "PAS ENCORE — essai de nuit, carte libre (outils_dev\\essai_formats.py, QUESTIONS)"
+    return [(recette in faits, f"{nom} en vrai (session Essais, outils réels par plan, aucun faux outil) : "
+             + (f"fait (vidéo {faits[recette][0]}, {faits[recette][1]}), {faits[recette][2].get('duree_s', 0):.0f} s, {len(faits[recette][2]['defauts'])} défaut(s), "
+                f"aucun bloquant" if recette in faits else attente))
+            for recette, nom in (("F4", "F4 voix off + images (vidéo pilote courte)"), ("F3s", "F3 créée seule"))]
+
+
+def j8(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J8 (plan § 7.1) : F4 (recette, forme de script, critères de contrôle, vidéo pilote) en simulation puis en vrai ; puis la construction et
+    l'installation, Bramble Studio intact."""
+    avant = bramble_avant(dire)
+    return formats_j8(dire) + en_vrai_j8() + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7, "J8": j8}
 
 
 def main(argv=None) -> int:

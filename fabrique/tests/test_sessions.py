@@ -131,6 +131,7 @@ def test_file_estimee_et_calendrier_d_ensemble(nouvelle):
     s.refresh_from_db()
     scripts(s, (reglages.PILOTE, None, "idee"))  # un script « pilote » existe déjà : la vidéo pilote en fait une version de plus
     reglages.pilote(s, "RT")
+    calendrier._estimees["quand"] = float("-inf")  # l'estimation gardée 10 s par un test d'avant ne voit pas encore cette tâche
     lu = Navigateur().get("/api/file", **entete("fenetre")).json()
     t = next(x for x in lu if x["session"] == s.nom)
     assert t["reste_s"] > 0 and t["cout_eur"] == 0 and len(t["pret_vers"]) == 11
