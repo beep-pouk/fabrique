@@ -7,7 +7,10 @@ aussi l'en-tête X-Fabrique (un autre site ne peut pas le poser sans que le noya
 depuis la fenêtre."""
 import hashlib
 import json
+import os
 import secrets
+import shutil
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +24,7 @@ DUREE = timedelta(minutes=5)
 ESSAIS = 5
 VIE = timedelta(days=365)
 PAGE = Path(__file__).with_name("iphone.html")
+PORT_TAILSCALE = 8443  # « tailscale serve --bg --https=8443 http://127.0.0.1:8790 » : le port 443 sert déjà Bramble Studio
 SURETE = {"Cache-Control": "no-store", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
           "Content-Security-Policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'"}
 
@@ -33,12 +37,23 @@ def _code() -> dict | None:
     return c if c and datetime.fromisoformat(c["expire"]) > datetime.now() else None
 
 
+def adresse() -> str:
+    """L'adresse de la page sur l'iPhone (nom MagicDNS de ce PC, lu par « tailscale status --json », 3 s au plus) ; vide sans Tailscale."""
+    exe = shutil.which("tailscale") or str(Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Tailscale" / "tailscale.exe")
+    try:
+        r = subprocess.run([exe, "status", "--json"], capture_output=True, text=True, encoding="utf-8", timeout=3, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        nom = json.loads(r.stdout)["Self"]["DNSName"].rstrip(".")
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return ""
+    return f"https://{nom}:{PORT_TAILSCALE}/iphone/" if nom else ""
+
+
 def nouveau_code(acteur: str) -> dict:
     """Un nouveau code remplace l'ancien ; le code lui-même n'est jamais journalisé."""
     c = {"code": f"{secrets.randbelow(10**6):06d}", "expire": (datetime.now() + DUREE).isoformat(timespec="seconds"), "essais": 0}
     Parametre.ecrire(CODE, json.dumps(c))
     noter(acteur, "code_telephone", valable_jusqu_a=c["expire"])
-    return {"code": c["code"], "expire": f"{datetime.fromisoformat(c['expire']):%H:%M}"}
+    return {"code": c["code"], "expire": f"{datetime.fromisoformat(c['expire']):%H:%M}", "adresse": adresse()}
 
 
 def essayer(saisi: str) -> bool:

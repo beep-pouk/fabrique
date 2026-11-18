@@ -34,13 +34,11 @@ def quitter_bientot(delai: float = 0.5):
 def tour(vu: dict, maintenant: datetime) -> dict:
     """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
     la tâche suivante lancée si la carte est libre (moteur/file.py) ; un envoi coupé repris (publication/publication.py), son échec notifié."""
-    try:  # une file ou un dépôt en panne n'arrêtent ni l'état ni la sauvegarde du soir
-        depot.traiter()
-        file.tour()
-        publication.relancer()
-        paquets.relancer()
-    except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
-        log.exception("dépôt, file ou publication : tour raté")
+    for nom, fn in (("dépôt", depot.traiter), ("file", file.tour), ("publication", publication.relancer), ("paquets", paquets.relancer)):
+        try:  # chacun à part : une panne de l'un n'arrête ni les autres, ni l'état, ni la sauvegarde du soir
+            fn()
+        except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
+            log.exception("%s : tour raté", nom)
     s, f, p = taches.lire("sauvegarde"), file.lister(), {t: taches.lire(t) for t in ("publication", "paquets")}
     change = s != vu.get("sauvegarde") or f != vu.get("file")
     if "sauvegarde" in vu:

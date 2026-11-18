@@ -197,8 +197,9 @@ def moteur(dire) -> list[tuple[bool, str]]:
 
 
 def dernier(r) -> str:
-    """La dernière ligne de pytest (son bilan), ou la fin de son erreur s'il n'a rien écrit."""
-    return (r.stdout.strip().splitlines() or [r.stderr.strip()[-300:] or f"code {r.returncode}"])[-1]
+    """La dernière ligne de pytest (son bilan) et les tests en échec, ou la fin de son erreur s'il n'a rien écrit."""
+    lignes = r.stdout.strip().splitlines()
+    return (lignes or [r.stderr.strip()[-300:] or f"code {r.returncode}"])[-1] + "".join(f" ; {l}" for l in lignes if l.startswith("FAILED"))[:600]
 
 
 def j2(dire, publier: bool = False) -> list[tuple[bool, str]]:
@@ -487,8 +488,8 @@ def gestes_j4() -> list[tuple[bool, str]]:
             with closing(sqlite3.connect(f"file:{studio / 'FABRIQUE' / 'sessions' / d / 'session.sqlite3'}?mode=ro", uri=True)) as b:
                 reliees += [x for (x,) in b.execute("SELECT langue FROM session_destination WHERE simulation = 0 AND jeton != '' AND refusee IS NULL")]
                 publiees += [(i, pk, s) for pk, s in b.execute("SELECT id, statut FROM session_publication WHERE simulation = 0 AND identifiant_youtube != ''")]
-        depuis = {g["appelant"] for g in gestes if g.get("quoi") == "publier" and any(g.get("publication") == pk and g.get("session") == i for i, pk, _ in publiees)}
-        non_rep = [s for _, _, s in publiees if s == "non_repertoriee"]
+        non_rep = [(i, pk) for i, pk, s in publiees if s == "non_repertoriee"]
+        depuis = {g["appelant"] for g in gestes if g.get("quoi") == "publier" and (g.get("session"), g.get("publication")) in non_rep}  # chaque origine : une non répertoriée
     except (sqlite3.Error, OSError, ValueError, KeyError) as e:
         return [(False, f"gestes de RT : installation réelle illisible ({e})")]
     return [(bool(reliees), f"geste de RT : chaînes reliées dans Fabrique (réel) : {', '.join(reliees) or 'AUCUNE ENCORE'}"),

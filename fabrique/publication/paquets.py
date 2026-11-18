@@ -61,13 +61,19 @@ def silences(video: Path) -> list[float]:
     return [(a + b) / 2 for a, b in zip(debuts, fins)]
 
 
+def entre_phrases(video: Path) -> list[float]:
+    """Le milieu entre deux phrases de la transcription de l'analyse (une musique sous la narration cache les silences au mixage)."""
+    segs = publication.segments(video)
+    return [(float(a["end"]) + float(b["start"])) / 2 for a, b in zip(segs, segs[1:])]
+
+
 def coupes(duree: float, n: int, calmes: list[float], maxi: float) -> list[float]:
     """Bornes de n parties à peu près égales, chaque coupe au silence le plus proche de sa place (± FENETRE_SILENCE_S) sans dépasser `maxi` par partie."""
     bornes = [0.0]
     for k in range(1, n):
         cible = duree * k / n
         proches = [c for c in calmes if abs(c - cible) <= FENETRE_SILENCE_S and max(bornes[-1], duree - (n - k) * maxi) < c <= bornes[-1] + maxi]
-        bornes.append(min(proches, key=lambda c: abs(c - cible)) if proches else cible)
+        bornes.append(min(proches, key=lambda c: abs(c - cible)) if proches else min(cible, bornes[-1] + maxi))
     if duree - bornes[-1] > maxi:  # les silences ont trop tiré vers le début : parties égales
         bornes = [duree * k / n for k in range(n)]
     return [*bornes, duree]
@@ -75,6 +81,8 @@ def coupes(duree: float, n: int, calmes: list[float], maxi: float) -> list[float
 
 def cadre(l: int, h: int, largeur: int, hauteur: int) -> str:
     """Filtre ffmpeg : même format → mise à l'échelle ; sinon l'image entière sur son propre fond flouté."""
+    if not (l and h):
+        raise RuntimeError(f"image illisible ({l}×{h})")
     if abs(l / h - largeur / hauteur) < 0.01:
         return f"scale={largeur}:{hauteur},setsar=1"
     return (f"split[a][b];[a]scale={largeur}:{hauteur}:force_original_aspect_ratio=increase,crop={largeur}:{hauteur},boxblur=20:2[fond];"
@@ -96,7 +104,7 @@ def faire_reseau(source: Path, info: dict, fiche: dict, vers: Path, miniature: P
     fichiers = []
     for i, (a, b) in enumerate(zip(bornes, bornes[1:]), 1):
         f = vers / (f"{source.stem}_{fiche['id']}" + (f"_partie_{i}" if n > 1 else "") + ".mp4")
-        kbps = min(8000, int(fiche["poids_max_mo"] * 8000 * 0.9 / max(b - a, 1)) - AUDIO_KBPS)  # 10 % de marge sous le poids de la fiche
+        kbps = min(5000, int(fiche["poids_max_mo"] * 8000 * 0.9 / max(b - a, 1)) - AUDIO_KBPS)  # 10 % de marge sous le poids ; 5 Mbit/s suffisent à des pastels
         tmp = f.with_suffix(".tmp.mp4")
         outil(exe("ffmpeg"), "-y", "-v", "error", "-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-i", source, "-filter_complex", cadre(info["largeur"], info["hauteur"], l, h),
               "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{2 * kbps}k",
@@ -108,7 +116,8 @@ def faire_reseau(source: Path, info: dict, fiche: dict, vers: Path, miniature: P
         r = json.loads(outil(exe("ffprobe"), "-v", "error", "-show_entries", "stream=width,height", "-of", "json", miniature))["streams"][0]
         outil(exe("ffmpeg"), "-y", "-v", "error", "-i", miniature, "-filter_complex", cadre(r["width"], r["height"], l, h), "-frames:v", "1", "-q:v", "3", tmp)
         os.replace(tmp, mi)
-    return {"etat": "fait", "fichiers": fichiers, "miniature": "miniature.jpg" if miniature and miniature.is_file() else "", "fautes": fautes(fichiers, fiche)}
+    f = fautes(fichiers, fiche)
+    return {"etat": "non conforme" if f else "fait", "fichiers": fichiers, "miniature": "miniature.jpg" if miniature and miniature.is_file() else "", "fautes": f}
 
 
 def fautes(fichiers: list[dict], fiche: dict) -> list[str]:
@@ -140,12 +149,14 @@ def faire(s: Session, pk: int) -> list[str]:
     """Les paquets pas encore faits d'une publication ; rend les alertes (un réseau en panne n'arrête pas les autres)."""
     with routeur.session(s):
         pub = m.Publication.objects.select_related("video").get(pk=pk)
-    source, alertes, faits = publication.final(s, pub) / pub.fichier, [], dict(pub.paquets)
+    source, alertes, faits = publication.final(s, pub) / pub.fichier, [], {**pub.paquets, "_en_cours": True}
+    with routeur.session(s):
+        m.Publication.objects.filter(pk=pk).update(paquets=faits)
     info = mesure(source)
     cache = {}
-    calmes = lambda: cache.setdefault("c", silences(source))  # noqa: E731 — cherchés une fois, seulement si une vidéo est coupée
+    calmes = lambda: cache.setdefault("c", sorted(entre_phrases(source) + silences(source)))  # noqa: E731 — une fois, seulement si une vidéo est coupée
     for fiche in fiches():
-        if faits.get(fiche["id"], {}).get("etat") in ("fait", "impossible"):
+        if faits.get(fiche["id"], {}).get("etat") in ("fait", "non conforme", "impossible"):
             continue
         try:
             faits[fiche["id"]] = faire_reseau(source, info, fiche, dossier(s, pub) / fiche["id"], publication.final(s, pub) / pub.miniature if pub.miniature else None, calmes)
@@ -153,10 +164,12 @@ def faire(s: Session, pk: int) -> list[str]:
             log.exception("paquet %s de la publication %s", fiche["id"], pk)
             faits[fiche["id"]] = {"etat": "erreur", "raison": str(e)[:300]}
             alertes.append(f"paquet {fiche['nom']} de « {pub.titre} » ({pub.langue}) : {str(e)[:200]}")
-        with routeur.session(s):
-            m.Publication.objects.filter(pk=pk).update(paquets=faits)
+        with routeur.session(s):  # « Refaire les paquets » pendant ce temps (marque effacée) : le travail en cours n'écrit pas par-dessus
+            if not m.Publication.objects.filter(pk=pk, paquets__has_key="_en_cours").update(paquets=faits):
+                return alertes
+    faits.pop("_en_cours")
     with routeur.session(s):
-        m.Publication.objects.filter(pk=pk).update(paquets={**faits, "fini": True})
+        m.Publication.objects.filter(pk=pk, paquets__has_key="_en_cours").update(paquets={**faits, "fini": True})
     return alertes
 
 
@@ -231,7 +244,8 @@ def fichier(s: Session, pk: int, reseau: str, nom: str) -> Path:
 
     with routeur.session(s):
         pub = m.Publication.objects.select_related("video").filter(pk=pk).first()
-    p = (pub.paquets.get(reseau) or {}) if pub else {}
-    if p.get("etat") != "fait" or nom not in [f["nom"] for f in p["fichiers"]] + ([p["miniature"]] if p.get("miniature") else []):
+    p = pub.paquets.get(reseau) if pub else None
+    p = p if isinstance(p, dict) else {}
+    if p.get("etat") not in ("fait", "non conforme") or nom not in [f["nom"] for f in p["fichiers"]] + ([p["miniature"]] if p.get("miniature") else []):
         raise Refus(f"paquet {reseau} : pas de fichier « {nom} »")
     return dossier(s, pub) / reseau / nom

@@ -54,6 +54,7 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "code_telephone": ("POST", "/api/telephone/code", s.CodeTelephone),
     "importer_session": ("POST", "/api/sessions/importer", s.Message),
     "agir_session": ("POST", "/api/sessions/{id}/{action}", s.Message),  # pause, reprendre, archiver, desarchiver, dupliquer, exporter, modele
+    "changer_mode": ("POST", "/api/mode", s.Message),
     "appareils": ("GET", "/api/telephone/appareils", list[s.Appareil]),
     "deconnecter": ("POST", "/api/telephone/appareils/{appareil}/deconnecter", s.Message),
 }

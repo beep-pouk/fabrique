@@ -21,6 +21,27 @@ def simulation() -> bool:
     return not reel_permis or Parametre.lire("simulation", "oui") != "non"
 
 
+def changer(reel: bool, acteur: str) -> str:
+    """Système → « Passer en mode réel » / « Revenir en simulation » (clic de RT, repris de Bramble Studio, core/mode_reel.py) : refusé tant
+    qu'une vidéo est dans la file ou qu'un envoi est en cours (une tâche commencée dans un mode ne finit jamais dans l'autre)."""
+    from fabrique.garde import Refus
+    from fabrique.noyau import routeur
+    from fabrique.noyau.models import Tache, noter
+    from fabrique.session.models import Publication
+
+    if acteur != "RT":
+        raise Refus("seul RT change de mode")
+    if Tache.objects.filter(etat__in=("attente", "en_cours", "pause")).exists() or taches.occupe("fabrication", "publication"):
+        raise Refus("une vidéo est dans la file (ou une tâche tourne) : changer de mode une fois la file vide")
+    for s in Session.objects.filter(essais=False):
+        with routeur.session(s):
+            if Publication.objects.filter(statut__in=("en_file", "envoi")).exists():
+                raise Refus(f"un envoi est en cours dans « {s.nom} » : changer de mode une fois l'envoi fini ou annulé")
+    Parametre.ecrire("simulation", "non" if reel else "oui")
+    noter(acteur, "mode", reel=reel)
+    return "Mode réel : les vrais outils et les vraies chaînes (rien ne part sans votre clic)." if reel else "Retour en simulation : faux outils, faux YouTube."
+
+
 def alertes(e: dict, libre: int) -> list[str]:
     a = []
     if libre < SEUIL_DISQUE_GO * 1e9:

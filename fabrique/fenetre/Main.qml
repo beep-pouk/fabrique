@@ -52,7 +52,8 @@ Window {
     property var destinations: []
     property var appareils: []
     property var etat: ({releve: {}})
-    property var code_telephone: ({code: "", expire: ""})
+    property var code_telephone: ({code: "", expire: "", adresse: ""})
+    property bool aChangerMode: false  // « Passer en mode réel » attend la confirmation
     property var relier: ({url: "", message: ""})
     property int aPublier: -1  // la publication dont « Publier » attend la confirmation
     property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
@@ -535,9 +536,12 @@ Window {
                                     Bouton { objectName: "retoucher_" + index; texte: "Enregistrer le texte (nouvelle version)"; visible: carte.modifiable
                                              actif: titrePub.texte !== p.titre || descPub.text !== p.description
                                              onClic: pont.agir("retoucher", {id: session, pub: p.id, corps: {titre: titrePub.texte, description: descPub.text}}) }
+                                    Image { visible: status === Image.Ready; source: p.miniature !== "" ? "file:///" + p.miniature.replace(/\\/g, "/") : ""
+                                            width: 192; height: 108; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: false }
                                     T { width: parent.width; color: cSecond; font.pixelSize: 13
-                                        text: (p.non_repertorie ? "Part en non répertorié (première vidéo de la chaîne)" : "En privé, publique le " + p.creneau)
-                                              + "  ·  " + (p.playlist_titre !== "" ? "playlist : " + p.playlist_titre : "sans playlist") + "  ·  pour enfants : " + (p.enfants ? "oui" : "non")
+                                        text: (p.non_repertorie ? "Part en non répertorié (première vidéo de la chaîne, ou vidéo d'essai)" : "En privé, publique le " + p.creneau)
+                                              + "  ·  " + (p.non_repertorie ? "sans playlist (non répertorié)" : p.playlist_titre !== "" ? "playlist : " + p.playlist_titre : "sans playlist")
+                                              + "  ·  pour enfants : " + (p.enfants ? "oui" : "non")
                                               + "  ·  IA déclarée : " + (p.ia ? "oui" : "non") + (p.chapitres.length ? "  ·  " + p.chapitres.length + " chapitres" : "") }
                                     Flow {
                                         visible: carte.modifiable && p.miniatures.length > 0; width: parent.width; spacing: 6
@@ -546,7 +550,7 @@ Window {
                                                                                  onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {miniature: modelData}}) } }
                                     }
                                     Flow {
-                                        visible: carte.modifiable && chaineDe(p.langue).playlists.length > 0; width: parent.width; spacing: 6
+                                        visible: carte.modifiable && !p.non_repertorie && chaineDe(p.langue).playlists.length > 0; width: parent.width; spacing: 6
                                         T { text: "Playlist :"; color: cSecond; wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
                                         Bouton { texte: "aucune" + (p.playlist === "" ? " ✓" : ""); onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {playlist: ""}}) }
                                         Repeater { model: chaineDe(p.langue).playlists; Bouton { texte: modelData.titre + (p.playlist === modelData.id ? " ✓" : "")
@@ -567,7 +571,8 @@ Window {
                                         Clic { onTapped: Qt.openUrlExternally(p.lien) } }
                                     Row {
                                         spacing: 8
-                                        Bouton { objectName: "publier_" + index; ambre: true; visible: carte.modifiable; actif: p.fautes.length === 0 && p.destination === "reliée"
+                                        Bouton { objectName: "publier_" + index; ambre: true; visible: carte.modifiable || p.statut === "erreur"
+                                                 actif: p.fautes.length === 0 && p.destination === "reliée" && titrePub.texte === p.titre && descPub.text === p.description  // un texte retouché s'enregistre d'abord
                                                  texte: p.statut === "erreur" ? "Reprendre l'envoi" : "Publier"; onClic: aPublier = p.id }
                                         Bouton { visible: p.statut === "en_file"; texte: "Annuler l'envoi"; onClic: pont.agir("publier", {id: session, pub: p.id, action: "annuler"}) }
                                     }
@@ -577,7 +582,7 @@ Window {
                                         Column {
                                             id: confPub
                                             x: 12; y: 12; width: parent.width - 24; spacing: 12
-                                            T { width: parent.width; text: (p.statut === "erreur" ? "Reprendre l'envoi de « " : "Publier « ") + titrePub.texte + " » (" + p.langue + ") sur « " + p.chaine + " », "
+                                            T { width: parent.width; text: (p.statut === "erreur" ? "Reprendre l'envoi de « " : "Publier « ") + p.titre + " » (" + p.langue + ") sur « " + p.chaine + " », "
                                                 + (p.non_repertorie ? "en non répertorié ?" : "en privé, publique le " + p.creneau + " ?") }
                                             Row {
                                                 spacing: 8
@@ -857,6 +862,28 @@ Window {
                 }
 
                 Panneau {
+                    titre: "Mode"
+                    T { objectName: "mode"; width: parent.width
+                        text: sante.mode === "réel" ? "Mode réel : vrais outils, vraies chaînes. Rien ne part sans votre clic." : "Simulation : faux outils et faux YouTube, rien ne sort de ce PC." }
+                    Bouton { objectName: "bouton_mode"; texte: sante.mode === "réel" ? "Revenir en simulation" : "Passer en mode réel"; onClic: aChangerMode = true }
+                    Rectangle {
+                        visible: aChangerMode
+                        width: parent.width; height: confMode.implicitHeight + 24; radius: 6; color: cLeve; border.width: 1; border.color: cAccent
+                        Column {
+                            id: confMode
+                            x: 12; y: 12; width: parent.width - 24; spacing: 12
+                            T { width: parent.width; text: sante.mode === "réel" ? "Revenir en simulation ? Les chaînes réelles restent reliées." : "Passer en mode réel ? Les vidéos se fabriqueront avec les vrais outils et « Publier » enverra sur les vraies chaînes." }
+                            Row {
+                                spacing: 8
+                                Bouton { objectName: "confirmer_mode"; ambre: sante.mode !== "réel"; texte: sante.mode === "réel" ? "Revenir en simulation" : "Passer en mode réel"
+                                         onClic: { pont.agir("changer_mode", {corps: {reel: sante.mode !== "réel"}}); aChangerMode = false } }
+                                Bouton { texte: "Annuler"; onClic: aChangerMode = false }
+                            }
+                        }
+                    }
+                }
+
+                Panneau {
                     titre: "Destinations"
                     T { text: "Les chaînes de « " + ((sessions.find(s => s.id === session) || {nom: "?"}).nom) + " », une par langue. Relier ouvre la page de Google dans le navigateur."; color: cSecond; width: parent.width }
                     T { visible: destinations.length === 0; text: "Aucune destination pour cette session (la session « Essais » ne publie jamais)."; color: cSecond; width: parent.width }
@@ -888,6 +915,9 @@ Window {
                         Mono { objectName: "code_telephone"; visible: code_telephone.code !== ""; text: code_telephone.code.slice(0, 3) + " " + code_telephone.code.slice(3); font.pixelSize: 26; color: cAccent }
                         T { visible: code_telephone.code !== ""; text: "à taper sur l'iPhone avant " + code_telephone.expire + " (une seule fois)"; color: cSecond; anchors.verticalCenter: parent.verticalCenter; wrapMode: Text.NoWrap }
                     }
+                    T { objectName: "adresse_iphone"; visible: code_telephone.code !== ""; width: parent.width
+                        text: code_telephone.adresse !== "" ? "Sur l'iPhone : " + code_telephone.adresse : "Tailscale est introuvable sur ce PC : la page iPhone n'est pas joignable."
+                        color: code_telephone.adresse !== "" ? cTexte : cAttention }
                     Repeater {
                         model: appareils
                         Rectangle {
