@@ -1,18 +1,26 @@
-"""Publication, J4 étape 1 (noms factices, faux Google local, jamais le réseau) : relier la chaîne YouTube d'une langue de bout en bout, jeton de
-rafraîchissement chiffré en base, jamais rendu par l'API ni journalisé ; renouvellement, refus de Google, droits, une destination par langue."""
+"""Publication (noms factices, faux Google local, jamais le réseau). J4 étape 1 : relier la chaîne YouTube d'une langue de bout en bout, jeton de
+rafraîchissement chiffré en base, jamais rendu par l'API ni journalisé ; renouvellement, refus de Google, droits, une destination par langue.
+J4 étape 2 : approuver (brouillons par langue), aperçu, publier (tâche détachée légère), envoi complet, coupure et processus tué puis reprise
+sans 2e vidéo, double clic, non répertorié la première fois, langue sans chaîne, erreur en clair, droits."""
+import hashlib
 import json
 import logging
+import os
+import threading
 import time
 import urllib.request
+from datetime import UTC, datetime
 
 import pytest
 from django.conf import settings
+from django.db import connections
 from django.test import Client as Navigateur
 
+from fabrique import programme
 from fabrique.garde import Refus
-from fabrique.noyau import bases, cles, etat, evenements, jetons, routeur
-from fabrique.noyau.models import Journal, Session
-from fabrique.publication import faux_youtube, youtube
+from fabrique.noyau import bases, cles, etat, evenements, jetons, routeur, serveur, taches
+from fabrique.noyau.models import Journal, Session, Tache
+from fabrique.publication import faux_youtube, publication, youtube
 from fabrique.session import models as m
 
 
@@ -138,3 +146,335 @@ def test_client_secret_application_de_bureau(tmp_path, monkeypatch):
         youtube.secret()
     f.write_text(json.dumps({"installed": {"client_id": "x", "client_secret": "y"}}), encoding="utf-8")
     assert youtube.secret()["client_id"] == "x"
+
+
+# ---- J4 étape 2 : approuver, publier, envoyer ----
+
+MORCEAU = 256 * 1024
+TAILLE = 5 * MORCEAU + 1000  # 6 morceaux
+YOUTUBE_TXT = """TITRE :
+Le petit renard | Histoire factice
+
+DESCRIPTION :
+Un petit renard cherche la lune.
+
+00:00 Le terrier
+01:10 La forêt
+02:30 La lune
+
+Crédits : voix et images factices.
+
+TAGS :
+renard, histoire du soir, essai
+"""
+
+
+class Tue(BaseException):
+    """Le processus de la tâche tué net : rien après, ni except, ni état final."""
+
+
+@pytest.fixture
+def envois(monkeypatch):
+    """La tâche « publication » n'est jamais lancée pour de vrai : les lancements sont notés, l'envoi est joué ici (publication.executer)."""
+    lances = []
+    monkeypatch.setattr(programme, "lancer_detache", lambda *a, **k: lances.append(a))
+    monkeypatch.setattr(publication, "MORCEAU", MORCEAU)
+    monkeypatch.setattr(publication, "PAUSE_S", 0)
+    yield lances
+    while x := publication.suivante(set()):  # jamais un envoi laissé en file pour la boucle du noyau d'un autre test
+        with routeur.session(x[0]):
+            m.Publication.objects.filter(pk=x[1]).update(statut="erreur")
+    taches.fichier("publication").unlink(missing_ok=True)
+
+
+def video_finie(s, nom="2099-12-01-s1e01", langues=("en", "xx")) -> str:
+    """Une vidéo dont la fabrication est finie, et ses fichiers finaux (langue du script sous « commun »)."""
+    with routeur.session(s):
+        v = m.Video.objects.create(titre="Le petit renard", nom=nom, script={"title": "Le petit renard", "language": "en", "bqw": {"hero": "renard"}},
+                                   recette={"id": "F1", "version": 2, "reglages": {"langues": list(langues)}, "etapes": []})
+        m.Morceau.objects.create(video=v, etape="montage", brique="montage", unite="", langue="", ordre=0, outil="f1_montage", etat="fini")
+    for langue in langues:
+        d = settings.SESSIONS / s.dossier / "videos" / v.id / ("commun" if langue == "en" else langue) / "atelier" / nom / "final"
+        d.mkdir(parents=True)
+        (d / f"{nom}.mp4").write_bytes(os.urandom(TAILLE))
+        (d / "miniature.jpg").write_bytes(b"\xff\xd8\xff miniature factice " + langue.encode())
+        (d / "youtube.txt").write_bytes(YOUTUBE_TXT.encode("utf-8"))
+        if langue == "en":
+            segments = [{"start": 0, "end": 2.5, "text": "Un petit renard."}, {"start": 2.5, "end": 5, "text": "Bonne nuit."}]
+            (d / f"{nom}.transcription.json").write_bytes(json.dumps({"segments": segments}).encode())
+        else:
+            (d / "sous_titres.srt").write_bytes(b"1\n00:00:00,000 --> 00:00:02,000\nUne phrase factice.\n")
+    return v.id
+
+
+def api(methode, chemin, qui="fenetre", corps=None):
+    if methode == "get":
+        return Navigateur().get(chemin, **entete(qui))
+    return Navigateur().post(chemin, corps or {}, content_type="application/json", **entete(qui))
+
+
+def approuver(s, v, qui="fenetre"):
+    return api("post", f"/api/sessions/{s.id}/videos/{v}/approuver", qui)
+
+
+def apercu(s, v, qui="fenetre") -> list[dict]:
+    r = api("get", f"/api/sessions/{s.id}/videos/{v}/publications", qui)
+    assert r.status_code == 200, r.content
+    return r.json()
+
+
+def agir(s, pk, action="publier", qui="fenetre"):
+    return api("post", f"/api/sessions/{s.id}/publications/{pk}/{action}", qui)
+
+
+def lire(s, pk) -> m.Publication:
+    with routeur.session(s):
+        return m.Publication.objects.select_related("video").get(pk=pk)
+
+
+def fichier(s, p: m.Publication):
+    return publication.final(s, p) / p.fichier
+
+
+def empreinte(s, p: m.Publication) -> str:
+    return hashlib.sha256(fichier(s, p).read_bytes()).hexdigest()
+
+
+def test_approuver_prepare_un_brouillon_par_langue(session, faux, envois):
+    relier(session, "en")
+    v = video_finie(session)
+    r = approuver(session, v, "iphone")
+    assert r.status_code == 200 and "brouillon(s) en, xx" in r.json()["message"], r.content
+    en, xx = apercu(session, v, "iphone")
+    assert (en["langue"], en["statut"], xx["langue"], xx["statut"]) == ("en", "brouillon", "xx", "brouillon")
+    assert en["titre"] == "Le petit renard | Histoire factice" and en["tags"] == ["renard", "histoire du soir", "essai"]
+    assert en["description"].startswith("Un petit renard cherche la lune.") and "Crédits" in en["description"] and "TAGS" not in en["description"]
+    assert en["chapitres"] == ["00:00 Le terrier", "01:10 La forêt", "02:30 La lune"] and en["avis"] == [] and en["fautes"] == []
+    assert (en["playlist"], en["playlist_titre"], en["destination"], en["chaine"]) == ("PLfauxUn", "Histoires du renard", "reliée", "Chaîne factice")
+    assert en["enfants"] and en["ia"] and en["non_repertorie"] and en["creneau"] == ""  # première publication de la chaîne
+    assert en["miniature"].endswith("miniature.jpg") and en["miniatures"] == ["miniature.jpg"] and en["video"].endswith("2099-12-01-s1e01.mp4")
+    assert xx["playlist"] == "" and xx["destination"] == "pas reliée" and any("pas reliée" in a for a in xx["avis"])
+    p = lire(session, en["id"])
+    assert p.dossier == "commun" and lire(session, xx["id"]).dossier == "xx" and p.versions[0]["numero"] == 1
+    assert f"{p.planifiee_le.astimezone(UTC):%Y-%m-%d %H:%M}" == "2099-12-01 17:30"  # le créneau du soir du jour prévu (18 h 30 à Paris)
+    assert "brouillons déjà prêts" in approuver(session, v).json()["message"]  # une 2e fois : rien de refait
+    assert Journal.objects.filter(action="approuver", acteur="RT").exists() and envois == []  # rien ne part avant « Publier »
+
+
+def test_approuver_seulement_une_video_finie(session, faux, envois):
+    v = video_finie(session)
+    with routeur.session(session):
+        m.Morceau.objects.filter(video_id=v).update(etat="attente")
+    r = approuver(session, v)
+    assert r.status_code == 409 and "pas finie" in r.json()["detail"]
+    with routeur.session(session):
+        m.Morceau.objects.filter(video_id=v).update(etat="fini")
+    t = Tache.objects.create(session_id=session.id, video_id=v, titre="Le petit renard", acteur="RT")
+    assert "dans la file" in approuver(session, v).json()["detail"]
+    t.delete()
+    assert "Essais" in approuver(Session.objects.get(essais=True), v).json()["detail"]
+
+
+def test_publier_envoie_tout_et_non_repertorie_la_premiere_fois(session, faux, envois):
+    relier(session, "en")
+    premiere, seconde = video_finie(session, langues=("en",)), video_finie(session, "2099-12-02-s1e02", ("en",))
+    approuver(session, premiere)
+    approuver(session, seconde)
+    a = apercu(session, premiere)[0]
+    r = agir(session, a["id"])
+    assert r.status_code == 200 and "en non répertorié" in r.json()["message"], r.content
+    assert envois == [("executer", "publication")] and taches.occupe("publication") == "publication"  # comptée en cours pendant son démarrage
+    assert lire(session, a["id"]).statut == "en_file"
+    assert publication.executer() == 0 and taches.lire("publication")["etat"] == "faite"
+    p = lire(session, a["id"])
+    assert p.statut == "non_repertoriee" and p.envoi["fait"] == ["video", "sous_titres", "miniature"] and "session" not in p.envoi  # pas de playlist
+    meta = faux.appels_de("POST", "/upload/youtube/v3/videos")[0]["corps"]
+    assert meta["status"] == {"privacyStatus": "unlisted", "selfDeclaredMadeForKids": True, "containsSyntheticMedia": True}  # sans publishAt
+    # la 2e de la même chaîne : privée, programmée, playlist, sous-titres, miniature
+    b = apercu(session, seconde)[0]
+    assert not b["non_repertorie"] and b["creneau"] == "02/12/2099 18:30"
+    assert "en privé, publique le 02/12/2099 à 18:30" in agir(session, b["id"]).json()["message"]
+    assert publication.executer() == 0
+    p = lire(session, b["id"])
+    assert p.statut == "planifiee" and p.envoi["fait"] == ["video", "playlist", "sous_titres", "miniature"] and "session" not in p.envoi
+    meta = faux.appels_de("POST", "/upload/youtube/v3/videos")[1]["corps"]
+    assert meta["status"] == {"privacyStatus": "private", "selfDeclaredMadeForKids": True, "containsSyntheticMedia": True, "publishAt": "2099-12-02T17:30:00Z"}
+    assert meta["snippet"] == {"title": "Le petit renard | Histoire factice", "description": p.description, "tags": ["renard", "histoire du soir", "essai"],
+                               "defaultLanguage": "en", "defaultAudioLanguage": "en"}
+    with routeur.session(session):
+        assert faux.videos[p.identifiant_youtube]["empreinte"] == empreinte(session, p)
+    assert faux.elements[-1]["snippet"] == {"playlistId": "PLfauxUn", "resourceId": {"kind": "youtube#video", "videoId": p.identifiant_youtube}}
+    piste = faux.sous_titres[-1]
+    assert piste["snippet"]["videoId"] == p.identifiant_youtube and piste["snippet"]["language"] == "en" and "00:00:02,500 --> 00:00:05,000\nBonne nuit." in piste["texte"]
+    assert faux.miniatures[p.identifiant_youtube] == b"\xff\xd8\xff miniature factice en"
+    b = apercu(session, seconde, "iphone")[0]
+    assert b["statut"] == "planifiee" and b["lien"] == f"https://youtu.be/{p.identifiant_youtube}" and b["envoi"].startswith("1,3 / 1,3 Mo")
+    assert len(faux.videos) == 2 and len(envois) == 2
+
+
+def test_coupure_puis_reprise_sans_deuxieme_video(session, faux, envois):
+    relier(session, "en")
+    une, deux = video_finie(session, langues=("en",)), video_finie(session, "2099-12-02-s1e02", ("en",))
+    for v in (une, deux):
+        approuver(session, v)
+    a, b = apercu(session, une)[0]["id"], apercu(session, deux)[0]["id"]
+    agir(session, a)
+    recu = 2 * MORCEAU + 1000
+    faux.coupure = recu  # la connexion tombe au milieu du 3e morceau
+    assert publication.executer() == 0
+    p = lire(session, a)
+    with routeur.session(session):
+        assert p.statut == "non_repertoriee" and faux.videos[p.identifiant_youtube]["empreinte"] == empreinte(session, p)
+    plages = [x["corps"]["Content-Range"] for x in faux.appels_de("PUT", "/upload/youtube/v3/videos")]
+    assert f"bytes */{TAILLE}" in plages and f"bytes {recu}-{recu + MORCEAU - 1}/{TAILLE}" in plages  # reprise à l'octet reçu par YouTube
+    # la seconde : tout arrive, mais la réponse se perd → YouTube dit qu'elle est là, jamais une 2e vidéo
+    agir(session, b)
+    faux.coupure = TAILLE
+    assert publication.executer() == 0
+    assert lire(session, b).statut == "planifiee" and len(faux.videos) == 2 and len(faux.appels_de("POST", "/upload/youtube/v3/videos")) == 2
+
+
+def test_processus_tue_en_plein_envoi_reprend_a_l_octet_recu(session, faux, envois, monkeypatch):
+    relier(session, "en")
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    pk = apercu(session, v)[0]["id"]
+    agir(session, pk)
+    vrai = youtube.appeler
+
+    def appeler(*a, **k):
+        try:
+            return vrai(*a, **k)
+        except OSError:  # le processus est tué pendant l'envoi d'un morceau : YouTube en a reçu une partie
+            raise Tue from None
+
+    monkeypatch.setattr(youtube, "appeler", appeler)
+    recu = 3 * MORCEAU + 4321
+    faux.coupure = recu
+    with pytest.raises(Tue):
+        publication.executer()
+    p = lire(session, pk)
+    assert p.statut == "envoi" and p.envoi["session"] and p.envoi["octets"] == 3 * MORCEAU  # en base : les octets confirmés avant la coupure
+    taches.ecrire("publication", {"etat": "en_cours", "pid": 4_000_000})  # son processus est mort
+    monkeypatch.setattr(youtube, "appeler", vrai)
+    publication.relancer()  # la boucle du noyau
+    assert envois[-1] == ("executer", "publication") and len(envois) == 2
+    assert publication.executer() == 0
+    p = lire(session, pk)
+    with routeur.session(session):
+        assert faux.videos[p.identifiant_youtube]["empreinte"] == empreinte(session, p)
+    assert p.statut == "non_repertoriee" and len(faux.appels_de("POST", "/upload/youtube/v3/videos")) == 1 and len(faux.videos) == 1
+    plages = [x["corps"]["Content-Range"] for x in faux.appels_de("PUT", "/upload/youtube/v3/videos")]
+    assert f"bytes {recu}-{recu + MORCEAU - 1}/{TAILLE}" in plages  # à l'octet que YouTube a reçu, pas à celui de la base
+    publication.relancer()
+    assert len(envois) == 2  # plus rien à envoyer : rien n'est relancé
+
+
+def test_double_clic_puis_annuler(session, faux, envois):
+    relier(session, "en")
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    pk = apercu(session, v)[0]["id"]
+    resultats, depart = [], threading.Barrier(2)
+
+    def clic():
+        depart.wait()
+        try:
+            resultats.append(publication.publier(session, pk, "RT"))
+        except Refus as e:
+            resultats.append(e)
+        finally:
+            connections.close_all()
+
+    fils = [threading.Thread(target=clic) for _ in range(2)]
+    for f in fils:
+        f.start()
+    for f in fils:
+        f.join(30)
+    assert sorted(type(r).__name__ for r in resultats) == ["Refus", "str"]
+    assert str(next(r for r in resultats if isinstance(r, Refus))) == "déjà dans la file d'envoi"
+    r = agir(session, pk, "publier", "iphone")
+    assert r.status_code == 409 and r.json()["detail"] == "déjà dans la file d'envoi" and envois == [("executer", "publication")]
+    assert "redevient un brouillon" in agir(session, pk, "annuler").json()["message"]
+    assert lire(session, pk).statut == "brouillon" and publication.executer() == 0 and not faux.videos  # rien n'est parti
+
+
+def test_langue_sans_chaine_brouillon_mais_envoi_refuse(session, faux, envois):
+    relier(session, "en")
+    v = video_finie(session)
+    approuver(session, v)
+    xx = apercu(session, v)[1]
+    r = agir(session, xx["id"])
+    assert r.status_code == 409 and "YouTube (xx) : chaîne pas reliée" in r.json()["detail"]
+    assert lire(session, xx["id"]).statut == "brouillon" and envois == []
+
+
+def test_erreur_en_clair_alertee_puis_reprendre(session, faux, envois, monkeypatch):
+    relier(session, "en")
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    pk = apercu(session, v)[0]["id"]
+    agir(session, pk)
+    faux.refuser = True  # Google retire l'accès entre le clic et l'envoi
+    youtube._acces.clear()
+    assert publication.executer() == 1
+    p = lire(session, pk)
+    assert p.statut == "erreur" and "relier la chaîne" in p.envoi["erreur"]
+    e = taches.lire("publication")
+    assert e["etat"] == "erreur" and e["alertes"][0].startswith("« Le petit renard | Histoire factice » (en) : publication en erreur — YouTube : Google a refusé le jeton")
+    assert e["alertes"][0] in etat.etat()["alertes"]
+    vus = []  # la boucle du noyau la notifie (la fenêtre en fait une notification)
+    monkeypatch.setattr(evenements, "publier", lambda t, **d: vus.append((t, d)))
+    monkeypatch.setattr(serveur.file, "tour", lambda: "")
+    monkeypatch.setattr(serveur.depot, "traiter", lambda: None)
+    serveur.tour({"sauvegarde": taches.lire("sauvegarde"), "file": [], "publication": {}}, datetime.now())
+    assert ("alerte", {"titre": "Publication", "message": e["alertes"][0]}) in vus
+    assert apercu(session, v)[0]["erreur"] == p.envoi["erreur"]
+    faux.refuser = False
+    relier(session, "en")
+    assert "envoi repris" in agir(session, pk, "reprendre", "iphone").json()["message"]
+    assert publication.executer() == 0 and lire(session, pk).statut == "non_repertoriee"
+    assert agir(session, pk, "reprendre").status_code == 409
+
+
+def test_jamais_un_clic_de_la_simulation_vers_une_vraie_chaine(session, faux, envois, monkeypatch):
+    relier(session, "en")
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    pk = apercu(session, v)[0]["id"]
+    agir(session, pk)
+    monkeypatch.setattr(etat, "simulation", lambda: False)  # passée en réel entre le clic et l'envoi
+    assert publication.executer() == 1 and "le mode a changé" in lire(session, pk).envoi["erreur"]
+    assert not faux.appels_de("POST", "/upload/youtube/v3/videos")
+    assert "redevient un brouillon" in agir(session, pk, "annuler").json()["message"]
+
+
+def test_retoucher_choisir_et_droits(session, faux, envois):
+    relier(session, "en")
+    v = video_finie(session, langues=("en",))
+    base = f"/api/sessions/{session.id}"
+    assert approuver(session, v, "claude").status_code == 403
+    approuver(session, v)
+    pk = apercu(session, v, "claude")[0]["id"]  # Claude lit l'aperçu (droit « voir »), sans plus
+    for qui in ("claude", "iphone"):  # retoucher et choisir : à la fenêtre seulement
+        assert api("post", f"{base}/publications/{pk}/retoucher", qui, {"titre": "x", "description": "y"}).status_code == 403
+        assert api("post", f"{base}/publications/{pk}/choisir", qui, {"playlist": ""}).status_code == 403
+    for action in ("publier", "reprendre", "annuler"):
+        assert agir(session, pk, action, "claude").status_code == 403
+    for nom, cible in (("approuver", v), ("publier", pk), ("reprendre", pk)):
+        with pytest.raises(Refus, match="seul RT"):
+            getattr(publication, nom)(session, cible, "claude")
+    r = api("post", f"{base}/publications/{pk}/retoucher", "fenetre", {"titre": "Un autre titre", "description": "Une autre description."})
+    assert r.json()["message"] == "version 2 du titre et de la description"
+    r = api("post", f"{base}/publications/{pk}/retoucher", "fenetre", {"titre": "Un <titre>", "description": ""})
+    assert r.status_code == 409 and "refusés par YouTube" in r.json()["detail"]
+    for choix, refus in (({"playlist": "PLinconnue"}, "playlist inconnue"), ({"miniature": "autre.jpg"}, "miniature inconnue"),
+                         ({"miniature": "..\\youtube.txt"}, "miniature inconnue"), ({"jour": "2000-01-01", "horaire": "18:30"}, "passé")):
+        r = api("post", f"{base}/publications/{pk}/choisir", "fenetre", choix)
+        assert r.status_code == 409 and refus in r.json()["detail"], choix
+    r = api("post", f"{base}/publications/{pk}/choisir", "fenetre", {"playlist": "PLfauxDeux", "jour": "2099-12-03", "horaire": "19:00"})
+    assert r.json()["message"] == "choisi : playlist Histoires du hibou, créneau 03/12/2099 19:00"
+    a = apercu(session, v)[0]
+    assert (a["titre"], a["versions"], a["playlist_titre"]) == ("Un autre titre", 2, "Histoires du hibou")
+    assert agir(session, pk, "publier", "iphone").status_code == 200 and publication.executer() == 0  # Publier : aussi depuis l'iPhone
+    assert api("post", f"{base}/publications/{pk}/retoucher", "fenetre", {"titre": "x", "description": "y"}).status_code == 409  # parti

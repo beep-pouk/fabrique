@@ -22,7 +22,8 @@ from fabrique.session.models import Fiche
 
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
-    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier", *GESTES},
+    "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
+                "retoucher", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -300,6 +301,49 @@ def rafraichir(request, id: str, langue: str):
     except (youtube.ErreurYoutube, OSError) as e:  # Google injoignable ou en erreur : dit à RT
         raise Refus(f"chaîne non lue : {e}") from None
     return {"message": f"Chaîne « {lu['chaine']} » : {len(lu['playlists'])} playlist(s) lue(s)."}
+
+
+@api.post("/sessions/{id}/videos/{video}/approuver", response=schemas.Message)
+@droit("approuver")
+def approuver(request, id: str, video: str):
+    """Geste de RT (fenêtre, iPhone) : la vidéo finie reçoit un brouillon de publication par langue, à relire avant « Publier »."""
+    from fabrique.publication import publication
+
+    return {"message": publication.approuver(session_(id), video, ACTEURS[request.auth])}
+
+
+@api.get("/sessions/{id}/videos/{video}/publications", response=list[schemas.Publication])
+@droit("voir")
+def publications(request, id: str, video: str):
+    """L'aperçu complet de chaque langue (fenêtre, iPhone) : textes, chapitres, miniature, playlist, enfants, IA, créneau, chaîne, fautes, envoi."""
+    from fabrique.publication import publication
+
+    return publication.apercu(session_(id), video)
+
+
+@api.post("/sessions/{id}/publications/{pub}/retoucher", response=schemas.Message)
+@droit("retoucher")
+def retoucher(request, id: str, pub: int, corps: schemas.Retouche):
+    from fabrique.publication import publication
+
+    return {"message": publication.retoucher(session_(id), pub, corps.titre, corps.description, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/publications/{pub}/choisir", response=schemas.Message)
+@droit("retoucher")
+def choisir(request, id: str, pub: int, corps: schemas.Choix):
+    from fabrique.publication import publication
+
+    return {"message": publication.choisir(session_(id), pub, ACTEURS[request.auth], corps.miniature, corps.playlist, corps.jour, corps.horaire)}
+
+
+@api.post("/sessions/{id}/publications/{pub}/{action}", response=schemas.Message)
+@droit("publier")
+def publier(request, id: str, pub: int, action: Literal["publier", "reprendre", "annuler"]):
+    """Geste de RT (fenêtre, iPhone) : Publier (l'envoi part en tâche détachée légère), Reprendre l'envoi après une erreur, Annuler avant le départ."""
+    from fabrique.publication import publication
+
+    return {"message": getattr(publication, action)(session_(id), pub, ACTEURS[request.auth])}
 
 
 @api.get("/machine", response=schemas.Machine)

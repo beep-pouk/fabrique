@@ -247,4 +247,44 @@ class Lien(BaseModel):
     url: str  # la page du réseau, à ouvrir dans le navigateur du PC
 
 
+class Publication(BaseModel):
+    """L'aperçu d'une publication (une langue d'une vidéo approuvée) : tout ce qui partira, et ce qui bloque « Publier »."""
+    id: int
+    langue: str
+    statut: str  # brouillon, en_file, envoi, erreur, planifiee, non_repertoriee
+    titre: str
+    description: str  # chapitres et crédits compris
+    tags: list[str]
+    chapitres: list[str]  # les lignes « 00:00 … » lues dans la description
+    playlist: str  # vide : aucune
+    playlist_titre: str
+    video: str  # chemins complets
+    miniature: str  # vide : aucune
+    miniatures: list[str]  # les images de final, à choisir
+    enfants: bool  # « conçue pour les enfants »
+    ia: bool  # déclaration IA (contenu synthétique)
+    non_repertorie: bool  # première publication de la chaîne : part en non répertorié, sans créneau
+    creneau: str  # JJ/MM/AAAA HH:MM (heure de Paris) ; vide en non répertorié
+    destination: str  # état de la chaîne de la langue (« reliée », « pas reliée »…)
+    chaine: str
+    fautes: list[str]  # bloquent « Publier »
+    avis: list[str]  # ne bloquent pas
+    versions: int  # du titre et de la description
+    lien: str  # la vidéo chez YouTube, une fois envoyée
+    envoi: str  # octets confirmés, étapes faites
+    erreur: str
+
+
+class Retouche(BaseModel):
+    titre: str
+    description: str
+
+
+class Choix(BaseModel):
+    miniature: str = ""  # une image de final
+    playlist: str | None = None  # None : inchangée ; « » : aucune
+    jour: str = ""  # AAAA-MM-JJ
+    horaire: str = ""  # HH:MM
+
+
 ScriptDetail.model_rebuild()  # la planche utilise PlanVideo, défini plus bas

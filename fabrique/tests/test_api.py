@@ -71,12 +71,23 @@ def test_les_trois_gestes_jamais_pour_claude_ni_l_assistant():
     for nom in porte.COMMANDES_CLAUDE.values():
         methode, chemin, _ = cl.APPELS[nom]
         assert droits[(methode, chemin)] in DROITS["claude"]
-    # aucune tâche automatique ni détachée n'est un geste ; la boucle du noyau ne lance que la sauvegarde
+    # aucune tâche automatique ni détachée n'est un geste ; la boucle du noyau ne lance que la sauvegarde, et ne relance qu'un envoi déjà
+    # lancé par RT : « en_file » n'est posé que par Publier et Reprendre, refusés à tout autre acteur que RT
     assert not set(taches.TACHES) & GESTES
+    import inspect
     import re
 
+    from fabrique.garde import Refus
+    from fabrique.publication import publication
+
     with open(serveur.__file__, encoding="utf-8") as f:
-        assert re.findall(r'taches\.lancer\("(\w+)"', f.read()) == ["sauvegarde"]
+        source = f.read()
+    assert re.findall(r'taches\.lancer\("(\w+)"', source) == ["sauvegarde"] and re.findall(r"publication\.(\w+)\(", source) == ["relancer"]
+    poseurs = {n for n, fn in inspect.getmembers(publication, inspect.isfunction) if fn.__module__ == publication.__name__ and 'statut="en_file"' in inspect.getsource(fn)}
+    assert poseurs == {"publier", "reprendre"}
+    for nom in poseurs:
+        with pytest.raises(Refus, match="seul RT"):
+            getattr(publication, nom)(None, 1, "assistant")
 
 
 def test_la_fenetre_et_le_noyau_parlent_le_meme_contrat():

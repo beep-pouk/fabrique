@@ -44,6 +44,11 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "destinations": ("GET", "/api/sessions/{id}/destinations", list[s.Destination]),
     "relier": ("POST", "/api/sessions/{id}/destinations/{langue}/relier", s.Lien),
     "rafraichir": ("POST", "/api/sessions/{id}/destinations/{langue}/rafraichir", s.Message),
+    "approuver": ("POST", "/api/sessions/{id}/videos/{video}/approuver", s.Message),
+    "publications": ("GET", "/api/sessions/{id}/videos/{video}/publications", list[s.Publication]),
+    "retoucher": ("POST", "/api/sessions/{id}/publications/{pub}/retoucher", s.Message),
+    "choisir": ("POST", "/api/sessions/{id}/publications/{pub}/choisir", s.Message),
+    "publier": ("POST", "/api/sessions/{id}/publications/{pub}/{action}", s.Message),  # action : publier, reprendre, annuler
 }
 
 
