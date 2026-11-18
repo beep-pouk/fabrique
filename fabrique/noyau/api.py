@@ -10,12 +10,12 @@ from django.conf import settings
 from django.http import FileResponse, StreamingHttpResponse
 from ninja import NinjaAPI
 from ninja.errors import HttpError
-from ninja.security import HttpBearer
+from ninja.security import APIKeyCookie, HttpBearer
 
 from fabrique import journaux, programme
 from fabrique.garde import Refus
 from fabrique.moteur import file
-from fabrique.noyau import cles, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, versions
+from fabrique.noyau import cles, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, telephone, versions
 from fabrique.noyau.models import Session, noter
 from fabrique.session import models as m
 from fabrique.session.models import Fiche
@@ -23,7 +23,7 @@ from fabrique.session.models import Fiche
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", *GESTES},
+                "retoucher", "paquets", "telephone", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -36,7 +36,19 @@ class Jeton(HttpBearer):
         return jetons.APPELANTS.get(token)  # l'appelant, ou None : 401
 
 
-api = NinjaAPI(title=programme.NOM, version=settings.VERSION, auth=Jeton(), docs_url=None)
+class Iphone(APIKeyCookie):
+    """Le cookie de l'appareil (noyau/telephone.py) ; une requête qui change quelque chose porte aussi l'en-tête X-Fabrique."""
+    param_name = telephone.COOKIE
+
+    def authenticate(self, request, key):
+        if key:
+            telephone.hote(request)
+        if telephone.reconnu(key) and (request.method in ("GET", "HEAD") or request.headers.get(telephone.ENTETE) == "iphone"):
+            return "iphone"
+        return None
+
+
+api = NinjaAPI(title=programme.NOM, version=settings.VERSION, auth=[Jeton(), Iphone(csrf=False)], docs_url=None)
 
 
 def droit(nom: str):
@@ -373,6 +385,27 @@ def publier(request, id: str, pub: int, action: Literal["publier", "reprendre", 
     from fabrique.publication import publication
 
     return {"message": getattr(publication, action)(session_(id), pub, ACTEURS[request.auth])}
+
+
+@api.post("/telephone/code", response=schemas.CodeTelephone)
+@droit("telephone")
+def code_telephone(request):
+    """Fenêtre : un code à 6 chiffres (5 min, usage unique) à taper sur la page iPhone."""
+    return telephone.nouveau_code(ACTEURS[request.auth])
+
+
+@api.get("/telephone/appareils", response=list[schemas.Appareil])
+@droit("telephone")
+def appareils(request):
+    return telephone.appareils()
+
+
+@api.post("/telephone/appareils/{appareil}/deconnecter", response=schemas.Message)
+@droit("telephone")
+def deconnecter(request, appareil: str):
+    if not telephone.deconnecter(appareil, ACTEURS[request.auth]):
+        raise Refus("appareil inconnu (déjà déconnecté ?)")
+    return {"message": "appareil déconnecté : il lui faudra un nouveau code"}
 
 
 @api.get("/machine", response=schemas.Machine)

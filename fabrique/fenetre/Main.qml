@@ -353,7 +353,7 @@ Window {
                     spacing: 12
                     Bouton { objectName: "refaire_coches"; texte: "Refaire les plans cochés (" + coches.length + ")"; actif: coches.length > 0
                              onClic: { liberer = true; envoiRefaire.start() } }
-                    Timer { id: envoiRefaire; interval: 500; onTriggered: { pont.agir("refaire", {id: session, video: video.id, corps: {plans: coches}}); coches = [] } }
+                    Timer { id: envoiRefaire; interval: 1500; onTriggered: { pont.agir("refaire", {id: session, video: video.id, corps: {plans: coches}}); coches = [] } }
                     T { text: "Seules les pièces des plans cochés, et ce qui en dépend, sont refaites ; l'avant reste à côté."; color: cSecond; wrapMode: Text.NoWrap
                         anchors.verticalCenter: parent.verticalCenter }
                 }

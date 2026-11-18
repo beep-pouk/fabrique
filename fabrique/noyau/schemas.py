@@ -291,6 +291,18 @@ class Paquet(BaseModel):
     fautes: list[str]  # écarts aux limites de la fiche (vide : conforme)
 
 
+class CodeTelephone(BaseModel):
+    code: str  # 6 chiffres
+    expire: str  # HH:MM
+
+
+class Appareil(BaseModel):
+    id: str
+    appareil: str
+    depuis: str
+    expire: str
+
+
 class Retouche(BaseModel):
     titre: str
     description: str
