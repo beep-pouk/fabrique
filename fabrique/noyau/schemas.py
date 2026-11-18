@@ -20,6 +20,18 @@ class Session(BaseModel):
     nom: str
     dossier: str
     essais: bool
+    pause: bool = False
+    archivee: str = ""  # JJ/MM/AAAA ; vide : en service
+
+
+class ActionSession(BaseModel):
+    nom: str = ""  # dupliquer, modèle : le nom de la nouvelle
+    videos: bool = False  # exporter : les vidéos aussi
+
+
+class Importer(BaseModel):
+    fichier: str  # un .fabrique (chemin complet) ou le nom de fichier d'un modèle
+    nom: str = ""  # vide : celui du fichier
 
 
 class Fiche(BaseModel):

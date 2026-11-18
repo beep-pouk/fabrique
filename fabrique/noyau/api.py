@@ -4,10 +4,12 @@ de RT. Aucune règle dans la fenêtre : tout ce qu'elle montre et fait passe par
 import os
 import shutil
 from functools import wraps
+from pathlib import Path
 from typing import Literal
 
 from django.conf import settings
 from django.http import FileResponse, StreamingHttpResponse
+from django.utils import timezone
 from ninja import NinjaAPI
 from ninja.errors import HttpError
 from ninja.security import APIKeyCookie, HttpBearer
@@ -15,7 +17,7 @@ from ninja.security import APIKeyCookie, HttpBearer
 from fabrique import journaux, programme
 from fabrique.garde import Refus
 from fabrique.moteur import file
-from fabrique.noyau import cles, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, telephone, versions
+from fabrique.noyau import cles, echange, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, telephone, versions
 from fabrique.noyau.models import Session, noter
 from fabrique.session import models as m
 from fabrique.session.models import Fiche
@@ -23,7 +25,7 @@ from fabrique.session.models import Fiche
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", *GESTES},
+                "retoucher", "paquets", "telephone", "sessions", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -83,7 +85,18 @@ def lire_etat(request):
 @api.get("/sessions", response=list[schemas.Session])
 @droit("voir")
 def sessions(request):
-    return [{"id": s.id, "nom": s.nom, "dossier": s.dossier, "essais": s.essais} for s in Session.objects.order_by("cree")]
+    return [{"id": s.id, "nom": s.nom, "dossier": s.dossier, "essais": s.essais, "pause": s.pause,
+             "archivee": f"{timezone.localtime(s.archivee):%d/%m/%Y}" if s.archivee else ""} for s in Session.objects.order_by("cree")]
+
+
+@api.post("/sessions/importer", response=schemas.Message)
+@droit("sessions")
+def importer_session(request, corps: schemas.Importer):
+    """Fenêtre : une session exportée (.fabrique), ou une nouvelle session partie d'un modèle (son nom de fichier)."""
+    modele = settings.RACINE / "modeles" / corps.fichier
+    fichier = modele if Path(corps.fichier).name == corps.fichier and modele.is_file() else Path(corps.fichier)
+    s = echange.importer(fichier, corps.nom, ACTEURS[request.auth])
+    return {"message": f"Session « {s.nom} » créée depuis {fichier.name}."}
 
 
 @api.get("/sessions/{id}", response=schemas.Fiche)
@@ -513,3 +526,26 @@ def arreter(request):
 
     serveur.quitter_bientot()
     return {"message": "le noyau s'arrête"}
+
+
+# en dernier : « /sessions/{id}/{action} » prendrait sinon les chemins des routes plus précises (destinations…)
+@api.post("/sessions/{id}/{action}", response=schemas.Message)
+@droit("sessions")
+def agir_session(request, id: str, action: Literal["pause", "reprendre", "archiver", "desarchiver", "dupliquer", "exporter", "modele"], corps: schemas.ActionSession):
+    """Fenêtre : la vie d'une session (pause, archive, copie, export, modèle) ; jamais la session « Essais »."""
+    s, qui = session_(id), ACTEURS[request.auth]
+    if s.essais:
+        raise Refus("la session « Essais » ne se met pas en pause, ne s'archive, ne se copie ni ne s'exporte")
+    if action in ("dupliquer", "modele") and not corps.nom.strip():
+        raise Refus("un nom est attendu")
+    if action == "dupliquer":
+        return {"message": f"Copie « {echange.dupliquer(s, corps.nom.strip(), qui).nom} » créée (sans ses comptes : relier ses chaînes)."}
+    if action in ("exporter", "modele"):
+        z = echange.exporter(s, corps.videos, qui, modele=corps.nom.strip() if action == "modele" else "")
+        return {"message": f"{'Modèle enregistré' if action == 'modele' else 'Session exportée'} : {z}"}
+    champs = {"pause": {"pause": True}, "reprendre": {"pause": False}, "archiver": {"pause": True, "archivee": timezone.now()},
+              "desarchiver": {"archivee": None}}[action]
+    Session.objects.filter(id=s.id).update(**champs)
+    noter(qui, "session", session=s.id, quoi=action)
+    return {"message": {"pause": f"« {s.nom} » en pause : rien d'elle ne part dans la file.", "reprendre": f"« {s.nom} » reprend.",
+                        "archiver": f"« {s.nom} » archivée (en pause, rien d'effacé).", "desarchiver": f"« {s.nom} » sortie des archives (toujours en pause)."}[action]}

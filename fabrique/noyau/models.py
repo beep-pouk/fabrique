@@ -16,6 +16,8 @@ class Session(models.Model):
     essais = models.BooleanField(default=False)  # session « Essais » : sans destination, seule à accepter les essais de construction
     priorite = models.IntegerField(default=0)  # dans la file, la plus haute d'abord (après les sessions réelles, « Essais » en dernier)
     cree = models.DateTimeField(auto_now_add=True)
+    pause = models.BooleanField(default=False)  # rien de la session ne part dans la file (ce qui tourne finit)
+    archivee = models.DateTimeField(null=True)  # rangée : en pause, hors du mur des sessions, jamais effacée
 
 
 class Parametre(models.Model):

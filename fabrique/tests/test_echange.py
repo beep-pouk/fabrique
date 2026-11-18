@@ -107,3 +107,40 @@ def test_les_comptes_ne_voyagent_pas_dupliquer_et_modele(remplie):
     with routeur.session(neuve):  # le cadre seulement : langues, univers ; ni scripts, ni vidéos, ni comptes
         assert m.Langue.objects.count() == 1 and not m.Script.objects.exists() and not m.Video.objects.exists() and not m.Destination.objects.exists()
     assert (settings.SESSIONS / neuve.dossier / "univers" / "univers.json").is_file()
+
+
+def test_vie_d_une_session_par_l_api(remplie, monkeypatch):
+    from django.test import Client
+
+    from fabrique.moteur import carte, file
+    from fabrique.noyau import jetons
+    from fabrique.noyau.models import Tache
+
+    jetons.tirer(settings.DONNEES)
+
+    def post(chemin, corps=None, qui="fenetre"):
+        return Client().post(chemin, corps or {}, content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {jetons.lire(settings.DONNEES, qui)}")
+
+    t = Tache.objects.create(session_id=remplie.id, video_id="v", titre="Le petit renard", acteur="RT")
+    monkeypatch.setattr(carte, "occupee", lambda *a: "carte prise (essai)")  # rien ne se lance pendant ce test
+    assert post(f"/api/sessions/{remplie.id}/pause", qui="claude").status_code == 403
+    assert post(f"/api/sessions/{remplie.id}/pause").status_code == 200
+    file.tour(lancer=lambda *a, **k: pytest.fail("lancée"))
+    assert t.id not in [x.id for x in file.ordre()] and Tache.objects.get(id=t.id).raison == file.PAUSE
+    assert post(f"/api/sessions/{remplie.id}/reprendre").status_code == 200 and t.id in [x.id for x in file.ordre()]
+    assert post(f"/api/sessions/{remplie.id}/archiver").status_code == 200
+    lue = next(x for x in Client().get("/api/sessions", HTTP_AUTHORIZATION=f"Bearer {jetons.lire(settings.DONNEES, 'fenetre')}").json() if x["id"] == remplie.id)
+    assert lue["pause"] and lue["archivee"] and t.id not in [x.id for x in file.ordre()]
+    assert post(f"/api/sessions/{remplie.id}/desarchiver").status_code == 200 and Session.objects.get(id=remplie.id).archivee is None
+    Tache.objects.filter(id=t.id).update(etat="annulee")
+    essais = Session.objects.get(essais=True)
+    assert post(f"/api/sessions/{essais.id}/pause").status_code == 409
+    assert post(f"/api/sessions/{remplie.id}/dupliquer").status_code == 409  # un nom est attendu
+    assert "Copie" in post(f"/api/sessions/{remplie.id}/dupliquer", {"nom": f"Double {remplie.nom}"}).json()["message"]
+    r = post(f"/api/sessions/{remplie.id}/modele", {"nom": f"Cadre {remplie.nom}"})
+    assert r.status_code == 200 and "Modèle enregistré" in r.json()["message"]
+    nom = next(x["fichier"] for x in echange.modeles() if x["nom"] == f"Cadre {remplie.nom}")
+    assert post("/api/sessions/importer", {"fichier": nom, "nom": f"Depuis le cadre {remplie.nom}"}).status_code == 200
+    assert Session.objects.filter(nom=f"Depuis le cadre {remplie.nom}").exists()
+    r = post(f"/api/sessions/{remplie.id}/exporter", {"videos": True})
+    assert r.status_code == 200 and r.json()["message"].endswith(".fabrique")

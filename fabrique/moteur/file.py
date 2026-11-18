@@ -23,6 +23,7 @@ from fabrique.session.models import Morceau
 log = logging.getLogger(__name__)
 ACTIVES = ("attente", "en_cours")
 RELANCES = 3
+PAUSE = "session en pause : elle partira à la reprise de la session"
 suspendue = threading.Event()  # posé par le noyau pendant une restauration ou une mise à jour : rien n'est lancé
 
 
@@ -35,7 +36,8 @@ def mettre(s: Session, video_id: str, titre: str, acteur: str) -> Tache:
 
 
 def ordre() -> list[Tache]:
-    sessions = {s.id: s for s in Session.objects.all()}
+    """Les tâches actives des sessions qui ne sont pas en pause, dans l'ordre de la file."""
+    sessions = {s.id: s for s in Session.objects.filter(pause=False)}
     actives = [t for t in Tache.objects.filter(etat__in=ACTIVES) if t.session_id in sessions]
     return sorted(actives, key=lambda t: (sessions[t.session_id].essais, -sessions[t.session_id].priorite, t.cree, t.id))
 
@@ -46,6 +48,7 @@ def vivant(pid: int) -> bool:
 
 def tour(lancer=programme.lancer_detache) -> str:
     """Un tour du noyau : lance la première tâche si rien ne tourne et que la carte est libre ; rend la raison de l'attente (vide sinon)."""
+    Tache.objects.filter(etat="attente", session_id__in=Session.objects.filter(pause=True).values("id")).exclude(raison=PAUSE).update(raison=PAUSE)
     if suspendue.is_set() or taches.occupe("fabrication") or not (file := ordre()):
         return ""
     t = file[0]
