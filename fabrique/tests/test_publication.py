@@ -511,8 +511,7 @@ def test_releve_quotidien_chaine_et_videos_publiees(session, faux, monkeypatch):
     relier(session)
     pub = publiee(session)
     publiee(session, ident="vidEssai", non_repertorie=True)  # un essai non répertorié : jamais relevé
-    autre = bases.creer("Essais du relevé")
-    Session.objects.filter(id=autre.id).update(essais=True)
+    assert Session.objects.filter(essais=True).count() == 1  # la session Essais (jamais relevée) : une seule, toujours
     j = [f"{timezone.localdate() - timedelta(days=n)}" for n in range(6, -1, -1)]
     faux.statistiques = {faux_youtube.CHAINE_STATS: {d: {"views": 10 + i, "subscribersGained": 1} for i, d in enumerate(j[:-2])},
                          "vidFaux1": {d: {"views": 3, "estimatedMinutesWatched": 90} for d in j[1:-2]}}
@@ -678,6 +677,8 @@ def test_copie_d_essai_toujours_non_repertoriee_et_marquee(session, faux, envois
     with pytest.raises(Refus):
         publication.copier_essai("inconnue", "PC")
     # dans la session réelle : une publication déjà partie n'y change rien, la copie d'essai part en non répertorié, titre marqué
+    with routeur.session(cible):  # la première session réelle de la base des tests vient d'un autre test : sa langue posée ici
+        m.Langue.objects.get_or_create(code="en", defaults={"nom": "Anglais"})
     relier(cible, "en")
     with routeur.session(cible):
         autre = m.Video.objects.create(titre="Déjà publiée", nom="2099-12-10-x", script={}, recette={})
