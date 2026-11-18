@@ -155,6 +155,8 @@ def echanger(s, langue: str, code: str, verifier: str, redirect: str, acteur: st
                                                defaults={"jeton": cles.chiffrer(r["refresh_token"]), "reliee": timezone.now(), "refusee": None})
     _garder(s, langue, r)
     noter(acteur, "destination_reliee", session=s.id, langue=langue, reseau=RESEAU, simulation=etat.simulation())
+    if "yt-analytics.readonly" not in r.get("scope", PORTEES):  # Google laisse décocher une autorisation : le relevé échouerait chaque heure
+        evenements.publier("alerte", titre="Publication", message=f"YouTube ({langue}) : les statistiques n'ont pas été autorisées — relier à nouveau en cochant tout")
     log.info("YouTube relié : session %s, langue %s (simulation=%s)", s.id, langue, etat.simulation())
     try:
         rafraichir(s, langue)

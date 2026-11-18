@@ -197,8 +197,9 @@ def moteur(dire) -> list[tuple[bool, str]]:
 
 
 def dernier(r) -> str:
-    """La dernière ligne de pytest (son bilan), ou la fin de son erreur s'il n'a rien écrit."""
-    return (r.stdout.strip().splitlines() or [r.stderr.strip()[-300:] or f"code {r.returncode}"])[-1]
+    """La dernière ligne de pytest (son bilan) et les tests en échec, ou la fin de son erreur s'il n'a rien écrit."""
+    lignes = r.stdout.strip().splitlines()
+    return (lignes or [r.stderr.strip()[-300:] or f"code {r.returncode}"])[-1] + "".join(f" ; {l}" for l in lignes if l.startswith("FAILED"))[:600]
 
 
 def j2(dire, publier: bool = False) -> list[tuple[bool, str]]:
