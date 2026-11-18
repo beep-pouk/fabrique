@@ -1,0 +1,28 @@
+{
+ "id": "elevenlabs_voix",
+ "nom": "Voix ElevenLabs (en ligne)",
+ "roles": [
+  "voix"
+ ],
+ "local": false,
+ "prix_unite_eur": 0.09,
+ "unite": "1 000 caractères",
+ "prix_date": "2026-11-18",
+ "licence": "service payant : usage commercial avec un forfait payant (le forfait gratuit l'interdit et demande de citer ElevenLabs)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "en ligne : clé de RT, plafond du mois ; voix du catalogue d'ElevenLabs (réglage voix_id), pas encore celle de l'univers de la session",
+ "version": "eleven_multilingual_v2",
+ "dernier_banc": null,
+ "etat": "candidat",
+ "faux": false,
+ "module": "fabrique.moteur.voix_elevenlabs",
+ "reglages": {
+  "modele": "eleven_multilingual_v2",
+  "voix_id": "JBFqnCBsd6RMkjVDRZzb"
+ }
+}

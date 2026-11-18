@@ -6,7 +6,7 @@ import os
 from fabrique.garde import Refus
 from fabrique.noyau.models import Parametre, noter
 
-CLES = {"anthropic": "Assistant en ligne (Anthropic)", "gemini": "Gemini", "ntfy": "Alertes sur le téléphone (ntfy)"}
+CLES = {"anthropic": "Assistant en ligne (Anthropic)", "gemini": "Gemini", "ntfy": "Alertes sur le téléphone (ntfy)", "elevenlabs": "Voix en ligne (ElevenLabs)"}
 LONGUEUR_MAX = 500
 
 

@@ -252,3 +252,67 @@ def test_api_des_outils_et_des_bancs(essais, propre, tmp_path):
     assert post(f"/api/veille/{c[0]['id']}/statut", {"valeur": "ecarte"}).status_code == 200 and Candidat.objects.get().statut == "ecarte"
     Candidat.objects.all().delete()
     Parametre.ecrire("veille_derniere", "")
+
+
+@pytest.fixture
+def faux_service(libre_port):
+    """Un faux ElevenLabs local : retient chaque requête, répond 0,5 s de son et le minutage de chaque caractère, ou un refus."""
+    import base64
+    import http.server
+    import threading
+
+    recues, reponse = [], {"code": 200}
+
+    class Service(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            corps = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            recues.append({"chemin": self.path, "cle": self.headers.get("xi-api-key"), **corps})
+            if reponse["code"] != 200:
+                self.send_response(reponse["code"])
+                self.end_headers()
+                self.wfile.write(b'{"detail": {"status": "invalid_api_key", "message": "cle refusee"}}')
+                return
+            texte = corps["text"]
+            t = [i * 0.05 for i in range(len(texte))]
+            donnees = {"audio_base64": base64.b64encode(b"\x00\x01" * 12000).decode(),
+                       "alignment": {"characters": list(texte), "character_start_times_seconds": t, "character_end_times_seconds": [x + 0.05 for x in t]}}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("x-character-count", str(len(texte)))
+            self.end_headers()
+            self.wfile.write(json.dumps(donnees).encode())
+
+        def log_message(self, *a):
+            pass
+
+    serveur = http.server.HTTPServer(("127.0.0.1", libre_port), Service)
+    threading.Thread(target=serveur.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{libre_port}/v1/text-to-speech/{{voix}}/with-timestamps", recues, reponse
+    serveur.shutdown()
+
+
+def test_voix_en_ligne_reelle_contre_un_faux_service(faux_service, fiches_en_plus, tmp_path):
+    from fabrique.noyau import cles
+
+    adresse, recues, reponse = faux_service
+    vraie = json.loads((outils.ICI / "fiches" / "elevenlabs_voix.json").read_text(encoding="utf-8"))
+    fiches_en_plus("elevenlabs_voix", **{**{k: v for k, v in vraie.items() if k != "id"}, "reglages": {**vraie["reglages"], "adresse": adresse}})
+    f = outils.fiches()["elevenlabs_voix"]
+    d = outils.Demande(brique="voix", etape="voix", unite="s1/p1", langue="fr", texte="Un renard dort.", graine=7)
+    Parametre.ecrire("cle_elevenlabs", "")
+    with pytest.raises(RuntimeError, match="clé ElevenLabs absente"):
+        outils.adaptateur(f).fabriquer(f, d, tmp_path)
+    cles.enregistrer("elevenlabs", "cle-factice-123", "RT")
+    try:
+        assert outils.adaptateur(f).estimer(f, d).cout_eur == pytest.approx(0.09 * 15 / 1000, abs=1e-4)
+        r = outils.adaptateur(f).fabriquer(f, d, tmp_path)
+        outils.controler_resultat("voix", r, tmp_path)
+        assert recues[0]["cle"] == "cle-factice-123" and recues[0]["text"] == "Un renard dort." and recues[0]["chemin"].startswith(f"/v1/text-to-speech/{vraie['reglages']['voix_id']}/")
+        assert [m["mot"] for m in r.infos["mots"]] == ["Un", "renard", "dort."] and r.infos["mots"][1]["debut"] == pytest.approx(0.15)
+        assert r.duree_s == pytest.approx(0.5) and r.infos["caracteres"] == 15 and r.infos["cout_eur"] == pytest.approx(0.09 * 15 / 1000, abs=1e-4)
+        reponse["code"] = 401
+        with pytest.raises(RuntimeError, match=r"ElevenLabs a refusé \(401\)") as e:
+            outils.adaptateur(f).fabriquer(f, d, tmp_path)
+        assert "cle-factice-123" not in str(e.value)
+    finally:
+        Parametre.ecrire("cle_elevenlabs", "")
