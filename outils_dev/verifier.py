@@ -19,6 +19,8 @@ J7 : F2 (compilation), F3 tirée d'une vidéo longue et F3 seule, en vrais proce
 mêmes en vrai, lus dans la racine des essais réels ; la construction et l'installation.
 J8 : F4 (voix off + images) en vrais processus et en simulation (forme de script, outils par plan, critères de contrôle), vidéo pilote au format
 F4 ; F4 et F3 seule en vrai (outils réels par plan), lus dans la racine des essais réels ; la construction et l'installation.
+J9 : F5 (chanson) en vrais processus et en simulation (forme, chant, paroles calées, karaoké incrusté, contrôle), vidéo pilote au format F5 ;
+F5 en vrai, lue dans la racine des essais réels ; le banc du chant ; la construction et l'installation.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -1164,7 +1166,125 @@ def j8(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return formats_j8(dire) + en_vrai_j8() + construction(dire, publier) + bramble_points(avant)
 
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7, "J8": j8}
+CHANSON = {"titre": "Chanson de la recette J9", "musique": {"tags": "style factice", "bpm": 100}, "sections": [
+    {"id": "s1", "type": "intro", "image": "image factice"}, {"id": "s2", "type": "couplet", "paroles": ["Une ligne factice", "une autre ligne"], "image": "image factice"},
+    {"id": "s3", "type": "refrain", "paroles": ["Le refrain factice"], "image": "image factice", "mouvement": "fixe"}]}
+
+
+def formats_j9(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire : F5 par la commande « moteur » de Claude (session Essais ; la recette
+    livrée, bornes de durée élargies : le faux chant dure 2 s par section), contrôlée ; refus d'une chanson sans paroles ; vidéo pilote d'une
+    session au format F5."""
+    import os
+    import socket
+    import tempfile
+
+    from fabrique.fenetre.client import Client, ErreurApi
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j9_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+
+    def lancer(*args) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-m", "fabrique", *map(str, args)], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    f = Client("fenetre", port=port, donnees=racine / "donnees")
+    f5 = json.loads((DEPOT / "fabrique" / "moteur" / "recettes" / "F5.json").read_text(encoding="utf-8"))
+    (recette := tmp / "F5.json").write_text(json.dumps({**f5, "reglages": {**f5["reglages"], "duree_s": [1, 60]}}), encoding="utf-8")
+    try:
+        banc.attendre(f.repond, 60, "le noyau répond")
+        essais = next(x for x in f.appeler("sessions") if x["essais"])
+        dire("F5 : chanson…")
+        (fs := tmp / "chanson.json").write_text(json.dumps(CHANSON), encoding="utf-8")
+        r = lancer("moteur", recette, fs)
+        assert r.returncode == 0, r.stdout + r.stderr
+        t = banc.attendre(lambda: (x := [x for x in f.appeler("file") if x["titre"] == CHANSON["titre"]]) and x[0]["etat"] in ("finie", "erreur") and x[0], 300, "F5 finie")
+        vid = next(x for x in f.appeler("videos", id=essais["id"]) if x["titre"] == CHANSON["titre"])["id"]
+        d = racine / "sessions" / essais["dossier"] / "videos" / vid / "en"
+        r = json.loads((d / "montage" / "video" / "resultat.json").read_text(encoding="utf-8"))
+        m = mesure(d / "montage" / "video" / "video.mp4")
+        ass = (d / "montage" / "video" / "karaoke.ass").read_text(encoding="utf-8")
+        chant = json.loads((d / "chant" / "video" / "resultat.json").read_text(encoding="utf-8"))["infos"]
+        rap = json.loads((d / "revue" / "video" / "rapport.json").read_text(encoding="utf-8"))
+        points.append((t["etat"] == "finie" and (m["largeur"], m["hauteur"]) == (1920, 1080) and m["son"] and abs(m["duree_s"] - 6) < 0.2
+                       and [p["unite"] for p in r["infos"]["plans"]] == ["s1", "s2", "s3"] and r["infos"]["incrustes"] == 3 and "{\\k" in ass
+                       and len(chant["mots"]) == 9 and [b["id"] for b in chant["sections"]] == ["s1", "s2", "s3"] and (d / "montage" / "video" / "video.srt").is_file()
+                       and not [x for x in rap["defauts"] if x["gravite"] == "forte"],
+                       f"F5 en simulation (commande « moteur » de Claude, forme « chanson ») : {m['largeur']} × {m['hauteur']}, {m['duree_s']:.1f} s (3 sections), "
+                       f"{len(chant['mots'])} mots des paroles calés, bornes des sections, karaoké incrusté ({r['infos']['incrustes']} lignes, mot surligné à son moment), "
+                       f"SRT par ligne ; contrôle (technique, paroles comprises, plans quasi fixes) sans défaut bloquant ({len(rap['defauts'])} défaut(s))"))
+        (fs := tmp / "sans_paroles.json").write_text(json.dumps({**CHANSON, "titre": "Sans paroles", "sections": CHANSON["sections"][:1]}), encoding="utf-8")
+        r = lancer("moteur", recette, fs)
+        points.append((r.returncode == 1 and "paroles" in r.stdout, f"une chanson sans paroles est refusée tout de suite : {r.stdout.strip()[:160]}"))
+        dire("vidéo pilote d'une session au format F5…")
+        sid = f.appeler("nouvelle_session", {"nom": "Session de la recette J9", "langues": [{"code": "en", "nom": "Anglais"}], "public": "enfants factices",
+                                             "promesse": "une comptine factice"})["id"]
+        f.appeler("ecrire_reglages", {"formats": ["F5"], "style": "aquarelle factice", "difference": "un animal différent à chaque vidéo"}, id=sid)
+        f.appeler("finir_session", id=sid)
+        f.appeler("pilote", id=sid)
+        v = banc.attendre(lambda: (x := f.appeler("videos", id=sid)) and x[0]["progression"].split("/")[0] == x[0]["progression"].split("/")[1] and x[0], 240,
+                          "la vidéo pilote finie")
+        vd = f.appeler("video", id=sid, video=v["id"])
+        points.append((v["erreurs"] == 0 and all(e["finis"] == e["total"] for e in vd["etapes"]) and [e["id"] for e in vd["etapes"]] == [e["id"] for e in f5["etapes"]],
+                       f"vidéo pilote d'une session au format F5 (nouvelle session, « Terminer », vidéo pilote) : fabriquée par la file en simulation, {len(vd['etapes'])} étapes"))
+    except (AssertionError, ErreurApi, OSError, ValueError, KeyError, StopIteration) as e:
+        points.append((False, f"recette J9 interrompue : {type(e).__name__} : {e}"))
+    finally:
+        try:
+            f.appeler("arreter")
+        except (OSError, ErreurApi):
+            pass
+        try:
+            noyau.wait(30)
+        except subprocess.TimeoutExpired:
+            noyau.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_formats.py", "fabrique/tests/test_outils.py", "fabrique/tests/test_moteur.py",
+                        "fabrique/tests/test_sessions.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests de F5 (karaoké incrusté, bornes des sections, paroles peu comprises bloquantes, refus de la forme, mode réel : flux "
+                                      "d'ACE-Step avec paroles balisées, ComfyUI arrêté avant Whisper, calage des mots entendus ; banc du chant) ; outils et bancs ; "
+                                      "moteur ; sessions — " + dernier(r)))
+    return points
+
+
+def en_vrai_j9() -> list[tuple[bool, str]]:
+    """F5 en vrai (session Essais, jamais publiée), lue dans la racine des essais réels sans rien y écrire : recette livrée, aucun faux outil,
+    finie, paroles calées par Whisper (au moins la moitié retrouvée), aucun défaut bloquant ; le banc du chant tranché par RT (QUESTIONS)."""
+    racine = SORTIE / "egalite" / "FABRIQUE" / "sessions" / "essais"
+    livree, fait = json.loads((DEPOT / "fabrique" / "moteur" / "recettes" / "F5.json").read_text(encoding="utf-8")), None
+    try:
+        with closing(sqlite3.connect(f"file:{racine / 'session.sqlite3'}?mode=ro", uri=True)) as c:
+            for vid, recette in c.execute("SELECT id, recette FROM session_video"):
+                r = json.loads(recette)
+                if r.get("id") != "F5" or r.get("reglages", {}).get("duree_s") != livree["reglages"]["duree_s"]:
+                    continue
+                if c.execute("SELECT 1 FROM session_morceau WHERE video_id = ? AND (outil LIKE 'faux%' OR etat != 'fini')", (vid,)).fetchone():
+                    continue
+                chants = [json.loads(f.read_text(encoding="utf-8"))["infos"] for f in (racine / "videos" / vid).glob("*/chant/video/resultat.json")]
+                rapports = [json.loads(f.read_text(encoding="utf-8")) for f in (racine / "videos" / vid).glob("*/revue/video/rapport.json")]
+                if chants and all(x.get("compris", 0) >= 0.5 for x in chants) and rapports and not [x for rap in rapports for x in rap["defauts"] if x["gravite"] == "forte"]:
+                    fait = (vid, chants[0], rapports[0])
+    except (sqlite3.Error, OSError, ValueError):
+        pass
+    return [(bool(fait), "F5 chanson en vrai (session Essais, recette livrée, ACE-Step 1.5, paroles calées par Whisper) : "
+             + (f"faite (vidéo {fait[0]}), {fait[2].get('duree_s', 0):.0f} s, {fait[1]['compris']:.0%} des paroles retrouvées, {len(fait[2]['defauts'])} défaut(s), aucun bloquant"
+                if fait else "PAS ENCORE — essai de nuit après celui de J8 (egalite\\de_nuit_j9.py)")),
+            (False, "banc du chant tranché par RT : PAS ENCORE — candidat à choisir (QUESTIONS 18/11 16 h 55), puis banc préparé de nuit, RT vote")]
+
+
+def j9(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J9 (plan § 7.1) : F5 (chant, paroles calées, recette, critères, pilote) en simulation puis en vrai, le banc du chant ; la construction et
+    l'installation, Bramble Studio intact."""
+    avant = bramble_avant(dire)
+    return formats_j9(dire) + en_vrai_j9() + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7, "J8": j8, "J9": j9}
 
 
 def main(argv=None) -> int:
