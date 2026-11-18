@@ -21,7 +21,8 @@ LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280
          ("calendrier", "sessions:calendrier", "1280x800", "1"), ("univers", "sessions:univers", "1280x800", "1"), ("formats", "sessions:formats", "1280x800", "1"),
          ("destinations", "sessions:destinations", "1280x800", "1"), ("regles", "sessions:regles", "1280x800", "1"), ("nouvelle", "nouvelle", "1280x800", "1"),
          ("nouvelle_5", "nouvelle:5", "1280x800", "1"), ("planche", "video:planche", "1280x800", "1"), ("suivi", "video:suivi", "1280x800", "1"),
-         ("calendrier_150", "sessions:calendrier", "1920x1200", "1.5"), ("accueil_2560", "accueil", "2560x1440", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("publication", "publication", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
+         ("calendrier_150", "sessions:calendrier", "1920x1200", "1.5"), ("accueil_2560", "accueil", "2560x1440", "1"), ("videos", "sessions:videos", "1280x800", "1"),
+         ("video_script", "video:script", "1280x800", "1"), ("fabrication", "video:fabrication", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("publication", "publication", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
 
 

@@ -9,6 +9,9 @@ J3 : les preuves des longs passages de nuit, carte libre (egalite.py : égalité
 les tests de F1 et des écrans ; puis tout J2.
 J4 : la publication en vrais processus (faux YouTube, page iPhone, paquets contre les fiches des réseaux, relevé du jour), la construction et
 l'installation, puis les gestes de RT (§ 7.3) lus dans l'installation réelle.
+J5 : une session créée de zéro en vrais processus et en simulation, comme la fenêtre le fait (nouvelle session pas à pas, univers, règles,
+vidéo pilote fabriquée), exportée puis réimportée à l'identique (contenu des tables et empreintes des fichiers) ; les écrans du cahier sauf
+Outils, Banc, Statistiques et Assistant (parcours et captures de la suite) ; la construction et l'installation.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -505,7 +508,158 @@ def j4(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return publication_j4(dire) + construction(dire, publier) + bramble_points(avant) + gestes_j4()
 
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4}
+def comparer_j5(a: str, b: str):
+    """Dans un sous-processus (FABRIQUE_RACINE posée) : les deux sessions comparées — chaque table de leur base (sauf la fiche, qui porte
+    l'identifiant de la session) et chaque fichier de leur dossier, vidéos comprises (empreintes) ; écrit le résultat sur la sortie."""
+    import os
+    import sqlite3
+
+    import django
+
+    os.environ["DJANGO_SETTINGS_MODULE"] = "fabrique.settings"
+    django.setup()
+    from fabrique.noyau import echange, routeur
+    from fabrique.noyau.models import Session
+
+    def contenu(s):
+        with closing(sqlite3.connect(routeur.chemin(s))) as c:
+            tables = [x for (x,) in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'session_%' AND name != 'session_fiche'")]
+            return {x: sorted(map(repr, c.execute(f"SELECT * FROM {x}"))) for x in tables}
+
+    sa, sb = Session.objects.get(id=a), Session.objects.get(id=b)
+    ta, tb = contenu(sa), contenu(sb)
+    fa, fb = ({k: echange.empreinte(f) for k, f in echange.fichiers(s, True).items()} for s in (sa, sb))
+    print(json.dumps({"tables": ta == tb, "n_tables": len(ta), "lignes": sum(map(len, ta.values())), "fichiers": fa == fb, "n_fichiers": len(fa),
+                      "videos": sum(k.startswith("videos/") for k in fa), "differentes": sorted(k for k in ta if ta[k] != tb.get(k))[:5]}))
+
+
+def sessions_j5(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire, par les appels de la fenêtre : nouvelle session de zéro (7 étapes),
+    univers (personnage, lieu, image de référence importée et validée, droits, style), règles et garde-fou, vidéo pilote fabriquée par la file,
+    idée, calendrier ; puis exportée avec ses vidéos et réimportée : identique."""
+    import os
+    import socket
+    import tempfile
+
+    from fabrique.fenetre.client import Client, ErreurApi
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j5_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    f = Client("fenetre", port=port, donnees=racine / "donnees")
+    try:
+        banc.attendre(f.repond, 60, "le noyau répond")
+        dire("nouvelle session de zéro, étape par étape…")
+        sid = f.appeler("nouvelle_session", {"nom": "Session de la recette J5", "langues": [{"code": "en", "nom": "Anglais"}, {"code": "fr", "nom": "Français"}],
+                                             "public": "enfants factices", "promesse": "une histoire calme et factice"})["id"]
+        en_pause = next(x for x in f.appeler("sessions") if x["id"] == sid)["pause"]
+        f.appeler("ecrire_reglages", {"formats": ["essai"], "assistant": "3"}, id=sid)
+        f.appeler("ajouter_element", {"type": "personnage", "nom": "Ami Factice", "role": "ami", "description": "un renard factice"}, id=sid)
+        f.appeler("ajouter_element", {"type": "lieu", "nom": "Clairière factice", "description": "", "role": ""}, id=sid)
+        image = tmp / "Image de référence.png"
+        image.write_bytes((DEPOT / "fabrique" / "tests" / "reference_factice.png").read_bytes())
+        perso = f.appeler("univers", id=sid)["personnages"][0]
+        f.appeler("importer_reference", {"fichier": str(image), "vue": "face"}, id=sid, pk=perso["id"])
+        ref = f.appeler("univers", id=sid)["personnages"][0]["references"][0]
+        f.appeler("valider_reference", {"validee": True}, id=sid, pk=ref["id"])
+        f.appeler("ecrire_droits", {"licence": "image générée", "credit": "Fabrique (recette)"}, id=sid, type="personnage", pk=perso["id"])
+        f.appeler("ecrire_reglages", {"style": "aquarelle factice", "assistant": "4"}, id=sid)
+        f.appeler("ecrire_reglages", {"assistant": "5"}, id=sid)  # destinations : rien à relier en recette (une langue sans chaîne est fabriquée, pas envoyée)
+        try:
+            f.appeler("finir_session", id=sid)
+            sans_difference = "acceptée"
+        except ErreurApi as e:
+            sans_difference = str(e)
+        f.appeler("ecrire_reglages", {"difference": "un animal et un lieu différents à chaque vidéo", "duree_min": 3, "duree_max": 8, "assistant": "6"}, id=sid)
+        f.appeler("ecrire_reglages", {"objectif": "une vidéo pilote", "arret": "après la recette", "plafond_eur": 0, "assistant": "7"}, id=sid)
+        f.appeler("finir_session", id=sid)
+        r = f.appeler("reglages", id=sid)
+        u = f.appeler("univers", id=sid)
+        points.append((en_pause and "il manque encore" in sans_difference and not r["pause"] and r["assistant"] == "fini" and r["formats"] == ["essai"]
+                       and [l["code"] for l in r["langues"]] == ["en", "fr"] and u["personnages"][0]["references"][0]["validee"]
+                       and u["personnages"][0]["licence"] == "image générée" and u["style"] == "aquarelle factice" and len(u["lieux"]) == 1,
+                       f"nouvelle session créée de zéro par les 6 étapes de la fenêtre (en pause pendant l'assistant : {en_pause} ; « Terminer » sans ce qui rend chaque "
+                       f"vidéo différente : {sans_difference}) ; format {r['format']}, langues {', '.join(l['code'] for l in r['langues'])}, univers : "
+                       f"{len(u['personnages'])} personnage (image copiée, validée, droits), {len(u['lieux'])} lieu, style"))
+        dire("vidéo pilote en simulation, par la file…")
+        f.appeler("pilote", id=sid)
+        v = banc.attendre(lambda: (x := f.appeler("videos", id=sid)) and x[0]["progression"].split("/")[0] == x[0]["progression"].split("/")[1] and x[0], 240,
+                          "la vidéo pilote finie")
+        tache = next(x for x in f.appeler("file") if x["session"] == "Session de la recette J5")
+        d = f.appeler("video", id=sid, video=v["id"])
+        points.append((tache["etat"] == "finie" and v["erreurs"] == 0 and all(e["finis"] == e["total"] for e in d["etapes"])
+                       and all(o.startswith("faux_") for e in d["etapes"] for o in e["outils"]),
+                       f"vidéo pilote fabriquée en simulation par la file (tâche {tache['etat']}, {v['progression']} morceaux, outils : "
+                       f"{', '.join(sorted({o for e in d['etapes'] for o in e['outils']}))})"))
+        f.appeler("ajouter_idee", {"titre": "Une idée factice", "resume": "", "source": ""}, id=sid)
+        cal = f.appeler("calendrier", session=sid)
+        cartes = {x["id"]: x for x in f.appeler("sessions")}
+        points.append((len(f.appeler("idees", id=sid)) == 1 and cal == [] and cartes[sid]["videos"] == 1 and cartes[sid]["a_faire"] == 1,
+                       f"idée ajoutée ; calendrier lu (la vidéo pilote n'y est pas) ; carte du mur : {cartes[sid]['videos']} vidéo, {cartes[sid]['a_faire']} à faire "
+                       f"(la vidéo pilote à regarder), « {cartes[sid]['derniere']} »"))
+        dire("export avec les vidéos, puis import…")
+        message = f.appeler("agir_session", {"nom": "", "videos": True}, id=sid, action="exporter")["message"]
+        fichier = message.split(" : ", 1)[1]
+        f.appeler("importer_session", {"fichier": fichier, "nom": "Session de la recette J5 (réimportée)"})
+        sid2 = next(x["id"] for x in f.appeler("sessions") if x["nom"] == "Session de la recette J5 (réimportée)")
+        c = subprocess.run([sys.executable, "-c", f"import verifier; verifier.comparer_j5('{sid}', '{sid2}')"], cwd=DEPOT / "outils_dev", env=env,
+                           capture_output=True, text=True, encoding="utf-8", timeout=300)
+        egal = json.loads(c.stdout.strip().splitlines()[-1]) if c.returncode == 0 else {"tables": False, "fichiers": False, "erreur": c.stderr[-300:]}
+        points.append((egal["tables"] and egal["fichiers"] and egal.get("videos", 0) > 0,
+                       f"exportée ({Path(fichier).name}, {Path(fichier).stat().st_size // 1024} Ko) puis réimportée à l'identique : tables {egal['tables']} "
+                       f"({egal.get('n_tables')} tables, {egal.get('lignes')} lignes), fichiers {egal['fichiers']} ({egal.get('n_fichiers')} fichiers dont "
+                       f"{egal.get('videos')} de vidéos){' — ' + str(egal.get('differentes') or egal.get('erreur')) if not (egal['tables'] and egal['fichiers']) else ''}"))
+    except (AssertionError, ErreurApi, OSError, ValueError, KeyError, StopIteration) as e:
+        points.append((False, f"recette J5 interrompue : {type(e).__name__} : {e}"))
+    finally:
+        try:
+            f.appeler("arreter")
+        except (OSError, ErreurApi):
+            pass
+        try:
+            noyau.wait(30)
+        except subprocess.TimeoutExpired:
+            noyau.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+    return points
+
+
+ECRANS_J5 = {  # cahier § 8, sauf Outils, Banc, Statistiques et Assistant : la capture de référence de chacun (tests/captures, comparées par la suite)
+    "Accueil (mur des sessions, file, santé, à faire)": ["accueil", "accueil_2560"],
+    "Session → Calendrier (et idées)": ["calendrier", "calendrier_150"], "Session → Vidéos": ["videos"], "Session → Scripts": ["sessions"],
+    "Session → Univers": ["univers"], "Session → Formats": ["formats"], "Session → Destinations": ["destinations"], "Session → Règles": ["regles"],
+    "Nouvelle session (pas à pas)": ["nouvelle", "nouvelle_5"],
+    "Vidéo → Script": ["video_script", "script", "script_ecriture"], "Vidéo → Planche": ["planche"], "Vidéo → Fabrication": ["fabrication"],
+    "Vidéo → Vérification": ["video"], "Vidéo → Publication": ["publication"], "Vidéo → Suivi": ["suivi"],
+    "File": ["file"], "Système": ["systeme", "systeme_125", "systeme_150", "systeme_2560"],
+}
+
+
+def ecrans_j5() -> list[tuple[bool, str]]:
+    """Les écrans : parcours (clics, clavier) et captures comparées, sans fenêtre visible ; la page iPhone par ses tests (servie, droits)."""
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_fenetre.py", "fabrique/tests/test_telephone.py", "fabrique/tests/test_sessions.py",
+                        "fabrique/tests/test_echange.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    captures = {f.stem for f in (DEPOT / "fabrique" / "tests" / "captures").glob("*.png")}
+    manquent = [c for liste in ECRANS_J5.values() for c in liste if c not in captures]
+    return [(r.returncode == 0, f"tests des écrans, de la page iPhone, des sessions et de l'échange : {dernier(r)}"),
+            (not manquent, f"écrans du cahier (sauf Outils, Banc, Statistiques, Assistant), chacun avec sa capture de référence regardée : "
+                           + " ; ".join(f"{e} ({', '.join(c)})" for e, c in ECRANS_J5.items()) + (f" — MANQUENT : {', '.join(manquent)}" if manquent else "")
+                           + " ; page iPhone : tests (servie à l'hôte de Tailscale, code, cookie, droits)")]
+
+
+def j5(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J5 (plan § 7.1) : une session créée de zéro, exportée puis réimportée à l'identique ; les écrans ; puis la construction et l'installation,
+    Bramble Studio intact."""
+    avant = bramble_avant(dire)
+    return sessions_j5(dire) + ecrans_j5() + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5}
 
 
 def main(argv=None) -> int:
