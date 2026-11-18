@@ -354,7 +354,7 @@ def test_votes_simultanes_jamais_perdus(essais, propre):
 
 def test_banc_refuse_une_etape_faite_video_entiere_et_ne_touche_pas_la_video(essais, propre):
     installation.installer(CANDIDAT)
-    entiere = voix_seule(etapes=[{"id": "voix", "brique": "voix", "par": "video", "langue": True}])
+    entiere = voix_seule(etapes=[{"id": "images", "brique": "images", "par": "plan"}, {"id": "voix", "brique": "voix", "par": "video", "langue": True}])  # après une autre étape
     with pytest.raises(Refus, match="vidéo entière"):
         bancs.creer(essais, video_finie(essais, entiere), "voix", CANDIDAT, "", "claude")
     video = video_finie(essais)

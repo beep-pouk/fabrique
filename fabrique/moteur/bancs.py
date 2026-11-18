@@ -51,7 +51,7 @@ def dossier(b: Banc) -> Path:
 def creer(s: Session, video_id: str, brique: str, outil_b: str, juge: str, acteur: str) -> Banc:
     """Le banc et sa tâche dans la file (Claude : dans la session « Essais » seulement, comme toute fabrication). Ses entrées sont les morceaux
     finis de la première étape de cette brique dans la recette, rejoués par plan ou par scène : une étape faite vidéo entière (F1) travaille
-    dans l'atelier de la vidéo et ne passe pas au banc. Chaque demande est copiée dans le banc (une vidéo refaite ensuite ne le change pas)."""
+    dans l'atelier de la vidéo et ne passe pas au banc, sauf si elle est la première de la recette (le chant de F5 : rien d'avant elle). Chaque demande est copiée dans le banc (une vidéo refaite ensuite ne le change pas)."""
     from fabrique.moteur import file
     from fabrique.noyau import cles
 
@@ -67,7 +67,7 @@ def creer(s: Session, video_id: str, brique: str, outil_b: str, juge: str, acteu
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         etape = next((e for e in R.etapes if e.brique == brique), None)
         finis = [m for m in v.morceaux.filter(etape=etape.id, etat="fini").order_by("ordre") if (execution.dossier(s, m) / "demande.json").is_file()] if etape else []
-    if etape and etape.par == "video":
+    if etape and etape.par == "video" and R.etapes.index(etape):
         raise Refus(f"l'étape {etape.id} du format {R.id} se fait vidéo entière, dans l'atelier de la vidéo : elle ne passe pas au banc (un format par plan ou par scène, oui)")
     if etape and R.outils.get(etape.id):
         raise Refus(f"le format {R.id} impose son outil pour l'étape {etape.id} : un banc n'y changerait rien")

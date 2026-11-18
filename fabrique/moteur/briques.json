@@ -9,5 +9,5 @@
  "controle": {"titre": "Contrôle", "defaut": "faux_controle", "simulation": "faux_controle", "sortie": [".json"], "infos": ["defauts"]},
  "assemblage": {"titre": "Assemblage", "defaut": "assemblage_ffmpeg", "simulation": "assemblage_ffmpeg", "sortie": [".mp4"], "infos": ["chapitres"]},
  "verticale": {"titre": "Montage vertical", "defaut": "verticale_ffmpeg", "simulation": "verticale_ffmpeg", "sortie": [".mp4"], "infos": []},
- "chant": {"titre": "Musique chantée", "defaut": "faux_chant", "simulation": "faux_chant", "sortie": [".wav"], "infos": ["mots"]}
+ "chant": {"titre": "Musique chantée", "defaut": "chant_acestep", "simulation": "faux_chant", "sortie": [".wav"], "infos": ["mots"]}
 }

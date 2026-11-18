@@ -10,7 +10,7 @@ import pytest
 from fabrique.garde import Refus
 from fabrique.moteur import execution, file, montages, recettes
 from fabrique.noyau.models import Chrono
-from fabrique.tests.test_moteur import SCRIPT, essais, recette  # noqa: F401 — fixtures
+from fabrique.tests.test_moteur import SCRIPT, essais, fiches_en_plus, recette  # noqa: F401 — fixtures
 
 
 def fabriquer(s, r: dict, script: dict, acteur: str = "claude") -> str:
@@ -508,3 +508,14 @@ def test_video_pilote_au_format_chanson(request):
             assert v.recette["id"] == "F5" and recettes.script(v.script, "chanson").sections[1].paroles == ["une comptine calme"]
     finally:
         Tache.objects.filter(session_id=s.id).delete()
+
+
+def test_banc_du_chant_premiere_etape_de_la_recette(essais, fiches_en_plus):
+    v = fabriquer(essais, f5(), CHANSON)
+    fiches_en_plus("faux_chant_doux", roles=["chant"], reglages={"hauteur_hz": 330})
+    from fabrique.moteur import bancs
+
+    b = bancs.creer(essais, v, "chant", "faux_chant_doux", "", "claude")
+    assert (b.outil_a, b.outil_b, len(b.entrees)) == ("faux_chant", "faux_chant_doux", 1)  # une chanson, une entrée : RT écoute les deux
+    with pytest.raises(Refus, match="vidéo entière"):  # le montage dépend des étapes d'avant : jamais au banc
+        bancs.creer(essais, v, "montage", "faux_montage", "", "claude")
