@@ -88,8 +88,8 @@ def creer(s: Session, video_id: str, brique: str, outil_b: str, juge: str, acteu
     for f in (a, b):
         if not f.local:
             cout = sum(outils.adaptateur(f).estimer(f, outils.Demande.model_validate_json(Path(e["demande"]).read_text(encoding="utf-8"))).cout_eur for e in entrees)
-            if raison := execution.refus_payant(s, f, cout, reglages):
-                raise Refus(f"banc refusé : {raison} — il coûterait environ {execution.euros(cout)}")
+            if raison := execution.refus_payant(s, f, cout, reglages, pour=f"pour ce banc de {len(entrees)} entrée(s)"):
+                raise Refus(f"banc refusé : {raison}")
     banc = Banc.objects.create(brique=brique, outil_a=outil_a, outil_b=outil_b, session_id=s.id, video_id=video_id, juge=juge, acteur=acteur, entrees=entrees)
     try:
         file.mettre(s, video_id, f"Banc {outils.BRIQUES[brique]['titre'].lower()} : {len(entrees)} entrée(s)", acteur, banc=banc.id)

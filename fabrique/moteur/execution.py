@@ -115,12 +115,12 @@ def depense_du_mois(**filtre) -> float:
     return sum(d.estime_eur if d.reel_eur is None else d.reel_eur for d in Depense.objects.filter(date__gte=debut, **filtre))
 
 
-def refus_payant(s: Session, f: outils.Fiche, cout: float, reglages: dict) -> str:
-    """Vide si l'appel payant tient sous le plafond du mois (réglage du noyau) et celui de la session ; sinon la raison, en clair."""
+def refus_payant(s: Session, f: outils.Fiche, cout: float, reglages: dict, pour: str = "l'appel") -> str:
+    """Vide si la dépense tient sous le plafond du mois (réglage du noyau) et celui de la session ; sinon la raison, en clair."""
     for quoi, plafond, depense in (("du mois", float(Parametre.lire("plafond_mois_eur") or 0), depense_du_mois()),
                                    ("de la session", float(reglages.get("plafond_eur") or 0), depense_du_mois(session_id=s.id))):
         if plafond <= 0 or depense + cout > plafond:
-            return f"{f.nom} est payant ({euros(cout)} l'appel) et le plafond {quoi} est de {euros(plafond)} ({euros(depense)} déjà dépensés)"
+            return f"{f.nom} est payant ({euros(cout)} {pour}) et le plafond {quoi} est de {euros(plafond)} ({euros(depense)} déjà dépensés)"
     return ""
 
 

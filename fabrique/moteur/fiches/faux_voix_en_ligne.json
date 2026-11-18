@@ -1,0 +1,26 @@
+{
+ "id": "faux_voix_en_ligne",
+ "nom": "Fausse voix en ligne (payante)",
+ "roles": [
+  "voix"
+ ],
+ "local": false,
+ "prix_unite_eur": 0.05,
+ "prix_date": "2026-11-18",
+ "licence": "simulation",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "simulation d'un service payant : aucun appel réseau",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "candidat",
+ "faux": true,
+ "module": "fabrique.moteur.faux",
+ "reglages": {
+  "hauteur_hz": 550
+ }
+}

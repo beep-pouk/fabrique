@@ -12,6 +12,9 @@ l'installation, puis les gestes de RT (§ 7.3) lus dans l'installation réelle.
 J5 : une session créée de zéro en vrais processus et en simulation, comme la fenêtre le fait (nouvelle session pas à pas, univers, règles,
 vidéo pilote fabriquée), exportée puis réimportée à l'identique (contenu des tables et empreintes des fichiers) ; les écrans du cahier sauf
 Outils, Banc, Statistiques et Assistant (parcours et captures de la suite) ; la construction et l'installation.
+J6 : un outil local candidat installé, passé au banc à l'aveugle contre l'outil en place, adopté : rien d'autre n'a bougé (code, tables) et la
+vidéo suivante le prend ; un outil en ligne (faux service payant) refusé à 0 €, joué sous plafond, refusé au-delà ; la veille versée par
+Claude ; l'outil en ligne réel si RT a donné sa clé ; la construction et l'installation.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -672,7 +675,207 @@ def j5(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return sessions_j5(dire) + ecrans_j5() + construction(dire, publier) + bramble_points(avant)
 
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5}
+def tables_j6(racine: Path) -> dict:
+    """Le contenu de chaque table de la base du noyau et des bases des sessions, lu sans écrire (lecture seule)."""
+    contenu = {}
+    for base in [racine / "donnees" / "noyau.sqlite3", *sorted((racine / "sessions").glob("*/session.sqlite3"))]:
+        with closing(sqlite3.connect(f"file:{base}?mode=ro", uri=True)) as c:
+            for (t,) in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'django_migrations'"):
+                contenu[f"{base.parent.name}/{t}"] = sorted(map(repr, c.execute(f"SELECT * FROM {t}")))
+    return contenu
+
+
+def empreinte_du_code() -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    for f in sorted((DEPOT / "fabrique").rglob("*")):
+        if f.is_file() and "__pycache__" not in f.parts and "tests" not in f.parts:
+            h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+def outils_j6(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire, par les appels de la fenêtre (RT) et les commandes de Claude : un outil
+    local candidat installé par sa recette (tâche détachée), banc à l'aveugle contre l'outil en place sur une vidéo de la session Essais,
+    votes, verdict, adoption ; rien d'autre n'a bougé ; la vidéo suivante prend le nouvel outil ; banc payant refusé à 0 €, joué sous
+    plafond, refusé au-delà ; veille versée par Claude."""
+    import os
+    import socket
+    import tempfile
+
+    from fabrique.fenetre.client import Client, ErreurApi
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j6_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+    script = tmp / "script.json"
+    script.write_text(json.dumps({**SCRIPT, "titre": "Essai de la recette J6"}), encoding="utf-8")
+
+    def lancer(*args) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-m", "fabrique", *map(str, args)], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    f = Client("fenetre", port=port, donnees=racine / "donnees")
+    claude = Client("claude", port=port, donnees=racine / "donnees")
+    candidat, en_ligne = "faux_voix_douce", "faux_voix_en_ligne"
+
+    def outil(id_: str) -> dict:
+        return next(o for b in f.appeler("outils")["briques"] for o in b["outils"] if o["id"] == id_)
+
+    def video_finie() -> str:
+        assert lancer("moteur", "essai", script).returncode == 0
+        return banc.attendre(lambda: (t := [x for x in f.appeler("file") if not x["banc"]]) and t[0]["etat"] == "finie" and t[0], 240, "la vidéo d'essai finie")
+
+    def banc_pret(n: int) -> dict:
+        return banc.attendre(lambda: len(b := f.appeler("bancs")) >= n and b[0]["etat"] in ("a_voter", "erreur") and b[0], 240, "le banc prêt à voter")
+
+    def voter(b: dict, pour: str):
+        """RT (simulé) préfère `pour` : la recette lit dans la base de quel côté il est ; la fenêtre ne le montre jamais avant le verdict."""
+        with closing(sqlite3.connect(f"file:{racine / 'donnees' / 'noyau.sqlite3'}?mode=ro", uri=True)) as c:
+            entrees, a, bb = c.execute("SELECT entrees, outil_a, outil_b FROM noyau_banc WHERE id = ?", (b["id"],)).fetchone()
+        cote = "a" if pour == a else "b"
+        for i, e in enumerate(json.loads(entrees)):
+            f.appeler("voter", {"entree": i, "choix": "egal" if i == 0 else "gauche" if e["gauche"] == cote else "droite"}, id=b["id"])
+
+    try:
+        banc.attendre(f.repond, 60, "le noyau répond")
+        essais = next(x["id"] for x in f.appeler("sessions") if x["essais"])
+        dire("veille : avant et après le versement de Claude…")
+        etat = racine / "donnees" / "etat.json"
+        avant_veille = banc.attendre(lambda: etat.is_file() and json.loads(etat.read_text(encoding="utf-8"))["veille"], 60, "etat.json écrit")["a_faire"]
+        (fv := tmp / "veille.json").write_text(json.dumps({"candidats": [{"brique": "voix", "nom": "Voix candidate factice", "licence": "Apache 2.0", "commercial": True,
+                                                                          "avis": "repérée par la recette"}]}), encoding="utf-8")
+        r = lancer("commande", "veille", fv)
+        liste = f.appeler("veille")
+        apres_veille = banc.attendre(lambda: not json.loads((racine / "donnees" / "etat.json").read_text(encoding="utf-8"))["veille"]["a_faire"], 90, "etat.json à jour")
+        points.append((avant_veille and r.returncode == 0 and [x["nom"] for x in liste] == ["Voix candidate factice"] and liste[0]["statut"] == "nouveau" and apres_veille,
+                       f"veille mensuelle : « à faire » dans etat.json avant ; « commande veille » (Claude) : {r.stdout.strip()} ; le candidat dans l'écran Outils (statut nouveau) ; "
+                       f"plus « à faire » après"))
+        dire("installer l'outil candidat (tâche détachée)…")
+        c0 = outil(candidat)
+        f.appeler("agir_outil", outil=candidat, action="installer")
+        fait = banc.attendre(lambda: json.loads((racine / "donnees" / "taches" / "installation.json").read_text(encoding="utf-8")).get("etat") in ("faite", "erreur"),
+                             120, "l'installation finie")
+        c1 = outil(candidat)
+        temoins = [p.name for p in (racine / "outils" / candidat / "2").rglob("*") if p.is_file()]
+        points.append((fait and c0["action"] == "installer" and c1["action"] == "" and c1["installation"] == "version 2 installée" and c1["etat"] == "candidat"
+                       and sorted(temoins) == ["modele.json", "pret.txt"],
+                       f"outil candidat installé depuis l'écran Outils par sa recette (tâche détachée « installation », 3 pas) : « {c0['installation']} » → "
+                       f"« {c1['installation']} » dans outils\\{candidat}\\2 ({', '.join(sorted(temoins))}) ; toujours candidat (jamais en service sans banc)"))
+        dire("une vidéo d'essai, puis le banc à l'aveugle…")
+        v1 = video_finie()
+        video = f.appeler("videos", id=essais)[0]["id"]
+        f.appeler("nouveau_banc", {"session": essais, "video": video, "brique": "voix", "outil": candidat, "juge": "simule"})
+        b = banc_pret(1)
+        d = f.appeler("banc", id=b["id"])
+        aveugle = all(x["qui"] is None and x["notes"] is None and x["gauche"] and x["droite"] for x in d["lignes"])
+        voter(b, candidat)
+        d = f.appeler("banc", id=b["id"])
+        points.append((b["etat"] == "a_voter" and aveugle and d["etat"] == "fini" and d["peut_adopter"] and "Fausse voix douce" in d["gagnant"]
+                       and all(x["notes"] for x in d["lignes"]) and (racine / "bancs" / str(b["id"]) / "verdict.json").is_file(),
+                       f"banc à l'aveugle par la file (vidéo « {v1['titre']} », {b['entrees']} entrées, juge simulé) : avant le vote ni le nom des outils ni les notes du juge "
+                       f"({'à l’aveugle' if aveugle else 'PAS À L’AVEUGLE'}) ; votes de RT (simulé) ; verdict gardé (base et verdict.json) : {d['verdict']}"))
+        dire("adoption : rien d'autre ne doit bouger…")
+        code_avant, avant = empreinte_du_code(), tables_j6(racine)
+        message = f.appeler("adopter", {"ou": "brique"}, id=b["id"])["message"]
+        code_apres, apres = empreinte_du_code(), tables_j6(racine)
+        bougees = sorted(t for t in set(avant) | set(apres) if avant.get(t) != apres.get(t))
+        nouvelles = sorted(set(apres.get("donnees/noyau_parametre", [])) - set(avant.get("donnees/noyau_parametre", [])))
+        attendues = {"donnees/noyau_parametre", "donnees/noyau_outil", "donnees/noyau_banc", "donnees/noyau_journal"}
+        points.append((code_avant == code_apres and set(bougees) <= attendues and nouvelles == [repr(("outil.voix", candidat))],
+                       f"adoption par RT ({message}) : code du programme identique ; tables changées : {', '.join(bougees)} (le défaut de la brique, l'état de l'outil, le banc "
+                       f"adopté, le journal) ; réglage ajouté : {', '.join(nouvelles)} ; toutes les tables des sessions identiques"))
+        dire("la vidéo suivante prend le nouvel outil…")
+        video_finie()
+        v2 = next(x for x in f.appeler("videos", id=essais) if x["id"] != video)
+        etapes = {e["id"]: e["outils"] for e in f.appeler("video", id=essais, video=v2["id"])["etapes"]}
+        avant_etapes = {e["id"]: e["outils"] for e in f.appeler("video", id=essais, video=video)["etapes"]}
+        autres = {k: v for k, v in etapes.items() if k != "voix"} == {k: v for k, v in avant_etapes.items() if k != "voix"}
+        points.append((etapes["voix"] == [candidat] and avant_etapes["voix"] == ["faux_voix"] and autres,
+                       f"un outil local remplacé par un autre après un banc : la voix de la vidéo suivante est faite par {', '.join(etapes['voix'])} (avant : "
+                       f"{', '.join(avant_etapes['voix'])}) ; les 8 autres étapes gardent leurs outils ({'identiques' if autres else 'CHANGÉS'})"))
+        dire("outil en ligne : plafond à 0 €, sous plafond, au-delà…")
+        try:
+            f.appeler("nouveau_banc", {"session": essais, "video": video, "brique": "voix", "outil": en_ligne, "juge": ""})
+            a_zero = "accepté"
+        except ErreurApi as e:
+            a_zero = str(e)
+        f.appeler("plafond", {"valeur": 1})
+        f.appeler("ecrire_reglages", {"plafond_eur": 1}, id=essais)
+        f.appeler("nouveau_banc", {"session": essais, "video": video, "brique": "voix", "outil": en_ligne, "juge": ""})
+        b2 = banc_pret(2)
+        dep = f.appeler("depenses")
+        f.appeler("plafond", {"valeur": dep["depense_mois_eur"] + 0.1})
+        try:
+            f.appeler("nouveau_banc", {"session": essais, "video": video, "brique": "voix", "outil": en_ligne, "juge": ""})
+            au_dela = "accepté"
+        except ErreurApi as e:
+            au_dela = str(e)
+        points.append(("plafond du mois est de 0,00 €" in a_zero and b2["etat"] == "a_voter" and len(dep["lignes"]) == b2["entrees"] and dep["depense_mois_eur"] <= 1
+                       and all(x["reel_eur"] is not None for x in dep["lignes"]) and "banc refusé" in au_dela,
+                       f"outil en ligne (faux service payant) : plafond à 0 € → refusé (« {a_zero} ») ; plafond de 1 € → banc joué ({b2['entrees']} appels payants notés, "
+                       f"{dep['depense_mois_eur']:.2f} € estimés et réels au journal des dépenses) ; plafond juste au-dessus → refusé avant tout appel (« {au_dela} »)"))
+        try:
+            f.appeler("agir_outil", outil=candidat, action="retirer")
+            retrait = "accepté"
+        except ErreurApi as e:
+            retrait = str(e)
+        points.append(("défaut de la brique" in retrait, f"l'outil devenu le défaut de la brique ne se retire pas : « {retrait} »"))
+    except (AssertionError, ErreurApi, OSError, ValueError, KeyError, StopIteration, TypeError) as e:
+        points.append((False, f"recette J6 interrompue : {type(e).__name__} : {e}"))
+    finally:
+        try:
+            f.appeler("arreter")
+        except (OSError, ErreurApi):
+            pass
+        try:
+            noyau.wait(30)
+        except subprocess.TimeoutExpired:
+            noyau.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_outils.py", "fabrique/tests/test_moteur.py", "fabrique/tests/test_api.py",
+                        "fabrique/tests/test_fenetre.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests des outils, du moteur, de l'API et de la fenêtre : mise à jour installée à côté de l'ancienne version, retirer vers la corbeille "
+                                      "et remettre, recette qui échoue (empreinte), coupure en plein banc reprise sans rien refaire, banc annulé avec sa tâche, victoire du "
+                                      "juge sans écart non comptée, voix ElevenLabs contre un faux service (clé jamais dans un message), droits (Claude ne vote ni n'adopte "
+                                      f"ni n'installe), écrans Outils et Banc (parcours, captures) — {dernier(r)}"))
+    captures = {c.stem for c in (DEPOT / "fabrique" / "tests" / "captures").glob("*.png")}
+    manquent = [c for c in ("outils", "outils_150", "banc", "banc_vote", "banc_verdict", "banc_2560") if c not in captures]
+    points.append((not manquent, "écrans Outils et Banc avec leurs captures de référence regardées (outils, outils_150, banc, banc_vote, banc_verdict, banc_2560)"
+                                 + (f" — MANQUENT : {', '.join(manquent)}" if manquent else "")))
+    return points
+
+
+def cle_en_ligne_j6() -> list[tuple[bool, str]]:
+    """L'outil en ligne réel (si RT donne une clé, § 7.3) : la clé est dans l'installation de RT, chiffrée pour son compte ; la recette ne la lit pas,
+    elle regarde seulement si l'essai a été fait (journal des dépenses de l'installation réelle, lu sans écrire)."""
+    base = garde.studio_bramble() and Path(garde.studio_bramble()) / "FABRIQUE" / "donnees" / "noyau.sqlite3"
+    try:
+        with closing(sqlite3.connect(f"file:{base}?mode=ro", uri=True)) as c:
+            cle = bool(c.execute("SELECT 1 FROM noyau_parametre WHERE cle = 'cle_elevenlabs' AND valeur != ''").fetchone())
+            appels = c.execute("SELECT count(*), coalesce(sum(coalesce(reel_eur, estime_eur)), 0) FROM noyau_depense WHERE outil = 'elevenlabs_voix'").fetchone()
+    except (sqlite3.Error, TypeError):
+        cle, appels = False, (0, 0)
+    if appels[0]:
+        return [(True, f"outil en ligne réel (voix ElevenLabs) essayé dans l'installation de RT : {appels[0]} appel(s), {appels[1]:.2f} € sous plafond")]
+    return [(True, "outil en ligne réel (voix ElevenLabs) : facultatif (« si RT donne une clé », § 7.3) — PAS ENCORE JOUÉ "
+                   + ("(clé saisie, essai à lancer)" if cle else "(pas de clé dans l'installation de RT : QUESTIONS.md)")
+                   + " ; l'adaptateur est prouvé contre un faux service local")]
+
+
+def j6(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J6 (plan § 7.1) : un outil local remplacé par un autre après un banc, rien d'autre n'a bougé ; un outil en ligne essayé sous plafond (faux
+    service payant ; le vrai si RT a donné une clé) ; puis la construction et l'installation, Bramble Studio intact."""
+    avant = bramble_avant(dire)
+    return outils_j6(dire) + cle_en_ligne_j6() + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6}
 
 
 def main(argv=None) -> int:
