@@ -18,12 +18,16 @@ if __name__ == "__main__":
     largeur, hauteur = (int(n) for n in taille.split("x"))
     f.resize(round(largeur / float(echelle)), round(hauteur / float(echelle)))  # taille en pixels de l'écran
     f.show()
-    pont.aller.emit("script" if ecran == "script_ecriture" else ecran)
+    pont.aller.emit({"script_ecriture": "script", "publication": "video"}.get(ecran, ecran))
     if ecran == "video":  # la vidéo des données fixes, onglet Vérification, un plan coché
         from PySide6.QtCore import Q_ARG, QMetaObject
 
         QTimer.singleShot(300, lambda: (QMetaObject.invokeMethod(f, "ouvrirVideo", Q_ARG("QVariant", "v1")), f.setProperty("ongletVideo", "verification"),
                                         f.setProperty("coches", [1])))
+    if ecran == "publication":  # la même vidéo, onglet Publication : aperçu de deux langues, paquets
+        from PySide6.QtCore import Q_ARG, QMetaObject
+
+        QTimer.singleShot(300, lambda: (QMetaObject.invokeMethod(f, "ouvrirVideo", Q_ARG("QVariant", "v1")), f.setProperty("ongletVideo", "publication")))
     if ecran.startswith("script"):  # « script_ecriture » : le même script, en cours d'écriture
         from PySide6.QtCore import Q_ARG, QMetaObject
 

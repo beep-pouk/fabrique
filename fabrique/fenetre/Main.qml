@@ -47,6 +47,14 @@ Window {
     property bool liberer: false  // « Refaire » envoyé : le lecteur lâche la vidéo (Windows refuse de déplacer un fichier ouvert)
     property var script: ({code: "", titre: "", date_prevue: "", versions: [], contenu: {}, regles: {}, plans: [], estimation: {secondes: 0, cout_eur: 0}, traductions: []})
     property var langues: []
+    property var publications: []  // l'aperçu de chaque langue de la vidéo ouverte (approuvée)
+    property var paquets: []
+    property var destinations: []
+    property var appareils: []
+    property var etat: ({releve: {}})
+    property var code_telephone: ({code: "", expire: ""})
+    property var relier: ({url: "", message: ""})
+    property int aPublier: -1  // la publication dont « Publier » attend la confirmation
     property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
     property var brouillons: ({})  // les brouillons des autres scripts ouverts entre-temps : jamais perdus sans « Abandonner »
     property var controler: ({erreurs: [], avis: [], mesures: {}})  // les règles du brouillon, rejouées pendant la frappe
@@ -54,9 +62,9 @@ Window {
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
     function recharger() {
-        ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions"].forEach(n => pont.charger(n))
-        if (session !== "") ["scripts", "videos", "univers"].forEach(n => pont.lire(n, {id: session}))
-        if (ecran === "video" && video.id !== "") pont.lire("video", {id: session, video: video.id})
+        ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions", "etat", "appareils"].forEach(n => pont.charger(n))
+        if (session !== "") ["scripts", "videos", "univers", "destinations"].forEach(n => pont.lire(n, {id: session}))
+        if (ecran === "video" && video.id !== "") ["video", "publications", "paquets"].forEach(n => pont.lire(n, {id: session, video: video.id}))
         if (ecran === "script" && script.code !== "") pont.lire("script", {id: session, code: script.code})
     }
     function choisir(id) { session = id; aFabriquer = ""; recharger() }
@@ -73,6 +81,9 @@ Window {
     function duree(s) { return s >= 3600 ? (s / 3600).toFixed(1).replace(".", ",") + " h" : Math.max(1, Math.round(s / 60)) + " min" }
     function cocher(n) { var c = coches.slice(); var i = c.indexOf(n); if (i >= 0) c.splice(i, 1); else c.push(n); coches = c }
     function aller(e) { if (e !== "") ecran = e; recharger() }
+    function copier(texte) { pressePapier.text = texte; pressePapier.selectAll(); pressePapier.copy(); message = "Texte copié."; messageOk = true }
+    function chaineDe(langue) { return destinations.find(d => d.langue === langue) || {playlists: []} }
+    function nomDe(chemin) { return chemin.split(/[\\/]/).pop() }
     function aFaire() { return file.filter(t => t.etat === "erreur" || t.alertes.length > 0 && t.etat !== "finie" && t.etat !== "annulee") }
     function derniere() {
         var d = sauvegardes.derniere
@@ -84,7 +95,11 @@ Window {
     Component.onCompleted: recharger()
     Connections {
         target: pont
-        function onRecu(nom, d) { f[nom] = d; if (nom === "sessions" && session === "" && d.length) choisir(d[0].id) }
+        function onRecu(nom, d) {
+            f[nom] = d
+            if (nom === "sessions" && session === "" && d.length) choisir(d[0].id)
+            if (nom === "relier" && d.url) { message = d.message; messageOk = true; Qt.openUrlExternally(d.url) }  // la page de Google, dans le navigateur du PC
+        }
         function onFait(nom, texte, ok) {
             message = texte; messageOk = ok
             if (nom === "refaire") liberer = false
@@ -101,16 +116,24 @@ Window {
     component Bouton: Rectangle {
         property alias texte: bt.text
         property bool actif: true
+        property bool ambre: false  // un geste de RT qui part dehors (Publier)
         signal clic()
         width: bt.implicitWidth + 32; height: 32; radius: 6
-        color: survol.hovered && actif ? cTrait : cLeve
+        color: ambre ? cAccent : survol.hovered && actif ? cTrait : cLeve
         border.width: 1; border.color: cTrait
         opacity: actif ? 1 : 0.4
         Behavior on color { ColorAnimation { duration: 120 } }
-        T { id: bt; anchors.centerIn: parent; wrapMode: Text.NoWrap }
+        T { id: bt; anchors.centerIn: parent; wrapMode: Text.NoWrap; color: ambre ? cFond : cTexte; font.weight: ambre ? Font.DemiBold : Font.Normal }
         HoverHandler { id: survol }
         Clic { enabled: parent.actif; onTapped: parent.clic() }
         Accessible.role: Accessible.Button; Accessible.name: bt.text; Accessible.onPressAction: if (actif) clic()
+    }
+    component Champ: Rectangle {  // une ligne de texte modifiable
+        property alias texte: saisie.text
+        property alias nom: saisie.objectName
+        property string libelle: ""
+        width: parent.width; height: 32; radius: 6; color: cFond; border.width: 1; border.color: saisie.activeFocus ? cSelection : cTrait
+        TextInput { id: saisie; anchors.fill: parent; anchors.margins: 8; clip: true; color: cTexte; font.family: "Segoe UI Variable"; font.pixelSize: 14; selectByMouse: true; Accessible.name: libelle }
     }
     component Panneau: Rectangle {
         property alias titre: entete.text
@@ -337,7 +360,7 @@ Window {
                 Row {
                     spacing: 8
                     Repeater {
-                        model: [{id: "fabrication", nom: "Fabrication"}, {id: "verification", nom: "Vérification"}, {id: "script", nom: "Script"}]
+                        model: [{id: "fabrication", nom: "Fabrication"}, {id: "verification", nom: "Vérification"}, {id: "script", nom: "Script"}, {id: "publication", nom: "Publication"}]
                         Rectangle {
                             objectName: "onglet_video_" + modelData.id
                             width: nomOngletVideo.implicitWidth + 32; height: 36; radius: 6
@@ -478,6 +501,124 @@ Window {
                             Clic { onTapped: cocher(modelData.n) }
                             Accessible.role: Accessible.CheckBox; Accessible.name: "Plan " + modelData.n; Accessible.checked: coches.indexOf(modelData.n) >= 0
                             Accessible.onPressAction: cocher(modelData.n)
+                        }
+                    }
+                    Column {
+                        objectName: "onglet_publication"
+                        visible: ongletVideo === "publication"
+                        width: parent.width; spacing: 8
+                        T { visible: publications.length === 0; text: "Pas encore approuvée : « Approuver » prépare un brouillon par langue ; rien ne part avant « Publier »."; color: cSecond; width: parent.width }
+                        Bouton { objectName: "bouton_approuver"; visible: publications.length === 0; texte: "Approuver"
+                                 actif: video.etapes.length > 0 && video.etapes.every(e => e.finis === e.total); onClic: pont.agir("approuver", {id: session, video: video.id}) }
+                        Repeater {
+                            model: publications
+                            Rectangle {
+                                id: carte
+                                property var p: modelData
+                                property bool modifiable: ["brouillon", "erreur"].indexOf(p.statut) >= 0 && p.lien === ""
+                                width: parent.width; height: colPub.implicitHeight + 24; radius: 6; color: cLeve
+                                Column {
+                                    id: colPub
+                                    x: 12; y: 12; width: parent.width - 24; spacing: 6
+                                    Row {
+                                        spacing: 12
+                                        T { text: p.langue + "  ·  " + p.statut; font.weight: Font.DemiBold; wrapMode: Text.NoWrap }
+                                        T { text: p.chaine !== "" ? p.chaine : "chaîne : " + p.destination; color: p.destination === "reliée" ? cReussi : cAttention; wrapMode: Text.NoWrap }
+                                        Mono { text: p.versions + " version(s) du texte"; color: cSecond; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                                    }
+                                    Champ { id: titrePub; nom: "titre_" + index; libelle: "Titre (" + p.langue + ")"; texte: p.titre }
+                                    Rectangle {
+                                        width: parent.width; height: Math.min(Math.max(descPub.implicitHeight + 16, 80), 220); radius: 6; color: cFond; border.width: 1; border.color: descPub.activeFocus ? cSelection : cTrait; clip: true
+                                        TextEdit { id: descPub; objectName: "description_" + index; anchors.fill: parent; anchors.margins: 8; text: p.description; color: cTexte; font.family: "Segoe UI Variable"; font.pixelSize: 13
+                                                   wrapMode: TextEdit.Wrap; selectByMouse: true; Accessible.name: "Description (" + p.langue + ")" }
+                                    }
+                                    Bouton { objectName: "retoucher_" + index; texte: "Enregistrer le texte (nouvelle version)"; visible: carte.modifiable
+                                             actif: titrePub.texte !== p.titre || descPub.text !== p.description
+                                             onClic: pont.agir("retoucher", {id: session, pub: p.id, corps: {titre: titrePub.texte, description: descPub.text}}) }
+                                    T { width: parent.width; color: cSecond; font.pixelSize: 13
+                                        text: (p.non_repertorie ? "Part en non répertorié (première vidéo de la chaîne)" : "En privé, publique le " + p.creneau)
+                                              + "  ·  " + (p.playlist_titre !== "" ? "playlist : " + p.playlist_titre : "sans playlist") + "  ·  pour enfants : " + (p.enfants ? "oui" : "non")
+                                              + "  ·  IA déclarée : " + (p.ia ? "oui" : "non") + (p.chapitres.length ? "  ·  " + p.chapitres.length + " chapitres" : "") }
+                                    Flow {
+                                        visible: carte.modifiable && p.miniatures.length > 0; width: parent.width; spacing: 6
+                                        T { text: "Miniature :"; color: cSecond; wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
+                                        Repeater { model: p.miniatures; Bouton { texte: modelData + (p.miniature !== "" && nomDe(p.miniature) === modelData ? " ✓" : "")
+                                                                                 onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {miniature: modelData}}) } }
+                                    }
+                                    Flow {
+                                        visible: carte.modifiable && chaineDe(p.langue).playlists.length > 0; width: parent.width; spacing: 6
+                                        T { text: "Playlist :"; color: cSecond; wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
+                                        Bouton { texte: "aucune" + (p.playlist === "" ? " ✓" : ""); onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {playlist: ""}}) }
+                                        Repeater { model: chaineDe(p.langue).playlists; Bouton { texte: modelData.titre + (p.playlist === modelData.id ? " ✓" : "")
+                                                                                                onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {playlist: modelData.id}}) } }
+                                    }
+                                    Row {
+                                        visible: carte.modifiable && !p.non_repertorie; spacing: 6
+                                        T { text: "Créneau :"; color: cSecond; wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }
+                                        Champ { id: jourPub; width: 120; libelle: "Jour (AAAA-MM-JJ)"; texte: p.creneau ? p.creneau.slice(6, 10) + "-" + p.creneau.slice(3, 5) + "-" + p.creneau.slice(0, 2) : "" }
+                                        Champ { id: heurePub; width: 70; libelle: "Heure (HH:MM)"; texte: p.creneau.slice(11, 16) }
+                                        Bouton { texte: "Changer le créneau"; onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {jour: jourPub.texte, horaire: heurePub.texte}}) }
+                                    }
+                                    Repeater { model: p.fautes; T { text: "✗ " + modelData; color: cDefaut; width: parent.width } }
+                                    Repeater { model: p.avis; T { text: "• " + modelData; color: cSecond; width: parent.width; font.pixelSize: 13 } }
+                                    T { visible: p.envoi !== ""; text: "Envoi : " + p.envoi; color: cSecond; width: parent.width }
+                                    T { visible: p.erreur !== ""; text: p.erreur; color: cDefaut; width: parent.width }
+                                    T { visible: p.lien !== ""; text: p.lien; color: cSelection; width: parent.width
+                                        Clic { onTapped: Qt.openUrlExternally(p.lien) } }
+                                    Row {
+                                        spacing: 8
+                                        Bouton { objectName: "publier_" + index; ambre: true; visible: carte.modifiable; actif: p.fautes.length === 0 && p.destination === "reliée"
+                                                 texte: p.statut === "erreur" ? "Reprendre l'envoi" : "Publier"; onClic: aPublier = p.id }
+                                        Bouton { visible: p.statut === "en_file"; texte: "Annuler l'envoi"; onClic: pont.agir("publier", {id: session, pub: p.id, action: "annuler"}) }
+                                    }
+                                    Rectangle {
+                                        visible: aPublier === p.id
+                                        width: parent.width; height: confPub.implicitHeight + 24; radius: 6; color: cPanneau; border.width: 1; border.color: cAccent
+                                        Column {
+                                            id: confPub
+                                            x: 12; y: 12; width: parent.width - 24; spacing: 12
+                                            T { width: parent.width; text: (p.statut === "erreur" ? "Reprendre l'envoi de « " : "Publier « ") + titrePub.texte + " » (" + p.langue + ") sur « " + p.chaine + " », "
+                                                + (p.non_repertorie ? "en non répertorié ?" : "en privé, publique le " + p.creneau + " ?") }
+                                            Row {
+                                                spacing: 8
+                                                Bouton { objectName: "confirmer_publier_" + index; ambre: true; texte: p.statut === "erreur" ? "Reprendre l'envoi" : "Publier"
+                                                         onClic: { pont.agir("publier", {id: session, pub: p.id, action: p.statut === "erreur" ? "reprendre" : "publier"}); aPublier = -1 } }
+                                                Bouton { texte: "Annuler"; onClic: aPublier = -1 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Row {
+                            visible: publications.length > 0; spacing: 12
+                            T { text: "Paquets prêts à poster"; font.pixelSize: 18; font.weight: Font.DemiBold; wrapMode: Text.NoWrap }
+                            Bouton { objectName: "refaire_paquets"; texte: "Refaire les paquets"; onClic: pont.agir("refaire_paquets", {id: session, video: video.id}) }
+                        }
+                        Repeater {
+                            model: paquets
+                            Rectangle {
+                                id: lignePaquet
+                                property var q: modelData
+                                width: parent.width; height: colPaquet.implicitHeight + 20; radius: 6; color: cLeve
+                                Column {
+                                    id: colPaquet
+                                    x: 12; y: 10; width: parent.width - 24; spacing: 4
+                                    Row {
+                                        spacing: 12
+                                        T { text: modelData.nom + "  ·  " + modelData.langue; font.weight: Font.DemiBold; wrapMode: Text.NoWrap; width: 260 }
+                                        T { text: modelData.etat; color: modelData.etat === "fait" ? cReussi : modelData.etat === "erreur" ? cDefaut : cSecond; wrapMode: Text.NoWrap; width: 90 }
+                                        Mono { text: modelData.fichiers.map(x => Math.round(x.duree_s) + " s · " + String(x.poids_mo).replace(".", ",") + " Mo").join("   "); color: cSecond; font.pixelSize: 12 }
+                                    }
+                                    T { visible: modelData.raison !== ""; text: modelData.raison; color: modelData.etat === "erreur" ? cDefaut : cSecond; width: parent.width; font.pixelSize: 13 }
+                                    Row {
+                                        visible: modelData.etat === "fait"; spacing: 8
+                                        Bouton { objectName: "dossier_paquet_" + index; texte: "Ouvrir le dossier"; onClic: Qt.openUrlExternally("file:///" + modelData.dossier.replace(/\\/g, "/")) }
+                                        Repeater { model: lignePaquet.q.textes; Bouton { objectName: "copier_" + lignePaquet.q.reseau + "_" + index; texte: "Copier le texte" + (lignePaquet.q.textes.length > 1 ? " " + (index + 1) : "")
+                                                                                   onClic: copier(modelData.titre ? modelData.titre + "\n\n" + modelData.texte : modelData.texte) } }
+                                    }
+                                }
+                            }
                         }
                     }
                     Repeater {
@@ -716,6 +857,49 @@ Window {
                 }
 
                 Panneau {
+                    titre: "Destinations"
+                    T { text: "Les chaînes de « " + ((sessions.find(s => s.id === session) || {nom: "?"}).nom) + " », une par langue. Relier ouvre la page de Google dans le navigateur."; color: cSecond; width: parent.width }
+                    T { visible: destinations.length === 0; text: "Aucune destination pour cette session (la session « Essais » ne publie jamais)."; color: cSecond; width: parent.width }
+                    Repeater {
+                        model: destinations
+                        Rectangle {
+                            width: parent.width; height: 48; radius: 6; color: cLeve
+                            Mono { text: modelData.langue; x: 12; width: 40; anchors.verticalCenter: parent.verticalCenter }
+                            T { text: modelData.reliee ? modelData.chaine + "  ·  depuis le " + modelData.depuis + "  ·  " + modelData.playlists.length + " playlist(s)" : modelData.etat
+                                x: 60; width: parent.width - 330; elide: Text.ElideRight; wrapMode: Text.NoWrap; color: modelData.reliee ? cTexte : cAttention; anchors.verticalCenter: parent.verticalCenter }
+                            Row {
+                                anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                Bouton { visible: modelData.reliee; texte: "Rafraîchir"; onClic: pont.agir("rafraichir", {id: session, langue: modelData.langue}) }
+                                Bouton { objectName: "relier_" + modelData.langue; texte: modelData.reliee ? "Relier à nouveau" : "Relier"; onClic: pont.lire("relier", {id: session, langue: modelData.langue}) }
+                            }
+                        }
+                    }
+                    T { objectName: "releve"; width: parent.width; font.pixelSize: 13; color: etat.releve.etat === "erreur" ? cDefaut : cSecond
+                        text: etat.releve.etat === "fait" ? "Statistiques relevées le " + etat.releve.fin.slice(8, 10) + "/" + etat.releve.fin.slice(5, 7) + " à " + etat.releve.fin.slice(11, 16) + " (chaque jour après 9 h)."
+                              : etat.releve.etat === "erreur" ? "Relevé des statistiques reporté d'une heure : " + etat.releve.message : "Statistiques relevées chaque jour après 9 h." }
+                }
+
+                Panneau {
+                    titre: "Téléphone"
+                    T { text: "La page iPhone (par Tailscale, adresse de ce PC suivie de /iphone/) : état, approuver, publier, paquets. Un code la relie pour un an."; color: cSecond; width: parent.width }
+                    Row {
+                        spacing: 16
+                        Bouton { objectName: "bouton_code_telephone"; texte: "Connecter un téléphone"; onClic: pont.lire("code_telephone", {}) }
+                        Mono { objectName: "code_telephone"; visible: code_telephone.code !== ""; text: code_telephone.code.slice(0, 3) + " " + code_telephone.code.slice(3); font.pixelSize: 26; color: cAccent }
+                        T { visible: code_telephone.code !== ""; text: "à taper sur l'iPhone avant " + code_telephone.expire + " (une seule fois)"; color: cSecond; anchors.verticalCenter: parent.verticalCenter; wrapMode: Text.NoWrap }
+                    }
+                    Repeater {
+                        model: appareils
+                        Rectangle {
+                            width: parent.width; height: 44; radius: 6; color: cLeve
+                            T { text: modelData.appareil + "  ·  connecté le " + modelData.depuis + "  ·  jusqu'au " + modelData.expire; x: 12; anchors.verticalCenter: parent.verticalCenter; wrapMode: Text.NoWrap }
+                            Bouton { objectName: "deconnecter_" + index; texte: "Déconnecter"; anchors.right: parent.right; anchors.rightMargin: 6; anchors.verticalCenter: parent.verticalCenter
+                                     onClic: pont.agir("deconnecter", {appareil: modelData.id}) }
+                        }
+                    }
+                }
+
+                Panneau {
                     titre: "Journal"
                     T { visible: journal.length === 0; text: "Aucun avertissement ni problème dans les journaux."; color: cSecond; width: parent.width }
                     Repeater {
@@ -762,6 +946,8 @@ Window {
             }
         }
     }
+
+    TextEdit { id: pressePapier; visible: false }  // copier : QML n'a pas d'accès direct au presse-papiers
 
     Rectangle {
         id: barre

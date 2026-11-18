@@ -17,7 +17,7 @@ from fabrique.tests.fixes import Transport
 
 CAPTURES = Path(__file__).with_name("captures")
 TOLERANCE = 0.002  # part des octets qui peuvent différer (lissage du texte)
-LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
+LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("publication", "publication", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
 
 
@@ -99,6 +99,21 @@ def test_parcours(qtbot):
     clic(f, "refaire_coches")
     qtbot.waitUntil(lambda: ("/api/sessions/s1/videos/v1/refaire", {"plans": [4, 1]}) in t.actions)
     assert valeur(f, "coches") == []
+    clic(f, "onglet_video_publication")  # l'aperçu de chaque langue, Publier confirmé (geste de RT), paquets
+    qtbot.waitUntil(lambda: len(valeur(f, "publications")) == 2 and len(valeur(f, "paquets")) == 2)
+    assert not element(f, "bouton_approuver").isVisible() and not element(f, "publier_1").property("actif")  # langue sans chaîne reliée
+    assert element(f, "titre_0").property("text") == "Le petit renard | Histoire factice"
+    clic(f, "publier_0")
+    assert f.property("aPublier") == 7 and not [a for a in t.actions if "/publications/" in a[0]]
+    clic(f, "confirmer_publier_0")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/publications/7/publier", None) in t.actions)
+    assert f.property("aPublier") == -1
+    pile = element(f, "onglet_publication").parentItem().parentItem().parentItem()  # le Flickable de la vidéo
+    pile.setProperty("contentY", pile.property("contentHeight") - pile.height())
+    clic(f, "copier_tiktok_1")
+    assert element(f, "message").property("text") == "Texte copié."
+    clic(f, "refaire_paquets")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/videos/v1/paquets", None) in t.actions)
     clic(f, "retour_session")
     clic(f, "onglet_univers")
     assert f.property("onglet") == "univers"
@@ -114,6 +129,15 @@ def test_parcours(qtbot):
     clic(f, "confirmer_restaurer")
     qtbot.waitUntil(lambda: ("/api/sauvegardes/fabrique_2026-11-15_23h30m00.zip/restaurer", None) in t.actions)
     assert f.property("aRestaurer") == ""
+    systeme = element(f, "ecran_systeme")
+    systeme.setProperty("contentY", element(f, "releve").mapToItem(systeme, QPointF(0, 0)).y() + systeme.property("contentY") - 250)  # Destinations et Téléphone
+    assert element(f, "releve").property("text") == "Statistiques relevées le 18/11 à 09:00 (chaque jour après 9 h)."
+    clic(f, "relier_xx")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/destinations/xx/relier", None) in t.actions)
+    clic(f, "bouton_code_telephone")
+    qtbot.waitUntil(lambda: element(f, "code_telephone").property("text") == "123 456")
+    clic(f, "deconnecter_0")
+    qtbot.waitUntil(lambda: ("/api/telephone/appareils/0123456789ab/deconnecter", None) in t.actions)
 
     systeme = element(f, "ecran_systeme")
     systeme.setProperty("contentY", systeme.property("contentHeight") - systeme.height())  # en bas de Système : les clés
@@ -125,6 +149,7 @@ def test_parcours(qtbot):
     qtbot.waitUntil(lambda: ("/api/cles/gemini", {"valeur": "cle-factice"}) in t.actions)
     assert champ.property("text") == ""
 
+    systeme.setProperty("contentY", 0)
     clic(f, "bouton_mettre_a_jour")
     qtbot.waitUntil(lambda: ("/api/versions/mettre-a-jour", None) in t.actions)
     pont.recu.emit("versions", {"installee": "0.1.0", "proposee": None, "nouveautes": [], "raison": "Fabrique est à jour"})  # rien de proposé

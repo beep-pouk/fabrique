@@ -48,6 +48,29 @@ REPONSES = {
     ("GET", "/api/cles"): [{"nom": "anthropic", "titre": "Assistant en ligne (Anthropic)", "ou": "absente", "ok": False},
                            {"nom": "gemini", "titre": "Gemini", "ou": "enregistrée", "ok": True},
                            {"nom": "ntfy", "titre": "Alertes sur le téléphone (ntfy)", "ou": "absente", "ok": False}],
+    ("GET", "/api/etat"): {"heure": "2026-11-18T10:00", "version": "0.1.0", "mode": "simulation", "noyau": {"pid": 1, "port": 8800}, "sessions": ["Session factice", "Essais"],
+                           "file": {}, "sauvegarde": {}, "releve": {"etat": "fait", "fin": "2026-11-18T09:00:12"}, "alertes": [], "texte": []},
+    ("GET", "/api/telephone/appareils"): [{"id": "0123456789ab", "appareil": "iPhone", "depuis": "17/11/2026 21:00", "expire": "17/11/2027"}],
+    ("GET", "/api/sessions/s1/destinations"): [
+        {"langue": "en", "reseau": "youtube", "etat": "reliée", "reliee": True, "chaine": "Chaîne factice", "chaine_id": "UCfaux", "depuis": "17/11/2026 21:00",
+         "playlists": [{"id": "PLun", "titre": "Histoires du renard"}, {"id": "PLdeux", "titre": "Histoires du hibou"}]},
+        {"langue": "xx", "reseau": "youtube", "etat": "pas reliée", "reliee": False, "chaine": "", "chaine_id": "", "depuis": "", "playlists": []}],
+    ("GET", "/api/sessions/s1/videos/v1/publications"): [
+        {"id": 7, "langue": "en", "statut": "brouillon", "titre": "Le petit renard | Histoire factice", "description": "Un petit renard cherche la lune.\n\n00:00 Le terrier\n01:10 La forêt\n02:30 La lune",
+         "tags": ["renard"], "chapitres": ["00:00 Le terrier", "01:10 La forêt", "02:30 La lune"], "playlist": "PLun", "playlist_titre": "Histoires du renard",
+         "video": "D:\\Exemple\\final\\v.mp4", "miniature": "D:\\Exemple\\final\\miniature.jpg", "miniatures": ["miniature.jpg", "miniature_2.jpg"], "enfants": True, "ia": True,
+         "non_repertorie": True, "creneau": "", "destination": "reliée", "chaine": "Chaîne factice", "fautes": [], "avis": [], "versions": 1, "lien": "", "envoi": "", "erreur": ""},
+        {"id": 8, "langue": "xx", "statut": "brouillon", "titre": "Le petit renard (xx)", "description": "Une description factice.", "tags": [], "chapitres": [], "playlist": "",
+         "playlist_titre": "", "video": "D:\\Exemple\\xx\\v.mp4", "miniature": "", "miniatures": [], "enfants": True, "ia": True, "non_repertorie": False,
+         "creneau": "02/12/2026 18:30", "destination": "pas reliée", "chaine": "", "fautes": [], "avis": ["chaîne de la langue pas reliée : brouillon seulement, « Publier » refusé"],
+         "versions": 1, "lien": "", "envoi": "", "erreur": ""}],
+    ("GET", "/api/sessions/s1/videos/v1/paquets"): [
+        {"publication": 7, "langue": "en", "reseau": "tiktok", "nom": "TikTok", "etat": "fait", "raison": "", "dossier": "D:\\Exemple\\paquets\\tiktok", "miniature": "miniature.jpg",
+         "fichiers": [{"nom": "v_tiktok_partie_1.mp4", "largeur": 1080, "hauteur": 1920, "duree_s": 480.2, "poids_mo": 210.4},
+                      {"nom": "v_tiktok_partie_2.mp4", "largeur": 1080, "hauteur": 1920, "duree_s": 470.8, "poids_mo": 205.1}],
+         "textes": [{"titre": "", "texte": "Le petit renard (1/2)"}, {"titre": "", "texte": "Le petit renard (2/2)"}], "fautes": []},
+        {"publication": 7, "langue": "en", "reseau": "snapchat", "nom": "Snapchat (Spotlight)", "etat": "impossible", "raison": "vidéo de 15.9 min : Snapchat (Spotlight) prend 1 min au plus — la déclinaison courte s'en chargera",
+         "dossier": "D:\\Exemple\\paquets\\snapchat", "miniature": "", "fichiers": [], "textes": [{"titre": "", "texte": "Le petit renard"}], "fautes": []}],
 }
 
 
@@ -62,5 +85,9 @@ class Transport:
             self.actions.append((chemin, corps))
             if chemin.endswith("/controler"):  # les règles d'un brouillon : une erreur si « interdit » y est écrit
                 return {"erreurs": [["R-1", "mot interdit"]] if "interdit" in str(corps) else [], "avis": [], "mesures": {}}
+            if chemin == "/api/telephone/code":
+                return {"code": "123456", "expire": "21:05"}
+            if chemin.endswith("/relier"):  # sans adresse : la fenêtre n'ouvre rien pendant les tests
+                return {"message": "La page de Google est ouverte dans le navigateur.", "url": ""}
             return {"message": f"fait : {chemin}"}
         return REPONSES[(methode, chemin)]
