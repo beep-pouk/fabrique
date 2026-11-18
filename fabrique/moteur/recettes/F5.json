@@ -5,7 +5,7 @@
  "version": 1,
  "reglages": {
   "duree_s": [
-   30,
+   60,
    240
   ],
   "cadre": "16:9",

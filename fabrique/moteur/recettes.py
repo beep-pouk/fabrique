@@ -111,7 +111,7 @@ class Section(Strict):
     """Une partie de la chanson : ses paroles (une ligne par vers ; aucune pour une intro), son image et la caméra sur elle."""
     id: Nom
     type: Literal["intro", "couplet", "refrain", "pont", "fin"]
-    paroles: list[Annotated[str, Field(min_length=1, max_length=120)]] = []
+    paroles: list[Annotated[str, Field(pattern=r"^[^\[\]{}]*\S[^\[\]{}]*$", max_length=120)]] = []  # ni [ ] (balises du chant) ni { } (karaoké)
     image: str = Field(min_length=1)
     mouvement: Mouvement = "avancee"
     outils: dict[str, str] = {}  # exception de la section : étape → outil
@@ -120,7 +120,7 @@ class Section(Strict):
 class StyleMusique(Strict):
     tags: str = Field(min_length=1)  # genre, instruments, voix (« children's song, ukulele, female voice »)
     bpm: int = Field(100, ge=40, le=200)
-    tonalite: str = "C major"
+    tonalite: str = Field("C major", pattern=r"^[A-G](#|b|-sharp|-flat)? (major|minor)$")  # les tonalités que le chant connaît
 
 
 class Chanson(Strict):
@@ -135,7 +135,18 @@ class Chanson(Strict):
     def chantee(self):
         if not any(s.paroles for s in self.sections):
             raise ValueError("une chanson a des paroles")
+        if (s := duree_chantee(self.model_dump())) > DUREE_CHANSON_MAX:
+            raise ValueError(f"paroles trop longues : environ {s:.0f} s à {self.musique.bpm} temps par minute, 4 min au plus")
         return self
+
+
+TEMPS_PAR_LIGNE, TEMPS_SANS_PAROLES = 8, 16  # en temps : une ligne de comptine ≈ 2 mesures, une intro ou une fin ≈ 4
+DUREE_CHANSON_MIN, DUREE_CHANSON_MAX = 60, 240
+
+
+def duree_chantee(sc: dict) -> float:
+    """La durée d'une chanson d'après ses lignes, ses sections sans paroles et son tempo (celle demandée au chant)."""
+    return sum(TEMPS_PAR_LIGNE * len(s.get("paroles", [])) or TEMPS_SANS_PAROLES for s in sc["sections"]) * 60 / sc["musique"]["bpm"]
 
 
 class SceneBramble(BaseModel):

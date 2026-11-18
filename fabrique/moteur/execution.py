@@ -51,6 +51,8 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
         for langue, contenu in (traductions or {}).items():
             if [u for u, *_ in recettes.unites(recettes.script(contenu, R.script), "plan")] != [u for u, *_ in recettes.unites(S, "plan")]:
                 raise Refus(f"la traduction en « {langue} » n'a pas les mêmes scènes et plans que le script")
+            if contenu.get("musique", script.get("musique")) != script.get("musique"):  # une chanson traduite garde son style, son tempo, sa tonalité
+                raise Refus(f"la traduction en « {langue} » change la musique de la chanson : seules les paroles se traduisent")
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)

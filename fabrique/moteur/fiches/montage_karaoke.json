@@ -22,6 +22,6 @@
  "simulable": true,
  "module": "fabrique.moteur.par_section",
  "reglages": {
-  "secondes": 30
+  "secondes": 60
  }
 }

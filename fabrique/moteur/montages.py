@@ -12,11 +12,11 @@ import json
 import re
 from pathlib import Path
 
+from fabrique.moteur import paroles
 from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
 CADRES = {"16:9": (1920, 1080), "9:16": (1080, 1920)}
 FORMAT = ("codec_name", "profile", "width", "height", "pix_fmt", "sample_aspect_ratio", "r_frame_rate", "time_base", "sample_rate", "channels", "channel_layout")  # bout à bout sans réencoder : tout égal
-PAROLES_COMPRISES = 0.5  # part des mots des paroles retrouvés par Whisper dans la chanson (le chant est moins net que la voix parlée)
 ECART_VOIX = 0.15  # sous le seuil de Whisper de plus que cela : la phrase n'est plus comprise, défaut bloquant
 BLOC_SRT = re.compile(r"(\d+:\d+:\d+[,.]\d+)\s*-->\s*(\d+:\d+:\d+[,.]\d+)[^\n]*\n(.+?)(?:\n\s*\n|\Z)", re.S)
 
@@ -191,10 +191,11 @@ def paroles_peu_comprises(d: Demande) -> list[dict]:
     defauts = []
     for e, fs in d.entrees.items():
         if d.sources.get(e) == "chant" and fs and (r := Path(fs[0]).parent / "resultat.json").is_file():
-            c = json.loads(r.read_text(encoding="utf-8"))["infos"].get("compris")
-            if c is not None and c < PAROLES_COMPRISES:
-                defauts.append({"debut": None, "fin": None, "code": "paroles", "gravite": "forte" if c < PAROLES_COMPRISES / 2 else "moyenne",
-                                "texte": f"paroles peu comprises : Whisper en retrouve {c:.0%} (karaoké calé au mieux)"})
+            i = json.loads(r.read_text(encoding="utf-8"))["infos"]
+            if (c := i.get("compris")) is not None and c < paroles.COMPRIS_MIN:
+                texte = (f"Whisper n'a pas pu écouter la chanson ({i.get('whisper_erreur') or 'aucun mot rendu'}) : karaoké réparti au jugé" if i.get("entendus") == 0
+                         else f"paroles peu comprises : Whisper en retrouve {c:.0%} (karaoké calé au mieux)")
+                defauts.append({"debut": None, "fin": None, "code": "paroles", "gravite": "forte" if c < paroles.COMPRIS_MIN / 2 else "moyenne", "texte": texte})
     return defauts
 
 

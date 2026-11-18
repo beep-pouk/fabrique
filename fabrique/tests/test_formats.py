@@ -437,6 +437,15 @@ def test_f5_paroles_peu_comprises_et_refus(essais, monkeypatch):
         execution.preparer(essais, f5(), {**CHANSON, "sections": [CHANSON["sections"][0]]})
     with pytest.raises(Refus, match="sections ont le même id"):
         execution.preparer(essais, f5(), {**CHANSON, "sections": [CHANSON["sections"][1], CHANSON["sections"][1]]})
+    for mauvais, motif in (({"paroles": ["un {\\b1} gras"]}, "paroles"), ({"paroles": ["[Chorus] caché"]}, "paroles"), ({"paroles": ["   "]}, "paroles")):
+        with pytest.raises(Refus, match=motif):
+            execution.preparer(essais, f5(), {**CHANSON, "sections": [{**CHANSON["sections"][1], **mauvais}]})
+    with pytest.raises(Refus, match="tonalite"):
+        execution.preparer(essais, f5(), {**CHANSON, "musique": {**CHANSON["musique"], "tonalite": "G-sharp mineur"}})
+    with pytest.raises(Refus, match="paroles trop longues"):
+        execution.preparer(essais, f5(), {**CHANSON, "sections": [{**CHANSON["sections"][1], "id": f"s{i}", "paroles": ["une ligne"] * 10} for i in range(8)]})
+    with pytest.raises(Refus, match="change la musique"):
+        execution.preparer(essais, f5(langues=["en", "xx"]), CHANSON, traductions={"xx": {**CHANSON, "musique": {**CHANSON["musique"], "bpm": 140}}})
 
 
 def test_f5_en_mode_reel_ace_step_et_whisper_simules(essais, monkeypatch):
@@ -484,7 +493,7 @@ def test_f5_en_mode_reel_ace_step_et_whisper_simules(essais, monkeypatch):
         c = morceau(essais, v, "chant", "video", "en")["resultat"]["infos"]
         assert vu["consigne"]["lyrics"] == "[Intro]\n\n[Verse]\nPetit lapin dans le pré\nsaute saute sans arrêt\n\n[Chorus]\nBonne nuit petit lapin"
         assert (vu["consigne"]["tags"], vu["consigne"]["bpm"], vu["consigne"]["keyscale"], vu["consigne"]["language"]) == ("children's song, ukulele", 100, "Bb major", "en")
-        assert vu["consigne"]["duration"] == pytest.approx(30.0)  # 3 lignes et une intro au tempo, 30 s au moins
+        assert vu["consigne"]["duration"] == pytest.approx(60.0) and c["essais"] == 1  # 3 lignes et une intro au tempo (24 s) : une minute au moins
         assert vu["etats"][:3] == ["start", "stop", "whisper"]  # la carte libérée avant Whisper
         assert c["compris"] == pytest.approx(8 / 13, abs=0.01) and [m["debut"] for m in c["mots"][:4]] == [3.0, 3.5, 3.9, 4.5]
         assert c["sections"] == [{"id": "s1", "debut": 0.0, "fin": 2.7}, {"id": "s2", "debut": 2.7, "fin": 7.6}, {"id": "s3", "debut": 7.6, "fin": 12.0}]
@@ -519,3 +528,54 @@ def test_banc_du_chant_premiere_etape_de_la_recette(essais, fiches_en_plus):
     assert (b.outil_a, b.outil_b, len(b.entrees)) == ("faux_chant", "faux_chant_doux", 1)  # une chanson, une entrée : RT écoute les deux
     with pytest.raises(Refus, match="vidéo entière"):  # le montage dépend des étapes d'avant : jamais au banc
         bancs.creer(essais, v, "montage", "faux_montage", "", "claude")
+
+
+def test_f5_chant_refait_si_whisper_comprend_trop_peu_et_whisper_en_panne(essais, monkeypatch, tmp_path):
+    """Une chanson dont Whisper retrouve trop peu de paroles est refaite avec une autre graine, la meilleure gardée ; Whisper en panne : pas
+    de nouvel essai, et le contrôle le dit (pas « mal chantée »)."""
+    from fabrique.moteur import par_section
+    from fabrique.moteur.f1 import comfy
+    from fabrique.moteur.faux import lancer, programme
+
+    reglages = execution.settings.SESSIONS / essais.dossier / "reglages"
+    reglages.mkdir(exist_ok=True)
+    (reglages / "config.json").write_text(json.dumps({"style": "x"}), encoding="utf-8")
+    graines, entendre = [], {"mots": []}
+
+    def run(prompt, timeout=0):
+        graines.append(prompt["4"]["inputs"]["seed"])
+        lancer(programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "sine=duration=8", out := tmp_path / f"ace{len(graines)}.wav")
+        return [str(out)]
+
+    monkeypatch.setattr(comfy, "start", lambda *a, **k: None)
+    monkeypatch.setattr(comfy, "stop", lambda *a, **k: None)
+    monkeypatch.setattr(comfy, "run", run)
+    monkeypatch.setattr(par_section, "ecouter", lambda wav, langue: (entendre["mots"].pop(0), "") if entendre["mots"] else ([], "transformers : erreur factice"))
+    d = execution.outils.Demande(brique="chant", etape="chant", unite="", langue="en", graine=7, session=str(execution.settings.SESSIONS / essais.dossier),
+                                 script=str(tmp_path / "chanson.json"), reglages={})
+    (tmp_path / "chanson.json").write_text(json.dumps(CHANSON), encoding="utf-8")
+    fiche = execution.outils.fiches()["chant_acestep"]
+    try:
+        entendre["mots"] = [[{"mot": "petit", "debut": 1, "fin": 1.3}], [{"mot": m, "debut": i, "fin": i + 0.3} for i, m in enumerate("petit lapin dans le pré saute saute sans".split(), 1)]]
+        (d1 := tmp_path / "un").mkdir()
+        r = par_section.chant(fiche, d, d1)
+        assert graines == [7, 1007] and r.infos["essais"] == 2 and r.infos["compris"] == pytest.approx(8 / 13, abs=0.01) and (d1 / "chanson.wav").is_file()
+        assert sorted(f.name for f in d1.iterdir()) == ["chanson.wav"]  # l'essai écarté effacé
+        (d2 := tmp_path / "deux").mkdir()
+        r = par_section.chant(fiche, d, d2)
+        assert len(graines) == 3 and r.infos["entendus"] == 0 and r.infos["whisper_erreur"] == "transformers : erreur factice"
+        dc = d.model_copy(update={"brique": "controle", "entrees": {"chant": [str(d2 / "chanson.wav")]}, "sources": {"chant": "chant"}})
+        (d2 / "resultat.json").write_text(r.model_dump_json(), encoding="utf-8")
+        assert [x["texte"] for x in montages.paroles_peu_comprises(dc)] == ["Whisper n'a pas pu écouter la chanson (transformers : erreur factice) : karaoké réparti au jugé"]
+    finally:
+        (reglages / "config.json").unlink()
+
+
+def test_calage_et_karaoke_auto_verification():
+    """L'auto-vérification de paroles.py : calage (têtes et queues manquées collées aux mots retrouvés), bornes des sections muettes partagées,
+    karaoké surligné à l'heure et sans chevauchement de lignes, écritures non latines, échappement des accolades."""
+    import subprocess
+    import sys
+
+    r = subprocess.run([sys.executable, "-m", "fabrique.moteur.paroles"], capture_output=True, text=True, cwd=Path(__file__).parents[2])
+    assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
