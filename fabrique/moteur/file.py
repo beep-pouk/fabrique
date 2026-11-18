@@ -64,6 +64,7 @@ def tour(lancer=programme.lancer_detache) -> str:
     if relance and t.relances >= RELANCES:
         raison = f"l'exécuteur s'est arrêté {t.relances + 1} fois sans finir un morceau (plantage ou coupures) : détail dans le journal"
         if Tache.objects.filter(id=t.id, etat="en_cours").update(etat="erreur", raison=raison, fin=timezone.now()):
+            Banc.objects.filter(id=t.banc, etat__in=("attente", "en_cours")).update(etat="erreur", raison=raison)
             alerter(t.id, raison)
         return ""
     if not Tache.objects.filter(id=t.id, etat=t.etat, executeur=t.executeur).update(etat="en_cours", raison="", lancee=timezone.now(), executeur=0,
@@ -134,11 +135,13 @@ def agir(tache_id: int, action: str, acteur: str) -> str:
     etat = {"pause": "pause", "reprendre": "attente", "annuler": "annulee"}[action]
     if not Tache.objects.filter(id=t.id, etat__in=permis[action]).update(etat=etat, raison="", relances=0, fin=timezone.now() if etat == "annulee" else None):
         raise Refus(f"« {t.titre} » est {Tache.objects.get(id=t.id).etat.replace('_', ' ')} : impossible de {action}")
-    if t.banc and action != "pause":
-        Banc.objects.filter(id=t.banc, etat__in=("attente", "en_cours", "erreur")).update(etat="annule" if action == "annuler" else "attente", raison="")
+    if t.banc:
+        Banc.objects.filter(id=t.banc, etat__in=("attente", "en_cours", "erreur")).update(
+            etat={"annuler": "annule", "pause": "attente", "reprendre": "attente"}[action], raison="tâche en pause dans la file" if action == "pause" else "")
     if action == "reprendre":
-        with routeur.session(Session.objects.get(id=t.session_id)):
-            Morceau.objects.filter(video_id=t.video_id, etat="erreur").update(etat="attente", essais=0)
+        if not t.banc:  # un banc ne touche jamais aux morceaux de la vidéo qu'il rejoue
+            with routeur.session(Session.objects.get(id=t.session_id)):
+                Morceau.objects.filter(video_id=t.video_id, etat="erreur").update(etat="attente", essais=0)
     elif (pid := Tache.objects.get(id=t.id).executeur) and pid != os.getpid():  # jamais le noyau lui-même (pid réutilisé)
         programme.tuer(pid)
     noter(acteur, "file", tache=t.id, quoi=action)

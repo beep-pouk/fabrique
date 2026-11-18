@@ -30,7 +30,7 @@ DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
                 "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
-    "claude": {"voir", "importer", "deposer", "veille"},  # « Fabrique.exe commande … »
+    "claude": {"voir", "importer", "deposer", "veille", "bancs"},  # « Fabrique.exe commande … » ; un banc : session « Essais » seulement (file.mettre)
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
 }
 ACTEURS = {"fenetre": "RT", "iphone": "RT", "claude": "claude", "assistant": "assistant"}
@@ -824,8 +824,12 @@ def bancs_(request):
 def nouveau_banc(request, corps: schemas.NouveauBanc):
     from fabrique.moteur import bancs
 
+    from fabrique.moteur import execution
+
     b = bancs.creer(session_(corps.session), corps.video, corps.brique, corps.outil, corps.juge, ACTEURS[request.auth])
-    return {"message": f"Banc {b.id} dans la file : {len(b.entrees)} entrée(s), deux outils. Vous voterez à l'aveugle quand il sera prêt."}
+    e = bancs.estimer(b)
+    return {"message": f"Banc {b.id} dans la file : {len(b.entrees)} entrée(s), deux outils, environ {max(1, round(e['secondes'] / 60))} min et "
+                       f"{execution.euros(e['cout_eur'])}. Vous voterez à l'aveugle quand il sera prêt."}
 
 
 @api.get("/bancs/{id}", response=schemas.BancDetail)
@@ -846,6 +850,14 @@ def voter(request, id: int, corps: schemas.Vote):
     from fabrique.moteur import bancs
 
     return {"message": bancs.voter(id, corps.entree, corps.choix, ACTEURS[request.auth])}
+
+
+@api.post("/bancs/{id}/verdict", response=schemas.Message)
+@droit("voter")
+def rendre_verdict(request, id: int):
+    from fabrique.moteur import bancs
+
+    return {"message": bancs.rendre(id, ACTEURS[request.auth])}
 
 
 @api.post("/bancs/{id}/adopter", response=schemas.Message)

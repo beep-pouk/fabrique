@@ -741,6 +741,7 @@ def outils_j6(dire) -> list[tuple[bool, str]]:
         cote = "a" if pour == a else "b"
         for i, e in enumerate(json.loads(entrees)):
             f.appeler("voter", {"entree": i, "choix": "egal" if i == 0 else "gauche" if e["gauche"] == cote else "droite"}, id=b["id"])
+        f.appeler("rendre_verdict", id=b["id"])
 
     try:
         banc.attendre(f.repond, 60, "le noyau répond")
@@ -770,6 +771,7 @@ def outils_j6(dire) -> list[tuple[bool, str]]:
         dire("une vidéo d'essai, puis le banc à l'aveugle…")
         v1 = video_finie()
         video = f.appeler("videos", id=essais)[0]["id"]
+        fichiers_avant = banc.empreinte(racine / "sessions", sauf=("*-wal", "*-shm"))
         f.appeler("nouveau_banc", {"session": essais, "video": video, "brique": "voix", "outil": candidat, "juge": "simule"})
         b = banc_pret(1)
         d = f.appeler("banc", id=b["id"])
@@ -784,12 +786,14 @@ def outils_j6(dire) -> list[tuple[bool, str]]:
         code_avant, avant = empreinte_du_code(), tables_j6(racine)
         message = f.appeler("adopter", {"ou": "brique"}, id=b["id"])["message"]
         code_apres, apres = empreinte_du_code(), tables_j6(racine)
+        fichiers_apres = banc.empreinte(racine / "sessions", sauf=("*-wal", "*-shm"))
         bougees = sorted(t for t in set(avant) | set(apres) if avant.get(t) != apres.get(t))
         nouvelles = sorted(set(apres.get("donnees/noyau_parametre", [])) - set(avant.get("donnees/noyau_parametre", [])))
         attendues = {"donnees/noyau_parametre", "donnees/noyau_outil", "donnees/noyau_banc", "donnees/noyau_journal"}
-        points.append((code_avant == code_apres and set(bougees) <= attendues and nouvelles == [repr(("outil.voix", candidat))],
+        points.append((code_avant == code_apres and set(bougees) <= attendues and nouvelles == [repr(("outil.voix", candidat))] and fichiers_avant == fichiers_apres,
                        f"adoption par RT ({message}) : code du programme identique ; tables changées : {', '.join(bougees)} (le défaut de la brique, l'état de l'outil, le banc "
-                       f"adopté, le journal) ; réglage ajouté : {', '.join(nouvelles)} ; toutes les tables des sessions identiques"))
+                       f"adopté, le journal) ; réglage ajouté : {', '.join(nouvelles)} ; toutes les tables des sessions identiques ; les {len(fichiers_avant)} fichiers des "
+                       f"sessions {'identiques' if fichiers_avant == fichiers_apres else 'CHANGÉS'} du lancement du banc à l'adoption (le banc n'écrit que dans bancs\)"))
         dire("la vidéo suivante prend le nouvel outil…")
         video_finie()
         v2 = next(x for x in f.appeler("videos", id=essais) if x["id"] != video)
@@ -858,11 +862,13 @@ def cle_en_ligne_j6() -> list[tuple[bool, str]]:
     try:
         with closing(sqlite3.connect(f"file:{base}?mode=ro", uri=True)) as c:
             cle = bool(c.execute("SELECT 1 FROM noyau_parametre WHERE cle = 'cle_elevenlabs' AND valeur != ''").fetchone())
-            appels = c.execute("SELECT count(*), coalesce(sum(coalesce(reel_eur, estime_eur)), 0) FROM noyau_depense WHERE outil = 'elevenlabs_voix'").fetchone()
-    except (sqlite3.Error, TypeError):
-        cle, appels = False, (0, 0)
-    if appels[0]:
-        return [(True, f"outil en ligne réel (voix ElevenLabs) essayé dans l'installation de RT : {appels[0]} appel(s), {appels[1]:.2f} € sous plafond")]
+            appels = c.execute("SELECT count(*), coalesce(sum(reel_eur), 0) FROM noyau_depense WHERE outil = 'elevenlabs_voix' AND reel_eur IS NOT NULL").fetchone()
+            plafond = float((c.execute("SELECT valeur FROM noyau_parametre WHERE cle = 'plafond_mois_eur'").fetchone() or ["0"])[0] or 0)
+    except (sqlite3.Error, TypeError, ValueError):
+        cle, appels, plafond = False, (0, 0), 0
+    if appels[0]:  # seuls les appels que le service a facturés (coût réel rendu) : un refus du service n'en est pas un
+        return [(appels[1] <= plafond, f"outil en ligne réel (voix ElevenLabs) essayé dans l'installation de RT : {appels[0]} appel(s) réussis, {appels[1]:.2f} € "
+                                       f"pour un plafond du mois de {plafond:.2f} €")]
     return [(True, "outil en ligne réel (voix ElevenLabs) : facultatif (« si RT donne une clé », § 7.3) — PAS ENCORE JOUÉ "
                    + ("(clé saisie, essai à lancer)" if cle else "(pas de clé dans l'installation de RT : QUESTIONS.md)")
                    + " ; l'adaptateur est prouvé contre un faux service local")]

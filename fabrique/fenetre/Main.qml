@@ -183,8 +183,7 @@ Window {
     function ouvrirBanc(id) { banc = Object.assign({}, bancVide, {id: id}); ligneBanc = 0; bancOuvert = true; lecteurBanc.stop(); pont.lire("banc", {id: id}) }
     function voterBanc(choix) {
         if (banc.etat !== "a_voter" || !banc.lignes.length) return
-        pont.agir("voter", {id: banc.id, corps: {entree: banc.lignes[ligneBanc].n, choix: choix}})
-        ligneBanc = Math.min(ligneBanc + 1, banc.lignes.length - 1)
+        pont.agir("voter", {id: banc.id, corps: {entree: banc.lignes[ligneBanc].n, choix: choix}})  // l'entrée suivante quand le vote est enregistré (onFait)
     }
     function briqueChoisie() { return outils.briques.find(b => b.id === nouveauBanc.brique) || {outils: [], juges: [], defaut: ""} }
     function aFaire() { return file.filter(t => t.etat === "erreur" || t.alertes.length > 0 && t.etat !== "finie" && t.etat !== "annulee") }
@@ -217,6 +216,7 @@ Window {
                 else nouvelle = {etape: nouvelle.etape + 1, id: nouvelle.id}
             }
             if (nom === "finir_session" && ok) nouvelle = {etape: 7, id: nouvelle.id}
+            if (nom === "voter" && ok) ligneBanc = Math.min(ligneBanc + 1, banc.lignes.length - 1)
             recharger()
         }
         function onAller(e) { aller(e) }
@@ -1678,9 +1678,9 @@ Window {
             visible: ecran === "banc"
             anchors.fill: parent; contentHeight: pileBanc.height + 48; clip: true
             ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
-            Shortcut { sequences: ["G"]; enabled: ecran === "banc"; onActivated: voterBanc("gauche") }
-            Shortcut { sequences: ["E"]; enabled: ecran === "banc"; onActivated: voterBanc("egal") }
-            Shortcut { sequences: ["D"]; enabled: ecran === "banc"; onActivated: voterBanc("droite") }
+            Shortcut { sequences: ["G"]; autoRepeat: false; enabled: ecran === "banc"; onActivated: voterBanc("gauche") }
+            Shortcut { sequences: ["E"]; autoRepeat: false; enabled: ecran === "banc"; onActivated: voterBanc("egal") }
+            Shortcut { sequences: ["D"]; autoRepeat: false; enabled: ecran === "banc"; onActivated: voterBanc("droite") }
             Shortcut { sequences: ["Up"]; enabled: ecran === "banc" && banc.lignes.length > 0; onActivated: ligneBanc = Math.max(0, ligneBanc - 1) }
             Shortcut { sequences: ["Down"]; enabled: ecran === "banc" && banc.lignes.length > 0; onActivated: ligneBanc = Math.min(banc.lignes.length - 1, ligneBanc + 1) }
             MediaPlayer {
@@ -1692,7 +1692,7 @@ Window {
                 id: pileBanc
                 x: 24; y: 24; width: Math.min(contenu.width - 48, 960); spacing: 16
                 T { text: "Banc"; font.pixelSize: 28; font.weight: Font.DemiBold }
-                T { text: "Deux outils, les mêmes entrées. Vous votez sans savoir quel outil est à gauche : G (gauche), E (égal) ou D (droite), entrée par entrée (↑ ↓ pour changer d'entrée). Le juge automatique est montré après votre vote."
+                T { text: "Deux outils, les mêmes entrées. Vous votez sans savoir quel outil est à gauche : G (gauche), E (égal) ou D (droite), entrée par entrée (↑ ↓ pour changer d'entrée) ; un vote se change jusqu'à « Rendre le verdict ». Les outils et le juge automatique se voient ensuite."
                     color: cSecond; width: parent.width }
 
                 Panneau {
@@ -1705,10 +1705,13 @@ Window {
                         Bouton { id: fermerBanc; objectName: "fermer_banc"; texte: "Fermer"; onClic: { lecteurBanc.stop(); banc = bancVide } }
                     }
                     T { objectName: "verdict_banc"; visible: banc.verdict !== ""; text: "Verdict : " + banc.verdict; color: cReussi; width: parent.width; font.weight: Font.DemiBold }
+                    Bouton { objectName: "rendre_verdict"; visible: banc.etat === "a_voter" && banc.votes === banc.entrees && banc.entrees > 0; texte: "Rendre le verdict"
+                             onClic: pont.agir("rendre_verdict", {id: banc.id}) }
+                    T { visible: banc.raison !== "" && banc.etat !== "fini"; text: banc.raison; color: cAttention; width: parent.width }
                     Row {
                         visible: banc.peut_adopter
                         spacing: 8
-                        Bouton { objectName: "adopter_brique"; ambre: true; texte: "Adopter pour toutes les sessions"; onClic: pont.agir("adopter", {id: banc.id, corps: {ou: "brique"}}) }
+                        Bouton { objectName: "adopter_brique"; texte: "Adopter pour toutes les sessions"; onClic: pont.agir("adopter", {id: banc.id, corps: {ou: "brique"}}) }
                         Bouton { objectName: "adopter_session"; texte: "Adopter pour « " + banc.session + " » seulement"; onClic: pont.agir("adopter", {id: banc.id, corps: {ou: "session"}}) }
                     }
                     T { visible: banc.adopte !== ""; text: "Adopté (" + (banc.adopte === "brique" ? "toutes les sessions" : "la session " + banc.session) + ")."; color: cSecond; width: parent.width }
@@ -1721,6 +1724,7 @@ Window {
                             property int n: index
                             objectName: "entree_" + index
                             width: parent.width; height: colEntree.implicitHeight + 20; radius: 6; color: cLeve
+                            Accessible.role: Accessible.Grouping; Accessible.name: "Entrée " + (index + 1) + " : " + (modelData.texte || "sans texte")
                             border.width: index === ligneBanc && banc.etat === "a_voter" ? 2 : 0; border.color: cSelection
                             Column {
                                 id: colEntree
@@ -1740,6 +1744,7 @@ Window {
                                                     source: visible ? url(ligne[cote][0]) : ""; fillMode: Image.PreserveAspectFit; Accessible.name: "Sortie " + cote }
                                             Bouton { objectName: "ecouter_" + cote + "_" + caseEntree.n; visible: (ligne[cote] || []).length > 0 && !estImage(ligne[cote][0])
                                                      texte: lecteurBanc.playbackState === MediaPlayer.PlayingState && String(lecteurBanc.source) === url(ligne[cote][0] || "") ? "Arrêter" : "Écouter / voir"
+                                                     Accessible.name: "Écouter, " + cote + ", entrée " + (caseEntree.n + 1)
                                                      onClic: { if (lecteurBanc.playbackState === MediaPlayer.PlayingState && String(lecteurBanc.source) === url(ligne[cote][0])) lecteurBanc.stop()
                                                                else { lecteurBanc.source = url(ligne[cote][0]); lecteurBanc.play() } } }
                                         }

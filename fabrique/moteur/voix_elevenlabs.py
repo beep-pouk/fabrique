@@ -1,6 +1,6 @@
 """Voix ElevenLabs, outil en ligne payant de la brique voix (cahier § 4 ; plan § 5.5) : texte → son minuté, par l'API REST
 (POST /v1/text-to-speech/<voix>/with-timestamps, son PCM 24 kHz en base64 et minutage de chaque caractère). Clé saisie par RT (Système →
-Clés, « elevenlabs »), jamais affichée ni journalisée, jamais dans un message d'erreur. Prix de la fiche par 1 000 caractères ; le coût
+Clés, la clé que nomme la fiche), jamais affichée ni journalisée, jamais dans un message d'erreur. Prix de la fiche par 1 000 caractères ; le coût
 réel se compte sur les caractères facturés (en-tête « x-character-count » quand le service le donne). Réglages de la fiche : « modele »,
 « voix_id » (une voix du catalogue d'ElevenLabs), « adresse » (les tests la pointent sur un faux service local)."""
 import base64
@@ -44,7 +44,7 @@ def mots(alignement: dict | None) -> list[dict]:
 
 
 def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
-    cle = cles.lire("elevenlabs")
+    cle = cles.lire(fiche.cle)
     if not cle:
         raise RuntimeError("clé ElevenLabs absente : RT la saisit dans Système → Clés")
     if not demande.texte.strip():

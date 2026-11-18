@@ -226,7 +226,7 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
     from fabrique.moteur.f1 import refaire as f1
     from fabrique.noyau.models import Tache
 
-    if Tache.objects.filter(session_id=s.id, video_id=video_id, etat__in=("attente", "en_cours", "pause")).exists():
+    if Tache.objects.filter(session_id=s.id, video_id=video_id, banc=0, etat__in=("attente", "en_cours", "pause")).exists():
         raise Refus("cette vidéo est encore dans la file : refaire quand elle est finie")
     with routeur.session(s):
         v = Video.objects.filter(id=video_id).first()

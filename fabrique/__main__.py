@@ -42,6 +42,14 @@ def commande(args: list[str]) -> int:
     envois = {"idee": ("ajouter_idee", lambda a: {"titre": a[1], "resume": " ".join(a[2:]), "source": "claude"}, 2),  # « idee <session> <titre> [résumé] »
               "reference": ("importer_reference", lambda a: {"fichier": a[2]}, 3),  # « reference <session> <personnage> <image> » : à valider par RT
               "nouveau-script": ("creer_script", lambda a: {"titre": a[1], "date": a[2] if len(a) > 2 else ""}, 2)}  # « nouveau-script <session> <titre> [date] »
+    if args[:1] == ["banc"] and len(args) in (5, 6):  # « banc <session Essais> <vidéo> <brique> <outil> [juge] » : préparé de nuit, RT vote
+        try:
+            print(Client("claude").appeler("nouveau_banc", {"session": args[1], "video": args[2], "brique": args[3], "outil": args[4],
+                                                            "juge": args[5] if len(args) == 6 else ""})["message"])
+        except (OSError, ErreurApi) as e:
+            print(f"refusé : {e}")
+            return 1
+        return 0
     if args[:1] and args[0] in envois and len(args) > envois[args[0]][2]:
         appel, corps, _ = envois[args[0]]
         try:
@@ -52,7 +60,8 @@ def commande(args: list[str]) -> int:
         return 0
     if not args or args[0] not in COMMANDES_CLAUDE:
         print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, idee <session> <titre> [résumé], nouveau-script <session> <titre> [AAAA-MM-JJ], "
-              "reference <session> <personnage> <image>, veille <fichier.json> (candidats du mois), importer-bramble [--pour-de-vrai], "
+              "reference <session> <personnage> <image>, veille <fichier.json> (candidats du mois), banc <session Essais> <vidéo> <brique> <outil> [juge], "
+              "importer-bramble [--pour-de-vrai], "
               "copier-essai <vidéo> <suffixe>")
         return 2
     try:

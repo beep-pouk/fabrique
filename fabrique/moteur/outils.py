@@ -6,11 +6,12 @@ brique (briques.json) ; en simulation, un vrai outil cède la place au faux de s
 outil = une fiche et son module : le noyau ne change pas."""
 import importlib
 import json
+import re
 from functools import cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from fabrique.garde import Refus
 
@@ -36,7 +37,7 @@ class Installation(Strict):
 
 
 class Fiche(Strict):
-    id: str
+    id: str = Field(pattern=r"^[a-z0-9_]{1,50}$")  # un nom de dossier (outils\<id>)
     nom: str
     roles: list[str] = Field(min_length=1)
     local: bool
@@ -55,6 +56,13 @@ class Fiche(Strict):
     module: str
     reglages: dict = {}
     installation: Installation | None = None  # absente : rien à installer (faux outil, service en ligne, outil partagé de Bramble Studio)
+    cle: str = ""  # service en ligne : le nom de sa clé (noyau/cles.py), saisie par RT ; sans elle, l'outil ne sert pas
+
+    @model_validator(mode="after")
+    def version_sure(self):
+        if self.installation and not re.fullmatch(r"[A-Za-z0-9._-]{1,40}", self.version):
+            raise ValueError("la version d'un outil à installer nomme son dossier : lettres, chiffres, point, tiret")
+        return self
 
 
 class Demande(Strict):
@@ -124,7 +132,10 @@ def fiche(outil: str, brique: str, langue: str = "", en_service: bool = True) ->
 def defauts(brique: str, de_la_session: dict) -> list[str]:
     from fabrique.noyau.models import Parametre
 
-    return [o for o in (de_la_session.get(f"outil.{brique}"), Parametre.lire(f"outil.{brique}"), BRIQUES[brique]["defaut"]) if o]
+    from fabrique.noyau import etat
+
+    reel = not etat.simulation()  # un faux outil adopté en simulation ne sert jamais en mode réel
+    return [o for o in (de_la_session.get(f"outil.{brique}"), Parametre.lire(f"outil.{brique}")) if o and not (reel and o in fiches() and fiches()[o].faux)] + [BRIQUES[brique]["defaut"]]
 
 
 def choisir(brique: str, etape: str, langue: str, du_plan: dict, du_format: dict, de_la_session: dict) -> str:

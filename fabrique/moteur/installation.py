@@ -45,7 +45,27 @@ def dossier(f: outils.Fiche, version: str = "") -> Path:
 
 
 def complet(f: outils.Fiche, version: str) -> bool:
-    return bool(version) and all((dossier(f, version) / t).exists() for t in f.installation.temoins)
+    try:
+        return bool(version) and all(dedans(dossier(f, version), t).exists() for t in f.installation.temoins)
+    except Refus:
+        return False
+
+
+def en_usage(f: outils.Fiche) -> str:
+    """Ce qui attend encore cet outil : une vidéo de la file (active, en pause ou en erreur) dont un morceau non fini le prend, ou un banc pas
+    fini ; vide : rien."""
+    from fabrique.noyau.models import Banc, Tache
+    from fabrique.session.models import Morceau
+
+    if b := (Banc.objects.filter(outil_a=f.id) | Banc.objects.filter(outil_b=f.id)).filter(etat__in=("attente", "en_cours", "a_voter", "erreur")).first():
+        return f"le banc {b.id}"
+    for t in Tache.objects.filter(banc=0, etat__in=("attente", "en_cours", "pause", "erreur")):
+        s = Session.objects.filter(id=t.session_id).first()
+        if s:
+            with routeur.session(s):
+                if Morceau.objects.filter(video_id=t.video_id, outil=f.id).exclude(etat="fini").exists():
+                    return f"la vidéo « {t.titre} » de la file"
+    return ""
 
 
 def constat(f: outils.Fiche) -> dict:
@@ -68,6 +88,8 @@ def refus(f: outils.Fiche) -> str:
         return f.installation.manuel if f.installation else "cet outil n'a rien à installer"
     if not constat(f)["action"]:
         return f"{f.nom} est déjà installé (version {f.version})"
+    if version_installee(f) and (u := en_usage(f)):
+        return f"{u} attend encore {f.nom} {version_installee(f)} : mettre à jour quand elle est finie ou annulée (jamais deux versions dans une vidéo)"
     if o := taches.occupe("fabrication", "installation"):
         return f"une {o} est en cours : un outil s'installe quand plus rien ne tourne"
     racine().mkdir(parents=True, exist_ok=True)
@@ -130,21 +152,32 @@ def telecharger(url: str, vers: Path, empreinte: str, sortie) -> str:
     return ""
 
 
+def dedans(ici: Path, relatif: str) -> Path:
+    """Un chemin de la recette, toujours dans le dossier de l'outil (jamais un outil partagé ni un dossier de Bramble Studio)."""
+    p = (ici / relatif).resolve()
+    if not p.is_relative_to(ici.resolve()):
+        raise Refus(f"la recette sort du dossier de l'outil : « {relatif} »")
+    return p
+
+
 def jouer_pas(pas: dict, ici: Path, sortie) -> str:
     """Un pas de la recette ; vide si fait (ou sauté), sinon la phrase de l'échec."""
-    if pas.get("si_absent") and (ici / pas["si_absent"]).exists():
-        sortie.write(f"déjà là : {pas['si_absent']}\n")
-        return ""
-    remplacer = lambda x: str(x).format(ici=ici, programme=dossiers.CODE.as_posix(), python=programme.python())  # noqa: E731
-    if "dossier" in pas:
-        (ici / pas["dossier"]).mkdir(parents=True, exist_ok=True)
-        return ""
-    if "telecharger" in pas:
-        return telecharger(remplacer(pas["telecharger"]), ici / pas["vers"], pas.get("sha256", ""), sortie)
-    if "commande" in pas:
-        code = _lancer([remplacer(a) for a in pas["commande"]], sortie, cwd=str(ici / pas.get("cwd", "")),
-                       env={k: remplacer(v) for k, v in pas.get("env", {}).items()})
-        return "" if code == 0 else f"la commande a échoué (code {code}) : voir le journal"
+    try:
+        if pas.get("si_absent") and dedans(ici, pas["si_absent"]).exists():
+            sortie.write(f"déjà là : {pas['si_absent']}\n")
+            return ""
+        remplacer = lambda x: str(x).format(ici=ici, programme=dossiers.CODE.as_posix(), python=programme.python())  # noqa: E731
+        if "dossier" in pas:
+            dedans(ici, pas["dossier"]).mkdir(parents=True, exist_ok=True)
+            return ""
+        if "telecharger" in pas:
+            return telecharger(remplacer(pas["telecharger"]), dedans(ici, pas["vers"]), pas.get("sha256", ""), sortie)
+        if "commande" in pas:
+            code = _lancer([remplacer(a) for a in pas["commande"]], sortie, cwd=str(dedans(ici, pas.get("cwd", ""))),
+                           env={k: remplacer(v) for k, v in pas.get("env", {}).items()})
+            return "" if code == 0 else f"la commande a échoué (code {code}) : voir le journal"
+    except Refus as e:
+        return str(e)
     return f"pas inconnu dans la recette : {sorted(pas)}"
 
 
@@ -162,8 +195,9 @@ def installer(outil: str) -> str:
             if echec := jouer_pas(pas, ici, sortie):
                 sortie.write(f"ÉCHEC : {echec}\n")
                 return echec
-        if manquent := [t for t in f.installation.temoins if not (ici / t).exists()]:
-            return f"la recette est finie mais il manque : {', '.join(manquent)}"
+        if not complet(f, f.version):
+            manquent = [t for t in f.installation.temoins if not (ici / t).exists()]
+            return f"la recette est finie mais il manque : {', '.join(manquent) or 'un témoin hors du dossier de l’outil'}"
     Outil.objects.update_or_create(id=f.id, defaults={"version": f.version})
     return ""
 
@@ -219,6 +253,8 @@ def retirer(outil: str, acteur: str) -> str:
     seul = [b for b in f.roles if not any(g.id != f.id and b in g.roles and outils.etat(g) == "en_service" for g in outils.fiches().values())]
     if outils.etat(f) == "en_service" and seul:
         raise Refus(f"{f.nom} est le dernier outil en service de la brique {outils.BRIQUES[seul[0]]['titre']}")
+    if u := en_usage(f):
+        raise Refus(f"{u} attend encore {f.nom} : le retirer quand elle est finie ou annulée")
     if taches.occupe("fabrication", "installation"):
         raise Refus("une fabrication ou une installation est en cours : retirer un outil quand plus rien ne tourne")
     rangement = ""

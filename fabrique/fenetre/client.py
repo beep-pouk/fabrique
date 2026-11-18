@@ -87,6 +87,7 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "nouveau_banc": ("POST", "/api/bancs", s.Message),
     "banc": ("GET", "/api/bancs/{id}", s.BancDetail),
     "voter": ("POST", "/api/bancs/{id}/voter", s.Message),
+    "rendre_verdict": ("POST", "/api/bancs/{id}/verdict", s.Message),
     "adopter": ("POST", "/api/bancs/{id}/adopter", s.Message),
     "veille": ("GET", "/api/veille", list[s.CandidatVeille]),
     "verser_veille": ("POST", "/api/veille", s.Message),

@@ -95,7 +95,7 @@ class Outil(models.Model):
 
 class Banc(models.Model):
     """Un banc à l'aveugle (moteur/bancs.py) : l'outil en place (a) contre un autre (b), sur les demandes de morceaux finis d'une vidéo."""
-    ETATS = ("attente", "en_cours", "a_voter", "fini", "erreur", "annule")
+    ETATS = ("attente", "en_cours", "a_voter", "fini", "erreur", "annule")  # « a_voter » : votes modifiables jusqu'à « Rendre le verdict »
     brique = models.CharField(max_length=30)
     outil_a = models.CharField(max_length=50)
     outil_b = models.CharField(max_length=50)
@@ -107,8 +107,9 @@ class Banc(models.Model):
     raison = models.CharField(max_length=500, default="")
     entrees = models.JSONField(default=list)  # [{unite, langue, texte, demande (chemin), gauche: "a"|"b"}]
     notes = models.JSONField(default=dict)  # « i » → {a, b} : notes du juge, sur 10
-    votes = models.JSONField(default=dict)  # « i » → "a", "b" ou "egal" (le côté réel, jamais montré à RT avant le verdict)
+    votes = models.JSONField(default=dict)  # « i » → "a", "b" ou "egal" (l'outil réel, jamais montré à RT avant le verdict)
     verdict = models.JSONField(default=dict)
+    versions = models.JSONField(default=dict)  # « a », « b » → la version de chaque outil au banc : une autre version ne s'adopte pas sur ce verdict
     adopte = models.CharField(max_length=100, default="")  # « brique » ou « session » : où le vainqueur est devenu le défaut
     cree = models.DateTimeField(auto_now_add=True)
     fini = models.DateTimeField(null=True)

@@ -415,6 +415,10 @@ def test_outils_et_banc(qtbot):
     QTest.keyClick(f, Qt.Key.Key_D)
     qtbot.waitUntil(lambda: ("/api/bancs/1/voter", {"entree": 1, "choix": "droite"}) in t.actions)
     assert f.property("ligneBanc") == 2
+    assert not element(f, "rendre_verdict").isVisible()  # 1 vote sur 3
+    f.setProperty("banc", {**valeur(f, "banc"), "votes": 3})
+    clic(f, "rendre_verdict")
+    qtbot.waitUntil(lambda: ("/api/bancs/1/verdict", None) in t.actions)
     voir(f, "ecran_banc", "banc_liste_1")
     clic(f, "banc_liste_1")
     qtbot.waitUntil(lambda: valeur(f, "banc")["peut_adopter"])

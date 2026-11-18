@@ -21,6 +21,7 @@
  "etat": "candidat",
  "faux": false,
  "module": "fabrique.moteur.voix_elevenlabs",
+ "cle": "elevenlabs",
  "reglages": {
   "modele": "eleven_multilingual_v2",
   "voix_id": "JBFqnCBsd6RMkjVDRZzb"

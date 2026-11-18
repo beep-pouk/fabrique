@@ -10,6 +10,8 @@ from fabrique.moteur import bancs, execution, file, installation, outils
 from fabrique.noyau import routeur, taches
 from fabrique.noyau.models import Banc, Depense, Journal, Outil, Parametre, Tache
 from fabrique.session.models import Morceau, Reglage
+from django.conf import settings
+
 from fabrique.tests.test_moteur import SCRIPT, essais, fiches_en_plus, voix_seule  # noqa: F401 — fixtures
 
 CANDIDAT = "faux_voix_douce"
@@ -118,8 +120,14 @@ def test_banc_a_l_aveugle_puis_adoption_rien_d_autre_ne_bouge(essais, propre):
     assert all(execution.lu(bancs.sortie(b, i, c)).fichiers == ["voix.wav"] for i in range(4) for c in "ab")
     with pytest.raises(Refus, match="seul RT vote"):
         bancs.voter(b.id, 0, "gauche", "claude")
-    for i, e in enumerate(b.entrees):  # RT préfère la nouvelle voix trois fois, une égalité
-        assert "enregistré" in bancs.voter(b.id, i, "egal" if i == 3 else "gauche" if e["gauche"] == "b" else "droite", "RT") or i == 3
+    for i, e in enumerate(b.entrees):  # RT préfère la nouvelle voix trois fois, une égalité (après s'être trompé une fois : il corrige)
+        bancs.voter(b.id, i, "droite" if e["gauche"] == "b" else "gauche", "RT") if i == 0 else None
+        assert "enregistré" in bancs.voter(b.id, i, "egal" if i == 3 else "gauche" if e["gauche"] == "b" else "droite", "RT")
+    with pytest.raises(Refus, match="seul RT"):
+        bancs.rendre(b.id, "claude")
+    b.refresh_from_db()
+    assert b.etat == "a_voter"  # le verdict attend « Rendre le verdict »
+    bancs.rendre(b.id, "RT")
     b.refresh_from_db()
     assert b.etat == "fini" and b.verdict["gagnant"] == CANDIDAT and b.verdict["rt"] == {"b": 3, "egal": 1}
     assert json.loads((bancs.dossier(b) / "verdict.json").read_text(encoding="utf-8"))["verdict"]["gagnant"] == CANDIDAT
@@ -147,8 +155,11 @@ def test_banc_gagne_par_l_outil_en_place_ou_sans_vainqueur_rien_a_adopter(essais
     installation.installer(CANDIDAT)
     b = jouer_le_banc(bancs.creer(essais, video, "voix", CANDIDAT, "", "claude"))
     assert b.notes == {}  # sans juge
+    with pytest.raises(Refus, match="voter chaque entrée"):
+        bancs.rendre(b.id, "RT")
     for i in range(len(b.entrees)):
         bancs.voter(b.id, i, "egal", "RT")
+    bancs.rendre(b.id, "RT")
     b.refresh_from_db()
     assert b.verdict["gagnant"] == "" and "pas de vainqueur" in b.verdict["texte"]
     with pytest.raises(Refus, match="pas de vainqueur"):
@@ -238,6 +249,8 @@ def test_api_des_outils_et_des_bancs(essais, propre, tmp_path):
     assert d["etat"] == "a_voter" and all(l["qui"] is None and l["notes"] is None and l["gauche"] and l["droite"] for l in d["lignes"])  # à l'aveugle
     for l in d["lignes"]:
         post(f"/api/bancs/{b.id}/voter", {"entree": l["n"], "choix": "droite"})
+    assert post(f"/api/bancs/{b.id}/verdict", {}, "claude").status_code == 403
+    assert post(f"/api/bancs/{b.id}/verdict", {}).status_code == 200
     d = n.get(f"/api/bancs/{b.id}", **h("fenetre")).json()
     assert d["etat"] == "fini" and all(l["vote"] == "droite" and l["qui"] and l["notes"] for l in d["lignes"]) and d["verdict"]
     # veille : Claude verse les candidats du mois (« commande veille »), RT les classe
@@ -316,3 +329,110 @@ def test_voix_en_ligne_reelle_contre_un_faux_service(faux_service, fiches_en_plu
         assert "cle-factice-123" not in str(e.value)
     finally:
         Parametre.ecrire("cle_elevenlabs", "")
+
+
+
+def test_votes_simultanes_jamais_perdus(essais, propre):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    installation.installer(CANDIDAT)
+    b = jouer_le_banc(bancs.creer(essais, video_finie(essais), "voix", CANDIDAT, "", "claude"))
+
+    def voter(i):
+        try:
+            return bancs.voter(b.id, i, "gauche", "RT")
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(4) as x:
+        list(x.map(voter, range(4)))
+    b.refresh_from_db()
+    assert len(b.votes) == 4
+
+
+def test_banc_refuse_une_etape_faite_video_entiere_et_ne_touche_pas_la_video(essais, propre):
+    installation.installer(CANDIDAT)
+    entiere = voix_seule(etapes=[{"id": "voix", "brique": "voix", "par": "video", "langue": True}])
+    with pytest.raises(Refus, match="vidéo entière"):
+        bancs.creer(essais, video_finie(essais, entiere), "voix", CANDIDAT, "", "claude")
+    video = video_finie(essais)
+    avant = {p: p.stat().st_mtime_ns for p in (settings.SESSIONS / essais.dossier / "videos" / video).rglob("*")}
+    b = jouer_le_banc(bancs.creer(essais, video, "voix", CANDIDAT, "", "claude"))
+    assert {p: p.stat().st_mtime_ns for p in (settings.SESSIONS / essais.dossier / "videos" / video).rglob("*")} == avant
+    assert {p.name for p in bancs.dossier(b).glob("*/*") if p.is_dir()} == {"gauche", "droite"}  # le chemin ne dit pas quel outil
+    with pytest.raises(Refus, match="déjà en cours"):
+        bancs.creer(essais, video, "voix", CANDIDAT, "", "claude")
+
+
+def test_retirer_ou_mettre_a_jour_un_outil_attendu_refuse_puis_adoption_revérifiée(essais, propre, fiches_en_plus):
+    installation.installer(CANDIDAT)
+    b = jouer_le_banc(bancs.creer(essais, video_finie(essais), "voix", CANDIDAT, "", "claude"))
+    with pytest.raises(Refus, match=f"le banc {b.id} attend encore"):
+        installation.retirer(CANDIDAT, "RT")
+    f = outils.fiches()[CANDIDAT]
+    fiches_en_plus(CANDIDAT, **{**f.model_dump(exclude={"id"}), "version": "3"})
+    assert f"le banc {b.id} attend encore" in installation.refus(outils.fiches()[CANDIDAT])
+    for i, e in enumerate(b.entrees):
+        bancs.voter(b.id, i, "gauche" if e["gauche"] == "b" else "droite", "RT")
+    bancs.rendre(b.id, "RT")
+    assert installation.installer(CANDIDAT) == ""  # verdict rendu : la version 3 s'installe
+    with pytest.raises(Refus, match="changé de version"):
+        bancs.adopter(b.id, "brique", "RT")  # la version 3 n'est jamais passée au banc
+    installation.retirer(CANDIDAT, "RT")
+    with pytest.raises(Refus, match="retiré"):
+        bancs.adopter(b.id, "session", "RT")
+
+
+def test_recette_d_installation_confinee(propre, fiches_en_plus):
+    fiches_en_plus("outil_evade", etat="candidat", installation={"pas": [{"dossier": "../../evade"}], "temoins": ["x"]})
+    assert "sort du dossier" in installation.installer("outil_evade") and not (installation.racine() / "evade").exists()
+    with pytest.raises(Exception, match="version"):
+        outils.Fiche.model_validate({**outils.fiches()["outil_evade"].model_dump(), "version": "../2"})
+
+
+def test_un_faux_outil_adopte_en_simulation_ne_sert_pas_en_mode_reel(monkeypatch):
+    from fabrique.noyau import etat
+
+    Parametre.ecrire("outil.voix", CANDIDAT)
+    try:
+        assert outils.defauts("voix", {})[0] == CANDIDAT
+        monkeypatch.setattr(etat, "simulation", lambda: False)
+        assert outils.defauts("voix", {}) == ["faux_voix"]
+    finally:
+        Parametre.ecrire("outil.voix", "")
+
+
+def test_veille_mensuelle_au_mois_du_calendrier():
+    from datetime import date
+
+    from fabrique.moteur import veille
+
+    Parametre.ecrire("veille_derniere", "2027-01-31")
+    try:
+        assert not veille.due(date(2027, 1, 31)) and veille.due(date(2027, 2, 1))
+    finally:
+        Parametre.ecrire("veille_derniere", "")
+
+
+def test_juge_en_echec_dit_et_banc_suit_sa_tache(essais, propre, monkeypatch):
+    installation.installer(CANDIDAT)
+    b = bancs.creer(essais, video_finie(essais), "voix", CANDIDAT, "simule", "claude")
+    t = Tache.objects.get(banc=b.id)
+    file.agir(t.id, "pause", "RT")
+    b.refresh_from_db()
+    assert (b.etat, b.raison) == ("attente", "tâche en pause dans la file")
+    file.agir(t.id, "reprendre", "RT")
+
+    def en_panne(juge, lot):
+        raise RuntimeError("Whisper n'a pas répondu")
+
+    monkeypatch.setattr(bancs, "notes_du_juge", en_panne)
+    b = jouer_le_banc(b)
+    assert b.etat == "a_voter" and "le juge n'a pas pu noter" in b.raison and b.notes == {}
+    for i in range(len(b.entrees)):
+        bancs.voter(b.id, i, "egal", "RT")
+    bancs.rendre(b.id, "RT")
+    b.refresh_from_db()
+    assert "sans note du juge" in b.verdict["texte"] and "sans écart" not in b.verdict["texte"]
