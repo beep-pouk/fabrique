@@ -85,6 +85,7 @@ Window {
     property int ligneBanc: 0  // l'entrée que G, E et D votent
     property bool bancOuvert: false  // le banc vient d'être ouvert : G, E et D partent de sa première entrée sans vote
     property var nouveauBanc: ({brique: "", outil: "", video: "", juge: ""})
+    property string formatScript: ""  // le format d'un nouveau script ; vide : celui de la session
     property var relier: ({url: "", message: ""})
     property int aPublier: -1  // la publication dont « Publier » attend la confirmation
     property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
@@ -689,7 +690,7 @@ Window {
                             Accessible.role: Accessible.Button; Accessible.name: "Script " + modelData.titre; Accessible.onPressAction: ouvrirScript(modelData.code)
                             Mono { text: modelData.code; x: 12; anchors.verticalCenter: parent.verticalCenter }
                             T { text: modelData.titre; x: 90; width: parent.width - 400; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight; wrapMode: Text.NoWrap }
-                            Mono { text: (modelData.date_prevue || "—") + "  v" + modelData.versions; color: cSecond
+                            Mono { text: (modelData.format ? modelData.format + "  ·  " : "") + (modelData.date_prevue || "—") + "  v" + modelData.versions; color: cSecond
                                    anchors.right: parent.right; anchors.rightMargin: 16; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
@@ -700,8 +701,18 @@ Window {
                         Champ { id: titreScript; width: 380; nom: "titre_script"; libelle: "Titre d'un nouveau script" }
                         Champ { id: dateScript; width: 200; nom: "date_script"; libelle: "Date (AAAA-MM-JJ, facultative)" }
                         Bouton { objectName: "creer_script"; texte: "Créer le script"; actif: titreScript.texte.trim() !== ""
-                                 onClic: { pont.agir("creer_script", {id: session, corps: {titre: titreScript.texte, date: dateScript.texte.trim(), idee: 0}})
+                                 onClic: { pont.agir("creer_script", {id: session, corps: {titre: titreScript.texte, date: dateScript.texte.trim(), idee: 0, format: formatScript}})
                                            titreScript.texte = ""; dateScript.texte = "" } }
+                    }
+                    Flow {
+                        visible: onglet === "scripts" && reglages.formats.length > 1
+                        width: parent.width; spacing: 6
+                        T { text: "Format du nouveau script :"; color: cSecond; height: 32; verticalAlignment: Text.AlignVCenter; wrapMode: Text.NoWrap }
+                        Repeater {
+                            model: reglages.formats
+                            Puce { objectName: "format_script_" + modelData; texte: modelData; choisi: (formatScript || reglages.format) === modelData
+                                   onClic: formatScript = modelData === reglages.format ? "" : modelData }
+                        }
                     }
                     Repeater {
                         model: onglet === "videos" ? videos : []
@@ -1431,7 +1442,7 @@ Window {
                 Flow {
                     visible: brouillon === null
                     width: parent.width; spacing: 8
-                    Bouton { objectName: "modifier_script"; texte: "Modifier le script"; actif: script.versions.length > 0; onClic: ecrire() }
+                    Bouton { objectName: "modifier_script"; texte: "Modifier le script"; actif: script.versions.length > 0 && !!script.contenu.scenes; onClic: ecrire() }
                     Bouton { objectName: "demander_ecrire"; texte: "Demander à Claude une nouvelle version"; onClic: pont.agir("demander", {id: session, code: script.code, corps: {quoi: "ecrire", langue: ""}}) }
                     Repeater {
                         model: univers.langues.filter(l => l.code !== (script.contenu.language || "en"))
@@ -1543,7 +1554,11 @@ Window {
                     }
                     Panneau {
                         visible: brouillon === null
-                        titre: "Scènes"
+                        titre: script.contenu.scenes || !script.versions.length ? "Scènes" : "Contenu"
+                        Mono {  // une compilation, un extrait : leur forme n'a pas de scènes ; Claude les écrit, RT les relit
+                            objectName: "contenu_brut"; visible: !script.contenu.scenes && script.versions.length > 0; width: parent.width; wrapMode: Text.Wrap
+                            text: JSON.stringify(script.contenu, null, 2); font.pixelSize: 12
+                        }
                         Repeater {
                             model: script.contenu.scenes || []
                             Column {

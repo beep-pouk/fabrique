@@ -269,7 +269,7 @@ def test_parcours_j5(qtbot):
     taper(f, "titre_script", "Le pont")
     taper(f, "date_script", "2026-12-20")
     clic(f, "creer_script")
-    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts", {"titre": "Le pont", "date": "2026-12-20", "idee": 0}) in t.actions)
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts", {"titre": "Le pont", "date": "2026-12-20", "idee": 0, "format": ""}) in t.actions)
     clic(f, "script_0")
     qtbot.waitUntil(lambda: element(f, "date_du_script").property("text") == "2026-12-01")
     taper(f, "date_du_script", "2026-12-03")
@@ -426,6 +426,23 @@ def test_outils_et_banc(qtbot):
     voir(f, "ecran_banc", "adopter_session")
     clic(f, "adopter_session")
     qtbot.waitUntil(lambda: ("/api/bancs/2/adopter", {"ou": "session"}) in t.actions)
+    f.close()
+
+
+def test_script_d_un_autre_format(qtbot):
+    """Une session à plusieurs formats : le nouveau script prend celui qu'on choisit (F2 compilation dans une session F1)."""
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: len(valeur(f, "sessions")) == 3 and valeur(f, "reglages")["nom"] == "Session factice")
+    QTest.keyClick(f, Qt.Key.Key_2, Qt.KeyboardModifier.ControlModifier)
+    clic(f, "onglet_scripts")
+    QTest.qWait(200)  # les réponses du rechargement arrivées
+    f.setProperty("reglages", {**valeur(f, "reglages"), "formats": ["F1", "F2"]})
+    clic(f, "format_script_F2")
+    element(f, "titre_script").setProperty("text", "Trois histoires")
+    clic(f, "creer_script")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts", {"titre": "Trois histoires", "date": "", "idee": 0, "format": "F2"}) in t.actions)
     f.close()
 
 
