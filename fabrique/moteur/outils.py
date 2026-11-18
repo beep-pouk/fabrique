@@ -60,6 +60,12 @@ class Fiche(Strict):
     cle: str = ""  # service en ligne : le nom de sa clé (noyau/cles.py), saisie par RT ; sans elle, l'outil ne sert pas
 
     @model_validator(mode="after")
+    def simulable_sur(self):
+        if self.simulable and not (self.local and not self.prix_unite_eur and not self.besoins.carte_go and not self.cle and not self.installation):
+            raise ValueError("un outil « simulable » est local, gratuit, sans carte, sans clé ni installation (il sert tel quel en simulation)")
+        return self
+
+    @model_validator(mode="after")
     def version_sure(self):
         if self.installation and not re.fullmatch(r"[A-Za-z0-9._-]{1,40}", self.version):
             raise ValueError("la version d'un outil à installer nomme son dossier : lettres, chiffres, point, tiret")

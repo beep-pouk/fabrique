@@ -4,14 +4,18 @@
 - verticale (F3) : un extrait d'une vidéo finie (F3 tirée d'une vidéo longue) ou le montage de la vidéo (F3 seule), 1080 × 1920 sur son propre
   fond flouté (repris des paquets prêts à poster), sous-titres de la source incrustés, décalés au début de l'extrait ;
 - miniature : une image de la vidéo montée (au tiers), au cadre de la recette ;
-- controle : contrôle technique de la vidéo montée (ffprobe) : durée dans les bornes de la recette, cadre, son ; un défaut « forte » bloque.
+- controle : contrôle technique de la vidéo montée (ffprobe) : durée dans les bornes de la recette, cadre, son, sous-titres incrustés quand le
+  format les demande ; un défaut « forte » est bloquant pour la vérification (Vérification le montre, la recette du jalon l'exige absent).
 Les vidéos sources sont les vidéos finales de la session (execution.finale), par langue."""
 import json
+import re
 from pathlib import Path
 
 from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
 CADRES = {"16:9": (1920, 1080), "9:16": (1080, 1920)}
+FORMAT = ("codec_name", "profile", "width", "height", "pix_fmt", "sample_aspect_ratio", "r_frame_rate", "time_base", "sample_rate", "channels", "channel_layout")  # bout à bout sans réencoder : tout égal
+BLOC_SRT = re.compile(r"(\d+:\d+:\d+[,.]\d+)\s*-->\s*(\d+:\d+:\d+[,.]\d+)[^\n]*\n(.+?)(?:\n\s*\n|\Z)", re.S)
 
 
 def estimer(fiche: Fiche, demande: Demande) -> Estimation:
@@ -46,24 +50,28 @@ def lancer(*args, cwd: Path | None = None) -> str:
 def mesure(f: Path) -> dict:
     from fabrique.moteur.faux import programme
 
-    r = json.loads(lancer(programme("ffprobe"), "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,r_frame_rate,sample_rate:format=duration",
-                          "-of", "json", f))
+    r = json.loads(lancer(programme("ffprobe"), "-v", "error", "-show_entries", f"stream={','.join(FORMAT)},codec_type:format=duration", "-of", "json", f))
     v = next((x for x in r["streams"] if x["codec_type"] == "video"), {})
     a = next((x for x in r["streams"] if x["codec_type"] == "audio"), {})
     return {"largeur": v.get("width", 0), "hauteur": v.get("height", 0), "duree_s": float(r["format"].get("duration") or 0), "son": bool(a),
-            "format": (v.get("codec_name"), v.get("width"), v.get("height"), v.get("r_frame_rate"), a.get("codec_name"), a.get("sample_rate"))}
+            "format": tuple((x.get(k) for x in (v, a) for k in FORMAT))}
 
 
 def sous_titres(video: Path) -> list[dict]:
-    """Les sous-titres d'une vidéo finale : <vidéo>.srt ou sous_titres.srt à côté, sinon sa transcription (segments start / end / text)."""
+    """Les sous-titres d'une vidéo finale : <vidéo>.srt ou sous_titres.srt à côté, sinon sa transcription (segments start / end / text) ; pour une
+    vidéo de F1, ceux de son atelier (final\\, où l'analyse écrit la transcription : le morceau n'en garde que la vidéo)."""
     from fabrique.publication import publication
 
-    for f in (video.with_suffix(".srt"), video.with_name("sous_titres.srt")):
-        if f.is_file():
-            blocs = [b.splitlines() for b in f.read_text(encoding="utf-8-sig").strip().split("\n\n") if "-->" in b]
-            sec = lambda t: sum(float(x) * m for x, m in zip(t.replace(",", ".").split(":"), (3600, 60, 1)))  # noqa: E731
-            return [{"start": sec(b[1].split("-->")[0].strip()), "end": sec(b[1].split("-->")[1].strip()), "text": " ".join(b[2:])} for b in blocs if len(b) > 2]
-    return publication.segments(video)
+    racine = next((p for p in video.parents if p.parent.name == "videos"), None)  # videos\<id>
+    ateliers = sorted(racine.glob(f"*/atelier/*/final/{video.name}")) if racine else []
+    sec = lambda t: sum(float(x) * m for x, m in zip(t.replace(",", ".").split(":"), (3600, 60, 1)))  # noqa: E731
+    for v in (video, *ateliers):
+        for f in (v.with_suffix(".srt"), v.with_name("sous_titres.srt")):
+            if f.is_file():  # un bloc illisible est sauté
+                return [{"start": sec(a), "end": sec(b), "text": " ".join(t.split())} for a, b, t in BLOC_SRT.findall(f.read_text(encoding="utf-8-sig").replace("\r", ""))]
+        if segs := publication.segments(v):
+            return segs
+    return []
 
 
 def assemblage(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
@@ -81,8 +89,10 @@ def assemblage(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     else:
         l, h = CADRES.get(d.reglages.get("cadre", "16:9"), CADRES["16:9"])
         entrees = [x for v, _ in parties for x in ("-i", v)]
-        filtres = ";".join(f"[{i}:v]scale={l}:{h}:force_original_aspect_ratio=decrease,pad={l}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25[v{i}];"
-                           f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]" for i in range(len(parties)))
+        son = lambda i, m: (f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]" if m["son"]  # noqa: E731
+                            else f"anullsrc=r=48000:cl=stereo,atrim=duration={m['duree_s']:.3f}[a{i}]")  # une partie muette : du silence de sa durée
+        filtres = ";".join(f"[{i}:v]scale={l}:{h}:force_original_aspect_ratio=decrease,pad={l}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25[v{i}];{son(i, m)}"
+                           for i, m in enumerate(mesures))
         lancer(programme("ffmpeg"), "-nostdin", "-y", "-v", "error", *entrees, "-filter_complex",
                filtres + ";" + "".join(f"[v{i}][a{i}]" for i in range(len(parties))) + f"concat=n={len(parties)}:v=1:a=1[v][a]",
                "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
@@ -155,6 +165,12 @@ def controle(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
         defauts.append({"debut": None, "fin": None, "texte": f"cadre {m['largeur']} × {m['hauteur']} : le format attend {d.reglages.get('cadre', '16:9')}", "gravite": "forte"})
     if not m["son"]:
         defauts.append({"debut": None, "fin": None, "texte": "pas de son", "gravite": "forte"})
+    try:
+        incrustes = json.loads((video.parent / "resultat.json").read_text(encoding="utf-8"))["infos"].get("incrustes")
+    except (OSError, ValueError, KeyError):
+        incrustes = None
+    if d.reglages.get("sous_titres") == "incrustes" and incrustes == 0:
+        defauts.append({"debut": None, "fin": None, "texte": "sous-titres incrustés attendus par le format : la source n'en a aucun", "gravite": "forte"})
     (dossier / "rapport.json").write_text(json.dumps({"video": str(video), **{k: v for k, v in m.items() if k != "format"}, "defauts": defauts}, ensure_ascii=False, indent=1),
                                           encoding="utf-8")
     return Resultat(fichiers=["rapport.json"], duree_s=m["duree_s"], infos={"defauts": defauts})

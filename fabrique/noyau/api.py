@@ -234,9 +234,14 @@ def script_(request, id: str, code: str):
     except Refus as e:
         recette, estimation = {}, {"secondes": 0, "cout_eur": 0, "carte_go": 0, "refus": str(e)}
     plans = f1.planche(contenu) if recette.get("script") == "scenario-bramble" else []
+    ids = [contenu.get("intro"), *contenu.get("videos", []), contenu.get("source")] if recette.get("script") in ("compilation", "extrait") else []
+    with routeur.session(s):
+        titres = dict(m.Video.objects.filter(id__in=[i for i in ids if i]).values_list("id", "titre"))
+    citees = [{"id": i, "titre": titres.get(i, "vidéo inconnue")} for i in ids if i]
     return {"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""),
             "versions": [{"numero": v.numero, "auteur": v.auteur, "date": v.date.isoformat(timespec="minutes"), "validee": v.validee} for v in versions],
-            "contenu": contenu, "regles": versions[0].regles if versions else {}, "plans": plans, "estimation": estimation, "traductions": traductions}
+            "contenu": contenu, "regles": versions[0].regles if versions else {}, "plans": plans, "estimation": estimation, "traductions": traductions,
+            "citees": citees}
 
 
 @api.post("/sessions/{id}/scripts/{code}/controler", response=schemas.Regles)
@@ -413,6 +418,10 @@ def fabriquer(request, id: str, code: str):
 
     s = session_(id)
     reglages.garde_fou(s)
+    from fabrique.session import calendrier
+
+    forme = calendrier.format_du_script(s, code)
+    cite_des_videos = recettes.lire(forme)["script"] in ("compilation", "extrait")
     try:  # corps facultatif {"langues": [...]} : sans corps, la langue du script seule
         corps = request.body if request.content_type == "application/json" and request.body else b"{}"
         demande = schemas.Langues.model_validate_json(corps)
@@ -430,13 +439,12 @@ def fabriquer(request, id: str, code: str):
         date = (sc.date_prevue or v.date.date()).isoformat()
         traductions = {}
         for langue in choisies:
+            if cite_des_videos:  # une compilation, un extrait : les vidéos citées existent dans la langue (contrôlé à la préparation), rien à traduire
+                continue
             t = m.Script.objects.filter(code=f"{code}.{langue}").first()
             if t is None or not (tv := t.versions.order_by("-numero").first()):
                 raise Refus(f"pas de traduction en « {langue} » pour {code} : la demander à Claude d'abord")
             traductions[langue] = tv.contenu
-    from fabrique.session import calendrier
-
-    forme = calendrier.format_du_script(s, code)
     if erreurs := regles.controler(s, v.contenu, code)["erreurs"]:
         raise Refus(f"le script {code} a {len(erreurs)} erreur(s) des règles de l'univers (version {v.numero}) : à corriger avant de fabriquer")
     nom = f"{date}-{sc.code}"
@@ -480,18 +488,19 @@ def controle(s: Session, v) -> dict:
     from fabrique.moteur import execution
 
     c = {"mesure": False, "controles": [], "note": None, "defauts": [], "video": ""}
-    for mo in v.morceaux.filter(etat="fini", langue="", brique__in=("controle", "montage")).order_by("ordre"):
+    base = v.script.get("language") or (v.recette.get("reglages") or {}).get("langues", [""])[0]  # langue du script : ses morceaux, ou les communs
+    for mo in v.morceaux.filter(etat="fini", langue__in=("", base), brique__in=("controle", "montage", "assemblage", "verticale")).order_by("ordre"):
         r = execution.resultat(s, mo)
         if r is None:
             continue
-        if mo.brique == "montage" and r.fichiers and r.fichiers[0].endswith(".mp4"):
+        if mo.brique != "controle" and r.fichiers and r.fichiers[0].endswith(".mp4"):
             c["video"] = str(execution.dossier(s, mo) / r.fichiers[0])
         elif mo.brique == "controle" and r.infos.get("defauts") is not None:
             c["controles"].append(mo.etape)
             c["defauts"] += [{"source": mo.etape, **d} for d in r.infos["defauts"]]
             c["note"] = r.infos.get("note", c["note"])
     c["defauts"].sort(key=lambda d: (d["debut"] is None, d["debut"] or 0))
-    c["mesure"] = bool(c["controles"]) and not v.morceaux.filter(langue="", brique="controle").exclude(etat="fini").exists()  # l'analyse dure des heures
+    c["mesure"] = bool(c["controles"]) and not v.morceaux.filter(langue__in=("", base), brique="controle").exclude(etat="fini").exists()  # l'analyse dure des heures
     return c
 
 

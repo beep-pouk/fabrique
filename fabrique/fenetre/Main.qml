@@ -120,7 +120,7 @@ Window {
         rPlafond.texte = nPlafond.texte = String(reglages.plafond_eur || 0).replace(".", ",")
         if (nouvelle.id) { nNom.texte = reglages.nom; nLangues.texte = reglages.langues.map(l => l.code).join(", ") }
     }
-    function choisir(id) { if (id !== session) { reglages = reglagesVides; reglagesDe = ""; universDe = "" }; session = id; aFabriquer = ""; aPartager = {type: "", pk: -1}; recharger() }
+    function choisir(id) { if (id !== session) { reglages = reglagesVides; reglagesDe = ""; universDe = ""; formatScript = "" }; session = id; aFabriquer = ""; aPartager = {type: "", pk: -1}; recharger() }
     function deux(n) { return String(n).padStart(2, "0") }
     function iso(d) { return d.getFullYear() + "-" + deux(d.getMonth() + 1) + "-" + deux(d.getDate()) }
     function jourDe(s) { var p = s.split("-"); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])) }
@@ -702,7 +702,7 @@ Window {
                         Champ { id: dateScript; width: 200; nom: "date_script"; libelle: "Date (AAAA-MM-JJ, facultative)" }
                         Bouton { objectName: "creer_script"; texte: "Créer le script"; actif: titreScript.texte.trim() !== ""
                                  onClic: { pont.agir("creer_script", {id: session, corps: {titre: titreScript.texte, date: dateScript.texte.trim(), idee: 0, format: formatScript}})
-                                           titreScript.texte = ""; dateScript.texte = "" } }
+                                           titreScript.texte = ""; dateScript.texte = ""; formatScript = "" } }
                     }
                     Flow {
                         visible: onglet === "scripts" && reglages.formats.length > 1
@@ -1555,7 +1555,11 @@ Window {
                     Panneau {
                         visible: brouillon === null
                         titre: script.contenu.scenes || !script.versions.length ? "Scènes" : "Contenu"
-                        Mono {  // une compilation, un extrait : leur forme n'a pas de scènes ; Claude les écrit, RT les relit
+                        T {  // une compilation, un extrait : leur forme n'a pas de scènes ; Claude les écrit, RT les relit (titres des vidéos citées)
+                            objectName: "videos_citees"; visible: (script.citees || []).length > 0; width: parent.width
+                            text: "Vidéos citées, dans l'ordre : " + (script.citees || []).map(x => x.titre).join(" · ")
+                        }
+                        Mono {
                             objectName: "contenu_brut"; visible: !script.contenu.scenes && script.versions.length > 0; width: parent.width; wrapMode: Text.Wrap
                             text: JSON.stringify(script.contenu, null, 2); font.pixelSize: 12
                         }

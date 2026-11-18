@@ -274,7 +274,7 @@ def format_du_script(s: Session, code: str) -> str:
     from fabrique.session import reglages
 
     with routeur.session(s):
-        sc = m.Script.objects.filter(code=code).first() if code else None
+        sc = m.Script.objects.filter(code=code.split(".")[0]).first() if code else None  # « e05.fr » : la traduction de « e05 »
     return (sc and sc.details.get("format")) or reglages.lire(s)["format"] or "F1"
 
 

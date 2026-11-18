@@ -36,8 +36,9 @@ def test_compilation_bout_a_bout(essais, trois):
     assert m["duree_s"] == pytest.approx(sum(sources), abs=0.3) and (m["largeur"], m["hauteur"]) == (64, 36)
     r = json.loads((finale.parent / "resultat.json").read_text(encoding="utf-8"))
     assert [c["titre"] for c in r["infos"]["chapitres"]] == ["Introduction", "Vidéo 1", "Vidéo 2"] and r["infos"]["chapitres"][2]["debut"] == pytest.approx(sum(sources[:2]), abs=0.2)
-    srt = (finale.parent / "video.srt").read_text(encoding="utf-8")
-    assert "Un renard dort." in srt and srt.count("-->") >= 3
+    segs = montages.sous_titres(finale)
+    debut2 = r["infos"]["chapitres"][1]["debut"]
+    assert len(segs) >= 6 and min(x["start"] for x in segs if x["start"] >= debut2 - 0.01) == pytest.approx(debut2, abs=0.05)  # décalés : la partie 2 commence à sa place
     assert rapport(essais, v)["defauts"] == [] and (finale.parent.parent.parent / "miniature" / "video" / "miniature.jpg").is_file()
 
 
@@ -47,7 +48,7 @@ def test_extrait_vertical_sous_titres_incrustes(essais, trois):
     m = montages.mesure(finale)
     r = json.loads((finale.parent / "resultat.json").read_text(encoding="utf-8"))
     assert (m["largeur"], m["hauteur"]) == (1080, 1920) and m["duree_s"] == pytest.approx(2, abs=0.2) and r["infos"]["incrustes"] >= 1
-    assert rapport(essais, v)["defauts"] == []
+    assert rapport(essais, v)["defauts"] == [] and clair(finale, 0.3) > 1000  # du texte blanc dans l'image (la source est d'une couleur sombre unie)
 
 
 def test_courte_verticale_creee_seule(essais):
@@ -56,7 +57,32 @@ def test_courte_verticale_creee_seule(essais):
     assert (m["largeur"], m["hauteur"]) == (1080, 1920) and m["duree_s"] == pytest.approx(4, abs=0.3) and rapport(essais, v)["defauts"] == []
 
 
-def test_refus_sans_video_finale_et_controle_bloquant(essais, trois):
+def clair(video, t: float) -> int:
+    """Le nombre de pixels presque blancs de l'image à t secondes."""
+    from PIL import Image
+
+    from fabrique.moteur.faux import lancer, programme
+
+    png = video.with_name("image.png")
+    lancer(programme("ffmpeg"), "-v", "error", "-y", "-ss", f"{t}", "-i", video, "-frames:v", "1", png)
+    with Image.open(png) as im:
+        return sum(im.convert("L").histogram()[201:])
+
+
+def test_refus_de_ce_qu_une_compilation_ou_un_extrait_ne_peut_pas_citer(essais, trois):
+    with pytest.raises(Refus, match="citée deux fois"):
+        execution.preparer(essais, recettes.lire("F2"), {"titre": "x", "intro": trois[0], "videos": [trois[1], trois[0]]})
+    with pytest.raises(Refus, match="dure"):
+        execution.preparer(essais, recettes.lire("F3"), {"titre": "x", "source": trois[0], "debut_s": 0, "fin_s": 60})
+    extrait = fabriquer(essais, recettes.lire("F3"), {"titre": "Un extrait", "source": trois[0], "debut_s": 0, "fin_s": 2})
+    with pytest.raises(Refus, match="une compilation ne prend que des vidéos longues"):
+        execution.preparer(essais, recettes.lire("F2"), {"titre": "x", "intro": trois[0], "videos": [trois[1], extrait]})
+    pas_finie = execution.preparer(essais, recette(reglages={**recettes.lire("essai")["reglages"], "langues": ["en"]}), SCRIPT)
+    with pytest.raises(Refus, match="pas finie"):
+        execution.finale(essais, pas_finie.id)
+
+
+def test_refus_sans_video_finale_et_defaut_fort(essais, trois):
     voix = recette(id="voix", etapes=[{"id": "voix", "brique": "voix", "par": "plan", "langue": True}], reglages={"langues": ["en"]})
     sans_montage = fabriquer(essais, voix, SCRIPT)
     with pytest.raises(Refus, match="pas de vidéo finale"):

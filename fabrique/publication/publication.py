@@ -188,6 +188,8 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
             jour = sc.date_prevue if sc and sc.date_prevue else datetime.strptime(v.nom[:10], "%Y-%m-%d").date()
         except ValueError:
             jour = None
+        if v.recette.get("script") in ("compilation", "extrait") or (v.recette.get("reglages") or {}).get("cadre") == "9:16":
+            raise Refus(f"« {v.titre} » ({v.recette.get('id')}) : la publication d'une compilation ou d'une courte verticale n'est pas encore là (à venir)")
         regles = reglages.lire(s)
         faites = []
         with transaction.atomic(using=routeur.ouvrir(s)):

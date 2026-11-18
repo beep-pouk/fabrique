@@ -795,7 +795,7 @@ def outils_j6(dire) -> list[tuple[bool, str]]:
         points.append((code_avant == code_apres and set(bougees) <= attendues and nouvelles == [repr(("outil.voix", candidat))] and fichiers_avant == fichiers_apres,
                        f"adoption par RT ({message}) : code du programme identique ; tables changées : {', '.join(bougees)} (le défaut de la brique, l'état de l'outil, le banc "
                        f"adopté, le journal) ; réglage ajouté : {', '.join(nouvelles)} ; toutes les tables des sessions identiques ; les {len(fichiers_avant)} fichiers des "
-                       f"sessions {'identiques' if fichiers_avant == fichiers_apres else 'CHANGÉS'} du lancement du banc à l'adoption (le banc n'écrit que dans bancs\)"))
+                       f"sessions {'identiques' if fichiers_avant == fichiers_apres else 'CHANGÉS'} du lancement du banc à l'adoption (le banc n'écrit que dans bancs\\)"))
         dire("la vidéo suivante prend le nouvel outil…")
         video_finie()
         v2 = next(x for x in f.appeler("videos", id=essais) if x["id"] != video)
@@ -989,18 +989,26 @@ def en_vrai_j7() -> list[tuple[bool, str]]:
     sans rien y écrire ; rouges tant qu'ils ne sont pas faits (QUESTIONS.md)."""
     racine = SORTIE / "egalite" / "FABRIQUE" / "sessions" / "essais"
     faits = {}
-    for r in racine.glob("videos/*/*/*/video/resultat.json"):
-        try:
-            demande = json.loads((r.parent / "demande.json").read_text(encoding="utf-8"))
-            if demande["brique"] not in ("assemblage", "verticale"):
-                continue
-            recette = "F2" if demande["brique"] == "assemblage" else "F3" if "source" in json.loads(Path(demande["script"]).read_text(encoding="utf-8")) else "F3s"
-            rapport = json.loads((r.parent.parent.parent / "revue" / "video" / "rapport.json").read_text(encoding="utf-8"))
-            if not [x for x in rapport["defauts"] if x["gravite"] == "forte"]:
-                faits.setdefault(recette, r.parent.parent.parent.parent.name)
-        except (OSError, ValueError, KeyError):
-            pass
-    return [(recette in faits, f"{recette} en vrai (session Essais, outils réels) : " + (f"fait (vidéo {faits[recette]}), contrôle sans défaut bloquant" if recette in faits
+
+    def reels(c, ids: list[str]) -> bool:
+        """Toutes ces vidéos faites par de vrais outils (aucun faux)."""
+        return bool(ids) and not c.execute(f"SELECT 1 FROM session_morceau WHERE video_id IN ({','.join('?' * len(ids))}) AND outil LIKE 'faux%'", ids).fetchone()
+
+    try:
+        with closing(sqlite3.connect(f"file:{racine / 'session.sqlite3'}?mode=ro", uri=True)) as c:
+            for vid, script in c.execute("SELECT id, script FROM session_video"):
+                sc = json.loads(script)
+                recette = "F2" if "intro" in sc else "F3" if "source" in sc else "F3s" if (racine / "videos" / vid / "en" / "verticale").is_dir() else ""
+                cites = [sc.get("intro"), *sc.get("videos", []), sc.get("source")]
+                try:
+                    rapport = json.loads(next((racine / "videos" / vid).glob("*/revue/video/rapport.json")).read_text(encoding="utf-8"))
+                except (StopIteration, OSError, ValueError):
+                    continue
+                if recette and reels(c, [vid, *[x for x in cites if x]]) and not [x for x in rapport["defauts"] if x["gravite"] == "forte"]:
+                    faits.setdefault(recette, vid)
+    except sqlite3.Error:
+        pass
+    return [(recette in faits, f"{recette} en vrai (session Essais, outils réels, sources comprises : aucun faux outil) : " + (f"fait (vidéo {faits[recette]}), contrôle sans défaut bloquant" if recette in faits
                                                                                          else "PAS ENCORE — " + attente))
             for recette, attente in (("F2", "il faut l'essai long de J3 (cette nuit) et une introduction inédite faite par F1 de nuit (QUESTIONS)"),
                                      ("F3", "il faut l'essai long de J3 (cette nuit), puis quelques minutes sans carte"),

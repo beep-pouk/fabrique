@@ -39,8 +39,14 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
     R = recettes.recette(recette)
     S = recettes.script(script, R.script)
     for vid in ([S.intro, *S.videos] if R.script == "compilation" else [S.source] if R.script == "extrait" else []):
+        with routeur.session(s):
+            cite = Video.objects.filter(id=vid).first()
+        if R.script == "compilation" and cite and (cite.recette.get("script") in ("compilation", "extrait") or (cite.recette.get("reglages") or {}).get("cadre") == "9:16"):
+            raise Refus(f"« {cite.titre} » est une compilation ou une courte verticale : une compilation ne prend que des vidéos longues")
         for langue in R.reglages.langues:
-            finale(s, vid, langue)  # chaque vidéo citée a sa vidéo finale dans chaque langue du format, sinon refus tout de suite
+            source = finale(s, vid, langue)  # chaque vidéo citée a sa vidéo finale dans chaque langue du format, sinon refus tout de suite
+            if R.script == "extrait" and S.fin_s > (duree := sonde(source)):
+                raise Refus(f"l'extrait va jusqu'à {S.fin_s:g} s, la vidéo source dure {duree:.1f} s")
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
@@ -121,11 +127,22 @@ def finale(s: Session, video_id: str, langue: str = "") -> Path:
         if v is None:
             raise Refus(f"vidéo inconnue dans « {s.nom} » : {video_id}")
         base = v.script.get("language") or (v.recette.get("reglages") or {}).get("langues", [""])[0]
+        langue = langue or base
+        if v.morceaux.exclude(etat="fini").exists():
+            raise Refus(f"« {v.titre} » n'est pas finie (morceaux à faire ou en erreur) : la finir d'abord")
         for m in v.morceaux.filter(brique__in=("montage", "assemblage", "verticale"), etat="fini").order_by("-ordre"):
-            if m.langue == langue or (not m.langue and langue in ("", base)):
-                if (r := resultat(s, m)) and r.fichiers[0].lower().endswith(".mp4"):
-                    return dossier(s, m) / r.fichiers[0]
-    raise Refus(f"« {v.titre} » n'a pas de vidéo finale{f' en {langue}' if langue else ''} : la fabriquer d'abord")
+            if m.langue == langue or (not m.langue and langue == base):
+                d = dossier(s, m)
+                if (r := resultat(s, m)) and (mp4 := [d / f for f in r.fichiers if f.lower().endswith(".mp4")]):
+                    return max(mp4, key=lambda f: f.stat().st_mtime)  # la plus récente, comme la publication (un titre changé laisse l'ancienne)
+    raise Refus(f"« {v.titre} » n'a pas de vidéo finale en {langue} : la fabriquer d'abord")
+
+
+def sonde(video: Path) -> float:
+    """La durée d'une vidéo (ffprobe)."""
+    from fabrique.publication import paquets
+
+    return paquets.mesure(video)["duree_s"]
 
 
 def depense_du_mois(**filtre) -> float:

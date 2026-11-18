@@ -108,6 +108,12 @@ class Compilation(Strict):
     intro: str = Field(min_length=1)
     videos: list[str] = Field(min_length=2)
 
+    @model_validator(mode="after")
+    def sans_doublon(self):
+        if len({self.intro, *self.videos}) != 1 + len(self.videos):
+            raise ValueError("une vidéo est citée deux fois (ou l'introduction est aussi parmi les vidéos)")
+        return self
+
 
 class Extrait(Strict):
     """F3 tirée d'une vidéo longue : un passage d'une vidéo finie de la session, 3 min au plus."""
