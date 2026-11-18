@@ -5,7 +5,8 @@
   fond flouté (repris des paquets prêts à poster), sous-titres de la source incrustés, décalés au début de l'extrait ;
 - miniature : une image de la vidéo montée (au tiers), au cadre de la recette ;
 - controle : contrôle technique de la vidéo montée (ffprobe) : durée dans les bornes de la recette, cadre, son, sous-titres incrustés quand le
-  format les demande ; un défaut « forte » est bloquant pour la vérification (Vérification le montre, la recette du jalon l'exige absent).
+  format les demande ; et, pour les formats par plan (F4) : voix intelligible (le score de Whisper rendu par l'outil de voix, sous le seuil de
+  F1 → défaut minuté), plan quasi fixe au-delà de plan_fixe_max_s (la mesure de la revue de F1, f1/mouvement.py) ; un défaut « forte » est bloquant pour la vérification (Vérification le montre, la recette du jalon l'exige absent).
 Les vidéos sources sont les vidéos finales de la session (execution.finale), par langue."""
 import json
 import re
@@ -171,9 +172,38 @@ def controle(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
         incrustes = None
     if d.reglages.get("sous_titres") == "incrustes" and incrustes == 0:
         defauts.append({"debut": None, "fin": None, "texte": "sous-titres incrustés attendus par le format : la source n'en a aucun", "gravite": "forte"})
+    defauts += voix_peu_intelligibles(d)
+    if max_s := d.reglages.get("plan_fixe_max_s"):
+        from fabrique.moteur.f1 import mouvement
+        from fabrique.moteur.faux import programme
+
+        defauts += [{**x, "gravite": "moyenne"} for x in mouvement.defauts(programme("ffmpeg"), video, m["duree_s"], max_s)]
     (dossier / "rapport.json").write_text(json.dumps({"video": str(video), **{k: v for k, v in m.items() if k != "format"}, "defauts": defauts}, ensure_ascii=False, indent=1),
                                           encoding="utf-8")
     return Resultat(fichiers=["rapport.json"], duree_s=m["duree_s"], infos={"defauts": defauts})
+
+
+def voix_peu_intelligibles(d: Demande) -> list[dict]:
+    """Les plans dont la voix, réécoutée par Whisper, reste sous le seuil de F1 après ses essais ; minutés au moment du plan dans la vidéo montée
+    (« plans » du montage par plan)."""
+    quand, defauts = {}, []
+    for e, fs in d.entrees.items():
+        if d.sources.get(e) == "montage" and fs and (r := Path(fs[0]).parent / "resultat.json").is_file():
+            quand = {p["unite"]: p for p in json.loads(r.read_text(encoding="utf-8"))["infos"].get("plans", [])}
+    for e, fs in d.entrees.items():
+        if d.sources.get(e) != "voix":
+            continue
+        for morceau in dict.fromkeys(Path(f).parent for f in fs):
+            try:
+                r = json.loads((morceau / "resultat.json").read_text(encoding="utf-8"))
+                c, unite = r["infos"].get("controle"), json.loads((morceau / "demande.json").read_text(encoding="utf-8"))["unite"]
+            except (OSError, ValueError, KeyError):
+                continue
+            if c and c.get("score") is not None and c["score"] < c.get("seuil", 0.93):
+                p = quand.get(unite, {})
+                defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "voix", "gravite": "moyenne",
+                                "texte": f"voix peu intelligible ({unite} : {c['score']:.2f} sous {c.get('seuil', 0.93):.2f}, Whisper a entendu « {c.get('entendu', '')[:80]} »)"})
+    return defauts
 
 
 def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:

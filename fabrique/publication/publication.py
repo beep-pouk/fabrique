@@ -188,8 +188,6 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
             jour = sc.date_prevue if sc and sc.date_prevue else datetime.strptime(v.nom[:10], "%Y-%m-%d").date()
         except ValueError:
             jour = None
-        if v.recette.get("script") in ("compilation", "extrait") or (v.recette.get("reglages") or {}).get("cadre") == "9:16":
-            raise Refus(f"« {v.titre} » ({v.recette.get('id')}) : la publication d'une compilation ou d'une courte verticale n'est pas encore là (à venir)")
         regles = reglages.lire(s)
         faites = []
         with transaction.atomic(using=routeur.ouvrir(s)):
@@ -198,10 +196,12 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                     continue
                 pub = m.Publication(video=v, langue=langue, dossier="commun" if langue == base else langue)
                 d = final(s, pub)
+                if v.recette.get("script") != "scenario-bramble":
+                    preparer_final(s, v, langue, d)
                 if (mp4 := max(d.glob("*.mp4"), key=lambda p: p.stat().st_mtime, default=None)) is None:
                     raise Refus(f"« {v.titre} » ({langue}) : aucune vidéo finale dans {d}")
                 t = youtube_txt(d / "youtube.txt") or {"titre": v.titre, "description": "", "tags": v.script.get("tags", [])}
-                pub.fichier, pub.miniature = mp4.name, "miniature.jpg" if (d / "miniature.jpg").is_file() else ""
+                pub.fichier, pub.miniature = mp4.name, next((f.name for f in (d / "miniature.jpg", d / "miniature.png") if f.is_file()), "")
                 pub.titre, pub.description, pub.tags = t["titre"], t["description"], t["tags"]
                 if v.essai and "essai" not in pub.titre.lower():
                     pub.titre = f"ESSAI — {pub.titre}"[:100]
@@ -212,6 +212,37 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                 faites.append(langue)
     noter(acteur, "approuver", session=s.id, video=video_id, langues=faites)
     return f"« {v.titre} » approuvée : brouillon(s) {', '.join(faites)} à relire avant « Publier »" if faites else f"« {v.titre} » : brouillons déjà prêts"
+
+
+def horodatage(t: float) -> str:
+    t = int(t)
+    return f"{t // 3600}:{t // 60 % 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60:02d}:{t % 60:02d}"
+
+
+def preparer_final(s: Session, v: m.Video, langue: str, d: Path):
+    """Une vidéo d'un format hors F1 (F2, F3, F4) : à l'approbation, son dossier « final » est rempli comme celui de F1 (la publication le lit
+    tel quel) : vidéo finale de la langue, sa miniature et ses sous-titres (liens durs, sinon copies), youtube.txt tiré du script dans la
+    langue (titre, description, chapitres d'une compilation, tags). Un fichier déjà là n'est pas refait."""
+    from fabrique.moteur import execution
+    from fabrique.moteur.f1.adaptateur import lier
+
+    video = execution.finale(s, v.id, langue)
+    for source, cible in [(video, d / video.name), (video.with_suffix(".srt"), d / "sous_titres.srt")]:
+        if source.is_file() and not cible.exists():
+            lier(source, cible)
+    mini = v.morceaux.filter(brique="miniature", etat="fini", langue__in=(langue, "")).order_by("-ordre").first()
+    if mini and (r := execution.resultat(s, mini)) and (img := next((f for f in r.fichiers if f.lower().endswith((".jpg", ".png"))), None)):
+        if not (cible := d / f"miniature{Path(img).suffix.lower()}").exists():
+            lier(execution.dossier(s, mini) / img, cible)
+    if not (d / "youtube.txt").is_file():
+        script = v.script
+        if (t := execution.traduction(s, v, langue)).is_file():
+            script = json.loads(t.read_text(encoding="utf-8"))
+        r = json.loads((video.parent / execution.RESULTAT).read_text(encoding="utf-8"))
+        chapitres = "\n".join(f"{horodatage(c['debut'])} {c['titre']}" for c in r["infos"].get("chapitres", []))
+        description = "\n\n".join(x for x in (script.get("description", "").strip(), chapitres) if x)
+        (d / "youtube.txt").write_text(f"TITRE : {script.get('titre') or v.titre}\nDESCRIPTION : {description}\nTAGS : {', '.join(script.get('tags', []))}\n",
+                                       encoding="utf-8")
 
 
 def premiere(pub: m.Publication) -> bool:

@@ -1,0 +1,73 @@
+{
+ "schema": 1,
+ "id": "F4",
+ "nom": "Voix off + images",
+ "version": 1,
+ "reglages": {
+  "duree_s": [
+   180,
+   900
+  ],
+  "cadre": "16:9",
+  "langues": [
+   "en"
+  ],
+  "sous_titres": "fichier",
+  "enfants": true,
+  "declaration_ia": true,
+  "plan_fixe_max_s": 12
+ },
+ "script": "voix-off",
+ "etapes": [
+  {
+   "id": "voix",
+   "brique": "voix",
+   "par": "plan",
+   "langue": true
+  },
+  {
+   "id": "images",
+   "brique": "images",
+   "par": "plan"
+  },
+  {
+   "id": "animation",
+   "brique": "animation",
+   "par": "plan"
+  },
+  {
+   "id": "musique",
+   "brique": "musique",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "montage",
+   "brique": "montage",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "miniature",
+   "brique": "miniature",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "revue",
+   "brique": "controle",
+   "par": "video",
+   "langue": true
+  }
+ ],
+ "controles": "technique",
+ "outils": {
+  "voix": "plan_voix",
+  "images": "plan_images",
+  "animation": "plan_camera",
+  "musique": "plan_musique",
+  "montage": "plan_montage",
+  "miniature": "miniature_image",
+  "revue": "controle_technique"
+ }
+}

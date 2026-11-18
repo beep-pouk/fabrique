@@ -165,11 +165,16 @@ def garde_fou(s: Session):
                     "garde-fou contre le « contenu en série sur gabarit » que YouTube écarte")
 
 
-def script_pilote(d: dict) -> dict:
+def script_pilote(d: dict, forme: str = "scenes-plans-narrateur") -> dict:
     texte = d["promesse"] or d["public"] or d["nom"]
-    return {"titre": f"Vidéo pilote — {d['nom']}"[:200], "scenes": [
+    s = {"titre": f"Vidéo pilote — {d['nom']}"[:200], "scenes": [
         {"id": "s1", "plans": [{"id": "p1", "texte": texte}, {"id": "p2", "texte": d["style"] or texte}]},
         {"id": "s2", "plans": [{"id": "p1", "texte": d["difference"] or texte}]}]}
+    if forme == "voix-off":  # chaque plan a sa consigne d'image (le style de la session) et un mouvement
+        for sc in s["scenes"]:
+            for p, mouvement in zip(sc["plans"], ("avancee", "droite")):
+                p |= {"image": d["style"] or p["texte"], "mouvement": mouvement}
+    return s
 
 
 def pilote(s: Session, acteur: str) -> str:
@@ -186,11 +191,11 @@ def pilote(s: Session, acteur: str) -> str:
         raise Refus(f"il manque encore : {', '.join(trous)}")
     d = lire(s)
     recette = recettes.lire(d["format"])
-    if recette["script"] != "scenes-plans-narrateur":
+    if recette["script"] not in recettes.PAR_PLAN:
         raise Refus(f"le format {d['format']} se fabrique d'un script complet de la session : sa vidéo pilote = « Fabriquer » un de ses scripts")
     recette["reglages"]["langues"] = [l["code"] for l in d["langues"]]
     recette["outils"] = {e["id"]: outils.BRIQUES[e["brique"]]["simulation"] for e in recette["etapes"]}
-    contenu = script_pilote(d)
+    contenu = script_pilote(d, recette["script"])
     with routeur.session(s):
         if Tache.objects.filter(session_id=s.id, video_id__in=list(m.Video.objects.filter(nom__endswith=f"-{PILOTE}").values_list("id", flat=True)),
                                 etat__in=("attente", "en_cours", "pause")).exists():

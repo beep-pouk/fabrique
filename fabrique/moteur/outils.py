@@ -77,7 +77,8 @@ class Demande(Strict):
     etape: str
     unite: str  # « s1/p2 » (plan), « s1 » (scène), « » (vidéo)
     langue: str = ""  # « » : commun à toutes les langues
-    texte: str = ""
+    texte: str = ""  # dans la langue du morceau (sa traduction, s'il en a une)
+    consigne: dict = {}  # ce que la forme du script dit d'autre du morceau (voix-off : image, mouvement)
     entrees: dict[str, list[str]] = {}  # étape précédente → ses fichiers qui concernent ce morceau (chemins complets, le principal d'abord)
     sources: dict[str, str] = {}  # étape précédente → sa brique
     reglages: dict = {}  # ceux de la recette

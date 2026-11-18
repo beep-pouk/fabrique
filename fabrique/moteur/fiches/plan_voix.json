@@ -1,0 +1,26 @@
+{
+ "id": "plan_voix",
+ "nom": "Voix par plan (Chatterbox de Bramble Studio, contrôle Whisper ; autres langues : l'outil de la langue)",
+ "roles": [
+  "voix"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "celle de l'outil de Bramble Studio (à reporter au banc, J6)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 8,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "une phrase par plan ; toute la langue d'un coup (modèle chargé une fois) ; sessions reprises de Bramble Studio (reglages\\config.json)",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "module": "fabrique.moteur.plans",
+ "reglages": {
+  "secondes": 12
+ }
+}

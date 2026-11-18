@@ -47,6 +47,10 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
             source = finale(s, vid, langue)  # chaque vidéo citée a sa vidéo finale dans chaque langue du format, sinon refus tout de suite
             if R.script == "extrait" and S.fin_s > (duree := sonde(source)):
                 raise Refus(f"l'extrait va jusqu'à {S.fin_s:g} s, la vidéo source dure {duree:.1f} s")
+    if R.script in recettes.PAR_PLAN:  # le texte d'un morceau est pris dans la traduction de sa langue : mêmes plans, sinon refus tout de suite
+        for langue, contenu in (traductions or {}).items():
+            if [u for u, *_ in recettes.unites(recettes.script(contenu, R.script), "plan")] != [u for u, *_ in recettes.unites(S, "plan")]:
+                raise Refus(f"la traduction en « {langue} » n'a pas les mêmes scènes et plans que le script")
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
@@ -57,8 +61,7 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
     fichier_script(s, v).parent.mkdir(parents=True, exist_ok=True)
     fichier_script(s, v).write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
     for langue, contenu in (traductions or {}).items():
-        f = fichier_script(s, v)
-        f.with_name(f"{f.stem}.{langue}.json").write_text(json.dumps(contenu, ensure_ascii=False, indent=1), encoding="utf-8")
+        traduction(s, v, langue).write_text(json.dumps(contenu, ensure_ascii=False, indent=1), encoding="utf-8")
     return v
 
 
@@ -72,7 +75,7 @@ def langues(R: recettes.Recette, S, e: recettes.Etape) -> list[str]:
 def decouper(R: recettes.Recette, S, reglages: dict) -> list[Morceau]:
     """Les morceaux (pas encore enregistrés) : étape × unité × langue, l'outil de chacun choisi."""
     morceaux = [Morceau(etape=e.id, brique=e.brique, unite=unite, langue=langue, outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
-                for e in R.etapes for langue in langues(R, S, e) for unite, du_plan, _ in recettes.unites(S, e.par)]
+                for e in R.etapes for langue in langues(R, S, e) for unite, du_plan, *_ in recettes.unites(S, e.par)]
     for i, m in enumerate(morceaux):
         m.ordre = i
     return morceaux
@@ -80,6 +83,11 @@ def decouper(R: recettes.Recette, S, reglages: dict) -> list[Morceau]:
 
 def fichier_script(s: Session, v: Video) -> Path:
     return settings.SESSIONS / s.dossier / "videos" / v.id / f"{v.nom or 'script'}.json"
+
+
+def traduction(s: Session, v: Video, langue: str) -> Path:
+    f = fichier_script(s, v)
+    return f.with_name(f"{f.stem}.{langue}.json")
 
 
 def dossier(s: Session, m: Morceau) -> Path:
@@ -111,9 +119,11 @@ def demande(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: in
         for p in v.morceaux.filter(etape=avant.id, etat="fini").order_by("ordre"):
             if couvre(p.unite, m.unite) and (not p.langue or not m.langue or p.langue == m.langue):
                 entrees.setdefault(avant.id, []).extend(str(dossier(s, p) / f) for f in resultat(s, p).fichiers)
-    texte = next(t for u, _, t in recettes.unites(S, R.etapes[i].par) if u == m.unite)
+    if m.langue and R.script in recettes.PAR_PLAN and (t := traduction(s, v, m.langue)).is_file():  # le texte dans la langue du morceau
+        S = recettes.script(json.loads(t.read_text(encoding="utf-8")), R.script)
+    texte, consigne = next((t, c) for u, _, t, c in recettes.unites(S, R.etapes[i].par) if u == m.unite)
     graine = int(hashlib.sha256(f"{v.id}/{m.etape}/{m.unite}/{m.langue}".encode()).hexdigest()[:8], 16)  # stable : refaire donne la même chose
-    return outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, texte=texte, entrees=entrees,
+    return outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, texte=texte, consigne=consigne, entrees=entrees,
                           sources={e.id: e.brique for e in R.etapes[:i]}, reglages=R.reglages.model_dump(), graine=graine,
                           session=str(settings.SESSIONS / s.dossier), script=str(fichier_script(s, v)),
                           atelier=str(settings.SESSIONS / s.dossier / "videos" / v.id / (m.langue or "commun") / "atelier" / (v.nom or "video")))

@@ -1,7 +1,8 @@
 """Un format est une recette, une donnée (plan § 5.1) : contrôlée par un schéma versionné (« schema ») avant usage ; ses étapes se jouent dans
 l'ordre, chacune « par » plan, scène ou vidéo, refaite pour chaque langue si « langue ». Chaque vidéo garde une copie de la recette qui l'a
 faite (session/models.py, Video.recette). Recettes livrées : recettes\\<id>.json ; une autre se donne par son chemin (essai d'un nouveau
-format). Le script d'une vidéo a sa forme, nommée par la recette (« scenes-plans-narrateur »)."""
+format). Le script d'une vidéo a sa forme, nommée par la recette (« scenes-plans-narrateur », « voix-off » : la même, plus par plan une
+consigne d'image et un mouvement de caméra)."""
 import json
 from pathlib import Path
 from typing import Annotated, Literal
@@ -51,7 +52,7 @@ class Recette(Strict):
     nom: str
     version: int = Field(ge=1)
     reglages: Reglages
-    script: Literal["scenes-plans-narrateur", "scenario-bramble", "compilation", "extrait"]
+    script: Literal["scenes-plans-narrateur", "voix-off", "scenario-bramble", "compilation", "extrait"]
     etapes: list[Etape] = Field(min_length=1)
     controles: str = ""
     outils: dict[str, str] = {}  # défaut du format : étape → outil
@@ -65,7 +66,7 @@ class Recette(Strict):
             raise ValueError(f"brique inconnue : {', '.join(inconnues)}")
         if etrangeres := set(self.outils) - set(ids):
             raise ValueError(f"outils pour des étapes absentes : {', '.join(sorted(etrangeres))}")
-        if self.script != "scenes-plans-narrateur" and any(e.par != "video" for e in self.etapes):
+        if self.script not in PAR_PLAN and any(e.par != "video" for e in self.etapes):
             raise ValueError(f"un script « {self.script} » se fabrique par vidéo entière (par: video) : ses étapes font toute la vidéo d'un coup")
         return self
 
@@ -84,6 +85,23 @@ class Scene(Strict):
 class Script(Strict):
     titre: str
     scenes: list[Scene] = Field(min_length=1)
+    description: str = ""  # textes de publication (titre : « titre »)
+    tags: list[str] = []
+
+
+class PlanVoixOff(Plan):
+    texte: str = Field(min_length=1)  # ce que la voix dit sur ce plan
+    image: str = Field(min_length=1)  # la consigne de l'image du plan
+    mouvement: Literal["fixe", "avancee", "recul", "gauche", "droite"] = "avancee"  # la caméra sur l'image
+
+
+class SceneVoixOff(Scene):
+    plans: list[PlanVoixOff] = Field(min_length=1)
+
+
+class ScriptVoixOff(Script):
+    """F4 (et F3 créée seule) : une voix raconte, plan par plan, sur des images animées."""
+    scenes: list[SceneVoixOff] = Field(min_length=1)
 
 
 class SceneBramble(BaseModel):
@@ -107,6 +125,8 @@ class Compilation(Strict):
     titre: str
     intro: str = Field(min_length=1)
     videos: list[str] = Field(min_length=2)
+    description: str = ""
+    tags: list[str] = []
 
     @model_validator(mode="after")
     def sans_doublon(self):
@@ -121,6 +141,8 @@ class Extrait(Strict):
     source: str = Field(min_length=1)
     debut_s: float = Field(ge=0)
     fin_s: float
+    description: str = ""
+    tags: list[str] = []
 
     @model_validator(mode="after")
     def court(self):
@@ -129,7 +151,8 @@ class Extrait(Strict):
         return self
 
 
-FORMES = {"scenes-plans-narrateur": Script, "scenario-bramble": ScenarioBramble, "compilation": Compilation, "extrait": Extrait}
+FORMES = {"scenes-plans-narrateur": Script, "voix-off": ScriptVoixOff, "scenario-bramble": ScenarioBramble, "compilation": Compilation, "extrait": Extrait}
+PAR_PLAN = ("scenes-plans-narrateur", "voix-off")  # les formes qui se fabriquent plan par plan
 
 
 def recette(donnees: dict) -> Recette:
@@ -143,7 +166,7 @@ def recette(donnees: dict) -> Recette:
 
 def script(donnees: dict, forme: str = "scenes-plans-narrateur") -> Script | ScenarioBramble:
     s = controler(FORMES[forme], donnees, "script")
-    if forme != "scenes-plans-narrateur":
+    if forme not in PAR_PLAN:
         return s
     ids = [(sc.id, p.id) for sc in s.scenes for p in sc.plans]
     if len(set(ids)) != len(ids) or len({sc.id for sc in s.scenes}) != len(s.scenes):
@@ -162,10 +185,11 @@ def lire(source: str | Path) -> dict:
     return donnees
 
 
-def unites(s: Script, par: str) -> list[tuple[str, dict, str]]:
-    """(unité, exception d'outils, texte) de chaque morceau d'une étape « par » plan, scène ou vidéo."""
+def unites(s: Script, par: str) -> list[tuple[str, dict, str, dict]]:
+    """(unité, exception d'outils, texte, consigne) de chaque morceau d'une étape « par » plan, scène ou vidéo ; la consigne d'un plan = ses
+    champs propres à la forme (voix-off : image, mouvement)."""
     if par == "plan":
-        return [(f"{sc.id}/{p.id}", p.outils, p.texte) for sc in s.scenes for p in sc.plans]
+        return [(f"{sc.id}/{p.id}", p.outils, p.texte, p.model_dump(exclude={"id", "texte", "outils"})) for sc in s.scenes for p in sc.plans]
     if par == "scene":
-        return [(sc.id, {}, " ".join(p.texte for p in sc.plans)) for sc in s.scenes]
-    return [("", {}, s.titre)]
+        return [(sc.id, {}, " ".join(p.texte for p in sc.plans), {}) for sc in s.scenes]
+    return [("", {}, s.titre, {})]
