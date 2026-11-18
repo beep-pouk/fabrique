@@ -334,3 +334,21 @@ def test_f4_en_mode_reel_outils_de_la_carte_simules(essais, monkeypatch):
         assert [x[1] for x in appels["image"]] == [1001, 1002, 1003, 1003] and appels["start"] == 2
     finally:
         (reglages / "config.json").unlink()
+
+
+def test_demande_d_ecriture_dit_les_champs_de_la_forme(essais):
+    from fabrique.noyau import depot, routeur
+    from fabrique.session import calendrier, reglages
+    from fabrique.session.models import Reglage
+
+    try:
+        reglages.ecrire(essais, {"formats": ["F4"]}, "RT")
+        code = calendrier.creer_script(essais, "Un documentaire", None, 0, "claude", "F4")
+        depot.demander(essais, code, "ecrire", "", "RT")
+        d = json.loads(next((execution.settings.RACINE / "depot" / "a_ecrire").glob(f"{code}*.json")).read_text(encoding="utf-8"))
+        plan = d["schema"]["$defs"]["PlanVoixOff"]
+        assert d["forme"] == "voix-off" and {"texte", "image"} <= set(plan["required"])
+        assert plan["properties"]["mouvement"]["enum"] == ["fixe", "avancee", "recul", "gauche", "droite"]
+    finally:
+        with routeur.session(essais):
+            Reglage.objects.filter(cle__in=("formats", "format")).delete()
