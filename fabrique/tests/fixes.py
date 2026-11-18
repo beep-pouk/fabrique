@@ -110,6 +110,51 @@ REPONSES = {
 }
 
 
+def outil(id, nom, **plus):
+    return {"id": id, "nom": nom, "local": True, "prix": "gratuit", "licence": "MIT", "credit": "", "besoins": "8 Go de carte, 0 Go de disque", "langues": "toutes",
+            "limites": "", "version": "1.0", "etat": "en_service", "etat_nom": "en service", "installation": "rien à installer", "action": "", "simule": False,
+            "defaut": False, "sessions": [], "dernier_banc": "", **plus}
+
+
+BANCS = [{"id": 1, "brique": "Voix", "session": "Session factice", "video": "Le petit renard", "etat": "a_voter", "etat_nom": "à voter",
+          "outils": "Voix locale A (en place) contre Voix locale B", "juge": "Whisper : le texte entendu comparé au texte voulu", "entrees": 3, "votes": 1, "verdict": "",
+          "raison": "", "cree": "18/11/2026 11:00"},
+         {"id": 2, "brique": "Images", "session": "Essais", "video": "Un essai", "etat": "fini", "etat_nom": "verdict rendu", "outils": "Images A (en place) contre Images B",
+          "juge": "aucun", "entrees": 2, "votes": 2, "verdict": "Images B gagne (2 contre 0, 0 égalité(s))", "raison": "", "cree": "17/11/2026 22:00"}]
+REPONSES.update({
+    ("GET", "/api/outils"): {"installation": {}, "briques": [
+        {"id": "voix", "titre": "Voix", "defaut": "voix_a", "juges": [{"id": "whisper", "titre": "Whisper : le texte entendu comparé au texte voulu"}], "outils": [
+            outil("voix_a", "Voix locale A", defaut=True, dernier_banc="17/11/2026 : Voix locale A gagne (4 contre 1, 1 égalité(s))"),
+            outil("voix_b", "Voix locale B", etat="candidat", etat_nom="candidat", installation="pas installé", action="installer", version="2.0", besoins="6 Go de carte, 4 Go de disque"),
+            outil("voix_en_ligne", "Voix en ligne factice", local=False, prix="0,09 € / 1 000 caractères (prix du 2026-11-18)", licence="service payant",
+                  besoins="0 Go de carte, 0 Go de disque", etat="candidat", etat_nom="candidat", limites="en ligne : clé de RT, plafond du mois")]},
+        {"id": "images", "titre": "Images", "defaut": "images_a", "juges": [], "outils": [
+            outil("images_a", "Images A", defaut=True),
+            outil("images_vieilles", "Images d'avant", etat="retire", etat_nom="retiré", installation="version 1 installée", version="1")]}]},
+    ("GET", "/api/depenses"): {"plafond_mois_eur": 2.0, "depense_mois_eur": 0.42, "lignes": [
+        {"date": "18/11/2026 10:00", "session": "Essais", "outil": "voix_en_ligne", "estime_eur": 0.21, "reel_eur": 0.2},
+        {"date": "17/11/2026 21:00", "session": "Essais", "outil": "voix_en_ligne", "estime_eur": 0.22, "reel_eur": None}]},
+    ("GET", "/api/veille"): [
+        {"id": 1, "date": "01/11/2026", "brique": "voix", "nom": "Voix candidate factice", "source": "https://exemple.org/voix", "licence": "Apache 2.0", "commercial": True,
+         "besoins": "6 Go de carte", "avis": "annonce une voix plus calme ; à passer au banc", "statut": "nouveau", "statut_nom": "nouveau"},
+        {"id": 2, "date": "01/11/2026", "brique": "animation", "nom": "Animation factice", "source": "", "licence": "non commerciale", "commercial": False,
+         "besoins": "30 Go de carte", "avis": "", "statut": "ecarte", "statut_nom": "écarté"}],
+    ("GET", "/api/bancs"): BANCS,
+    ("GET", "/api/bancs/1"): {**BANCS[0], "gagnant": "", "adopte": "", "peut_adopter": False, "lignes": [
+        {"n": 0, "texte": "Un petit renard dort sous une fougère.", "langue": "en", "gauche": [r"D:\Exemple\bancs\1\0\a\voix.wav"],
+         "droite": [r"D:\Exemple\bancs\1\0\b\voix.wav"], "vote": "droite", "notes": None, "qui": None},
+        {"n": 1, "texte": "La lune monte.", "langue": "en", "gauche": [r"D:\Exemple\bancs\1\1\b\voix.wav"], "droite": [r"D:\Exemple\bancs\1\1\a\voix.wav"],
+         "vote": "", "notes": None, "qui": None},
+        {"n": 2, "texte": "Bonne nuit.", "langue": "en", "gauche": [r"D:\Exemple\bancs\1\2\a\voix.wav"], "droite": [r"D:\Exemple\bancs\1\2\b\voix.wav"],
+         "vote": "", "notes": None, "qui": None}]},
+    ("GET", "/api/bancs/2"): {**BANCS[1], "gagnant": "Images B", "adopte": "", "peut_adopter": True, "lignes": [
+        {"n": 0, "texte": "A small fox sleeps under a fern.", "langue": "", "gauche": [REFERENCE], "droite": [REFERENCE], "vote": "gauche",
+         "notes": None, "qui": {"gauche": "Images B", "droite": "Images A"}},
+        {"n": 1, "texte": "The moon rises over a quiet pond.", "langue": "", "gauche": [REFERENCE], "droite": [REFERENCE], "vote": "droite",
+         "notes": None, "qui": {"gauche": "Images A", "droite": "Images B"}}]},
+})
+
+
 class Transport:
     """Remplace le noyau : rend les réponses fixes et retient les actions demandées."""
 

@@ -40,6 +40,10 @@ if __name__ == "__main__":
         from PySide6.QtCore import Q_ARG, QMetaObject
 
         QTimer.singleShot(300, lambda: (QMetaObject.invokeMethod(f, "ouvrirVideo", Q_ARG("QVariant", "v1")), f.setProperty("ongletVideo", "publication")))
+    if ecran == "banc" and onglet:  # un banc des données fixes ouvert : 1 à voter, 2 au verdict rendu
+        from PySide6.QtCore import Q_ARG, QMetaObject
+
+        QTimer.singleShot(300, lambda: QMetaObject.invokeMethod(f, "ouvrirBanc", Q_ARG("QVariant", int(onglet))))
     if ecran.startswith("script"):  # « script_ecriture » : le même script, en cours d'écriture
         from PySide6.QtCore import Q_ARG, QMetaObject
 

@@ -1,6 +1,6 @@
 // La coquille de Fabrique : navigation, Accueil (mur des sessions, à faire, file, machine), Sessions (calendrier et idées, vidéos, scripts et
-// « Fabriquer », univers, formats, destinations, règles), nouvelle session pas à pas, File, Système (sauvegardes, mises à jour, mode, journal,
-// téléphone, clés).
+// « Fabriquer », univers, formats, destinations, règles), nouvelle session pas à pas, File, Outils (fiches, installation, dépenses, veille),
+// Banc (à l'aveugle), Système (sauvegardes, mises à jour, mode, journal, téléphone, clés).
 // Jetons de style du plan technique § 6.2. Aucune règle ici : tout vient du noyau par « pont » (main.py).
 import QtQuick
 import QtQuick.Controls.Basic
@@ -74,6 +74,17 @@ Window {
     property string reglagesDe: ""  // la session dont les champs des règles et de l'assistant ont été remplis
     property string universDe: ""
     property bool aChangerMode: false  // « Passer en mode réel » attend la confirmation
+    property var outils: ({briques: [], installation: {}})
+    property var depenses: ({plafond_mois_eur: 0, depense_mois_eur: 0, lignes: []})
+    property bool plafondRempli: false
+    property var veille: []
+    property var bancs: []
+    readonly property var bancVide: ({id: 0, brique: "", session: "", video: "", etat: "", etat_nom: "", outils: "", juge: "", entrees: 0, votes: 0, verdict: "", raison: "",
+                                      lignes: [], gagnant: "", adopte: "", peut_adopter: false})
+    property var banc: bancVide
+    property int ligneBanc: 0  // l'entrée que G, E et D votent
+    property bool bancOuvert: false  // le banc vient d'être ouvert : G, E et D partent de sa première entrée sans vote
+    property var nouveauBanc: ({brique: "", outil: "", video: "", juge: ""})
     property var relier: ({url: "", message: ""})
     property int aPublier: -1  // la publication dont « Publier » attend la confirmation
     property var brouillon: null  // le script en cours d'écriture (copie du contenu) ; null : lecture
@@ -83,7 +94,9 @@ Window {
     readonly property string mono: Qt.fontFamilies().indexOf("Cascadia Mono") >= 0 ? "Cascadia Mono" : "Consolas"
 
     function recharger() {
-        ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions", "etat", "appareils", "formats", "modeles"].forEach(n => pont.charger(n))
+        ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions", "etat", "appareils", "formats", "modeles", "outils", "depenses", "veille",
+         "bancs"].forEach(n => pont.charger(n))
+        if (ecran === "banc" && banc.id > 0) pont.lire("banc", {id: banc.id})
         if (session !== "") ["scripts", "videos", "univers", "destinations", "reglages", "idees", "historique"].forEach(n => pont.lire(n, {id: session}))
         if (ecran === "sessions" && onglet === "calendrier") chargerCal()
         if (ecran === "video" && video.id !== "") ["video", "publications", "paquets", "suivi"].forEach(n => pont.lire(n, {id: session, video: video.id}))
@@ -91,7 +104,8 @@ Window {
     }
     function ouvrirOnglet(id) { onglet = id; defileSession.contentY = 0; if (id === "calendrier") chargerCal() }
     function rafraichir() {  // un événement du noyau (un morceau fini, une sauvegarde…) : ce qui bouge seul, jamais les champs que RT remplit
-        ["file", "machine", "sessions", "etat"].forEach(n => pont.charger(n))
+        ["file", "machine", "sessions", "etat", "outils", "bancs"].forEach(n => pont.charger(n))
+        if (ecran === "banc" && banc.id > 0) pont.lire("banc", {id: banc.id})
         if (ecran === "video" && video.id !== "") ["video", "publications", "paquets", "suivi"].forEach(n => pont.lire(n, {id: session, video: video.id}))
         if (ecran === "sessions" && onglet === "videos") pont.lire("videos", {id: session})
         if (ecran === "sessions" && onglet === "calendrier") chargerCal()
@@ -164,6 +178,15 @@ Window {
     function copier(texte) { pressePapier.text = texte; pressePapier.selectAll(); pressePapier.copy(); message = "Texte copié."; messageOk = true }
     function chaineDe(langue) { return destinations.find(d => d.langue === langue) || {playlists: []} }
     function nomDe(chemin) { return chemin.split(/[\\/]/).pop() }
+    function url(chemin) { return "file:///" + chemin.replace(/\\/g, "/") }
+    function estImage(chemin) { return /\.(png|jpe?g)$/i.test(chemin) }
+    function ouvrirBanc(id) { banc = Object.assign({}, bancVide, {id: id}); ligneBanc = 0; bancOuvert = true; lecteurBanc.stop(); pont.lire("banc", {id: id}) }
+    function voterBanc(choix) {
+        if (banc.etat !== "a_voter" || !banc.lignes.length) return
+        pont.agir("voter", {id: banc.id, corps: {entree: banc.lignes[ligneBanc].n, choix: choix}})
+        ligneBanc = Math.min(ligneBanc + 1, banc.lignes.length - 1)
+    }
+    function briqueChoisie() { return outils.briques.find(b => b.id === nouveauBanc.brique) || {outils: [], juges: [], defaut: ""} }
     function aFaire() { return file.filter(t => t.etat === "erreur" || t.alertes.length > 0 && t.etat !== "finie" && t.etat !== "annulee") }
     function derniere() {
         var d = sauvegardes.derniere
@@ -181,6 +204,8 @@ Window {
             if (nom === "reglages" && reglagesDe !== session) remplir()
             if (nom === "univers" && universDe !== session) { universDe = session; champStyle.texte = d.style }
             if (nom === "sessions" && session === "" && d.length) choisir(d[0].id)
+            if (nom === "banc" && bancOuvert) { bancOuvert = false; ligneBanc = Math.max(0, d.lignes.findIndex(l => l.vote === "")) }
+            if (nom === "depenses" && !plafondRempli) { plafondRempli = true; champPlafond.texte = String(d.plafond_mois_eur).replace(".", ",") }
             if (nom === "relier" && d.url) { message = d.message; messageOk = true; Qt.openUrlExternally(d.url) }  // la page de Google, dans le navigateur du PC
         }
         function onFait(nom, texte, ok) {
@@ -260,6 +285,11 @@ Window {
             Bouton { texte: "Annuler"; onClic: aPartager = {type: "", pk: -1} }
         }
     }
+    component Puce: Bouton {  // un choix parmi plusieurs : bordure de sélection
+        property bool choisi: false
+        border.width: choisi ? 2 : 1; border.color: choisi || activeFocus ? cSelection : cTrait
+        Accessible.checkable: true; Accessible.checked: choisi
+    }
     component Panneau: Rectangle {
         property alias titre: entete.text
         default property alias contenu: colonne.data
@@ -283,7 +313,7 @@ Window {
             Item { width: 1; height: 16 }
             Repeater {
                 model: [{id: "accueil", nom: "Accueil", touche: "Ctrl+1"}, {id: "sessions", nom: "Sessions", touche: "Ctrl+2"}, {id: "file", nom: "File", touche: "Ctrl+3"},
-                        {id: "systeme", nom: "Système", touche: "Ctrl+4"}]
+                        {id: "outils", nom: "Outils", touche: "Ctrl+4"}, {id: "banc", nom: "Banc", touche: "Ctrl+5"}, {id: "systeme", nom: "Système", touche: "Ctrl+9"}]
                 Rectangle {
                     objectName: "nav_" + modelData.id
                     width: parent.width; height: 40; radius: 6
@@ -408,7 +438,7 @@ Window {
                                 Row {
                                     spacing: 12
                                     T { text: etats[modelData.etat]; color: modelData.etat === "erreur" ? cDefaut : modelData.etat === "en_cours" ? cReussi : cSecond; wrapMode: Text.NoWrap }
-                                    Mono { text: modelData.progression + " morceaux"; color: cSecond }
+                                    Mono { text: modelData.progression + (modelData.banc ? " sorties du banc" : " morceaux"); color: cSecond }
                                 }
                                 Mono { visible: modelData.reste_s != null; font.pixelSize: 12; color: cSecond
                                        text: "reste environ " + duree(modelData.reste_s || 0) + "  ·  " + euros(modelData.cout_eur) + "  ·  prête vers le " + modelData.pret_vers }
@@ -1523,6 +1553,280 @@ Window {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        Flickable {
+            objectName: "ecran_outils"
+            visible: ecran === "outils"
+            anchors.fill: parent; contentHeight: pileOutils.height + 48; clip: true
+            ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+            Column {
+                id: pileOutils
+                x: 24; y: 24; width: Math.min(contenu.width - 48, 960); spacing: 16
+                T { text: "Outils"; font.pixelSize: 28; font.weight: Font.DemiBold }
+                T { text: "Chaque brique et ses outils. Un outil ne passe en service qu'après un banc à l'aveugle gagné et votre accord ; l'ancien reste disponible."
+                    color: cSecond; width: parent.width }
+                T { objectName: "installation_en_cours"; visible: outils.installation.etat === "en_cours"; width: parent.width; color: cAttention
+                    text: "Installation en cours : " + (outils.installation.outil || "") + " (une notification dira quand elle est finie)." }
+                Repeater {
+                    model: outils.briques
+                    Panneau {
+                        id: panneauBrique
+                        property var brique: modelData
+                        titre: modelData.titre
+                        Repeater {
+                            model: panneauBrique.brique.outils
+                            Rectangle {
+                                width: parent.width; height: Math.max(ficheOutil.implicitHeight, actionsOutil.implicitHeight) + 20; radius: 6; color: cLeve
+                                border.width: modelData.defaut ? 1 : 0; border.color: cSelection
+                                Column {
+                                    id: ficheOutil
+                                    x: 12; y: 10; width: parent.width - 250; spacing: 4
+                                    Row {
+                                        spacing: 12
+                                        T { text: modelData.nom; font.weight: Font.DemiBold; wrapMode: Text.NoWrap }
+                                        T { text: modelData.defaut ? "par défaut" : modelData.etat_nom; wrapMode: Text.NoWrap
+                                            color: modelData.defaut || modelData.etat === "en_service" ? cReussi : modelData.etat === "retire" ? cSecond : cAttention }
+                                        T { visible: !modelData.local; text: "en ligne"; color: cSelection; wrapMode: Text.NoWrap }
+                                    }
+                                    T { width: parent.width; font.pixelSize: 12; color: cSecond
+                                        text: [modelData.prix, "licence : " + modelData.licence, modelData.besoins, "langues : " + modelData.langues, "version " + modelData.version].join("  ·  ") }
+                                    T { visible: modelData.limites !== ""; text: modelData.limites; width: parent.width; font.pixelSize: 12; color: cSecond }
+                                    T { width: parent.width; font.pixelSize: 12; text: "Installation : " + modelData.installation; color: modelData.action !== "" ? cAttention : cSecond }
+                                    T { visible: modelData.sessions.length > 0; width: parent.width; font.pixelSize: 12; text: "Outil de : " + modelData.sessions.join(", ") }
+                                    T { visible: modelData.dernier_banc !== ""; width: parent.width; font.pixelSize: 12; text: "Dernier banc : " + modelData.dernier_banc }
+                                }
+                                Column {
+                                    id: actionsOutil
+                                    anchors.right: parent.right; anchors.rightMargin: 8; y: 10; spacing: 6
+                                    Bouton { objectName: "installer_" + modelData.id; visible: modelData.action !== ""; actif: outils.installation.etat !== "en_cours"
+                                             texte: modelData.action === "mettre_a_jour" ? "Mettre à jour" : "Installer"
+                                             onClic: pont.agir("agir_outil", {outil: modelData.id, action: "installer"}) }
+                                    Bouton { objectName: "banc_" + modelData.id; visible: !modelData.defaut && modelData.etat !== "retire"; texte: "Banc contre l'outil en place"
+                                             onClic: { banc = bancVide; nouveauBanc = {brique: panneauBrique.brique.id, outil: modelData.id, video: "",
+                                                                      juge: panneauBrique.brique.juges.length ? panneauBrique.brique.juges[0].id : ""}; aller("banc") } }
+                                    Bouton { objectName: "retirer_" + modelData.id; visible: modelData.etat !== "retire" && !modelData.defaut && !modelData.sessions.length; texte: "Retirer"
+                                             onClic: pont.agir("agir_outil", {outil: modelData.id, action: "retirer"}) }
+                                    Bouton { objectName: "remettre_" + modelData.id; visible: modelData.etat === "retire"; texte: "Remettre parmi les candidats"
+                                             onClic: pont.agir("agir_outil", {outil: modelData.id, action: "remettre"}) }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Panneau {
+                    titre: "Dépenses des outils en ligne"
+                    T { objectName: "depense_du_mois"; width: parent.width
+                        text: "Ce mois-ci : " + euros(depenses.depense_mois_eur) + " sur un plafond de " + euros(depenses.plafond_mois_eur)
+                              + (depenses.plafond_mois_eur > 0 ? "." : " : aucun outil payant ne sert (chaque session a aussi le sien, dans ses règles).") }
+                    Row {
+                        spacing: 8
+                        Champ { id: champPlafond; width: 280; etiquette: true; nom: "champ_plafond"; libelle: "Plafond du mois, toutes sessions (€)" }
+                        Bouton { objectName: "enregistrer_plafond"; anchors.bottom: parent.bottom; texte: "Enregistrer"; actif: nombre(champPlafond.texte) !== null
+                                 onClic: pont.agir("plafond", {corps: {valeur: nombre(champPlafond.texte)}}) }
+                    }
+                    T { visible: !depenses.lignes.length; text: "Aucune dépense."; color: cSecond; width: parent.width }
+                    Repeater {
+                        model: depenses.lignes.slice(0, 50)
+                        Row {
+                            spacing: 12
+                            Mono { text: modelData.date; color: cSecond; font.pixelSize: 12; width: 130 }
+                            T { text: modelData.session; width: 180; font.pixelSize: 12; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                            T { text: modelData.outil; width: 220; font.pixelSize: 12; elide: Text.ElideRight; wrapMode: Text.NoWrap }
+                            Mono { text: "estimé " + euros(modelData.estime_eur) + (modelData.reel_eur != null ? "  ·  réel " + euros(modelData.reel_eur) : ""); font.pixelSize: 12 }
+                        }
+                    }
+                }
+
+                Panneau {
+                    titre: "Veille du mois"
+                    T { text: "Ce que Claude repère chaque mois. Un candidat n'entre en service qu'avec son adaptateur (une version de Fabrique), puis un banc gagné."
+                        color: cSecond; width: parent.width }
+                    T { visible: !veille.length; text: "Aucun candidat repéré."; color: cSecond; width: parent.width }
+                    Repeater {
+                        model: veille
+                        Rectangle {
+                            width: parent.width; height: ligneVeille.implicitHeight + 20; radius: 6; color: cLeve
+                            Column {
+                                id: ligneVeille
+                                x: 12; y: 10; width: parent.width - 260; spacing: 4
+                                T { text: modelData.nom + "  ·  " + modelData.brique + "  ·  " + modelData.statut_nom; font.weight: Font.DemiBold; width: parent.width }
+                                T { width: parent.width; font.pixelSize: 12; color: modelData.commercial === false ? cDefaut : cSecond
+                                    text: "licence : " + (modelData.licence || "?") + "  ·  usage commercial : " + (modelData.commercial === true ? "oui" : modelData.commercial === false ? "non" : "à vérifier")
+                                          + (modelData.besoins ? "  ·  " + modelData.besoins : "") + "  ·  repéré le " + modelData.date }
+                                T { visible: modelData.avis !== ""; text: modelData.avis; width: parent.width; font.pixelSize: 12 }
+                                T { visible: modelData.source !== ""; text: modelData.source; width: parent.width; font.pixelSize: 12; color: cSecond }
+                            }
+                            Row {
+                                anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                Bouton { objectName: "veille_essayer_" + index; visible: modelData.statut === "nouveau"; texte: "À essayer"
+                                         onClic: pont.agir("statut_veille", {pk: modelData.id, corps: {valeur: "a_essayer"}}) }
+                                Bouton { objectName: "veille_ecarter_" + index; visible: modelData.statut !== "ecarte"; texte: "Écarter"
+                                         onClic: pont.agir("statut_veille", {pk: modelData.id, corps: {valeur: "ecarte"}}) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Flickable {
+            objectName: "ecran_banc"
+            visible: ecran === "banc"
+            anchors.fill: parent; contentHeight: pileBanc.height + 48; clip: true
+            ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+            Shortcut { sequences: ["G"]; enabled: ecran === "banc"; onActivated: voterBanc("gauche") }
+            Shortcut { sequences: ["E"]; enabled: ecran === "banc"; onActivated: voterBanc("egal") }
+            Shortcut { sequences: ["D"]; enabled: ecran === "banc"; onActivated: voterBanc("droite") }
+            Shortcut { sequences: ["Up"]; enabled: ecran === "banc" && banc.lignes.length > 0; onActivated: ligneBanc = Math.max(0, ligneBanc - 1) }
+            Shortcut { sequences: ["Down"]; enabled: ecran === "banc" && banc.lignes.length > 0; onActivated: ligneBanc = Math.min(banc.lignes.length - 1, ligneBanc + 1) }
+            MediaPlayer {
+                id: lecteurBanc
+                videoOutput: sortieBanc
+                audioOutput: AudioOutput {}
+            }
+            Column {
+                id: pileBanc
+                x: 24; y: 24; width: Math.min(contenu.width - 48, 960); spacing: 16
+                T { text: "Banc"; font.pixelSize: 28; font.weight: Font.DemiBold }
+                T { text: "Deux outils, les mêmes entrées. Vous votez sans savoir quel outil est à gauche : G (gauche), E (égal) ou D (droite), entrée par entrée (↑ ↓ pour changer d'entrée). Le juge automatique est montré après votre vote."
+                    color: cSecond; width: parent.width }
+
+                Panneau {
+                    objectName: "detail_banc"
+                    visible: banc.id > 0
+                    titre: "Banc " + banc.id + " · " + banc.brique + " · " + banc.video
+                    Row {
+                        width: parent.width; spacing: 12
+                        T { text: banc.outils + "  ·  juge : " + banc.juge + "  ·  " + banc.etat_nom; color: cSecond; width: parent.width - fermerBanc.width - 12 }
+                        Bouton { id: fermerBanc; objectName: "fermer_banc"; texte: "Fermer"; onClic: { lecteurBanc.stop(); banc = bancVide } }
+                    }
+                    T { objectName: "verdict_banc"; visible: banc.verdict !== ""; text: "Verdict : " + banc.verdict; color: cReussi; width: parent.width; font.weight: Font.DemiBold }
+                    Row {
+                        visible: banc.peut_adopter
+                        spacing: 8
+                        Bouton { objectName: "adopter_brique"; ambre: true; texte: "Adopter pour toutes les sessions"; onClic: pont.agir("adopter", {id: banc.id, corps: {ou: "brique"}}) }
+                        Bouton { objectName: "adopter_session"; texte: "Adopter pour « " + banc.session + " » seulement"; onClic: pont.agir("adopter", {id: banc.id, corps: {ou: "session"}}) }
+                    }
+                    T { visible: banc.adopte !== ""; text: "Adopté (" + (banc.adopte === "brique" ? "toutes les sessions" : "la session " + banc.session) + ")."; color: cSecond; width: parent.width }
+                    VideoOutput { id: sortieBanc; visible: lecteurBanc.hasVideo; width: parent.width; height: visible ? width * 9 / 16 : 0 }
+                    Repeater {
+                        model: banc.lignes
+                        Rectangle {
+                            id: caseEntree
+                            property var ligne: modelData
+                            property int n: index
+                            objectName: "entree_" + index
+                            width: parent.width; height: colEntree.implicitHeight + 20; radius: 6; color: cLeve
+                            border.width: index === ligneBanc && banc.etat === "a_voter" ? 2 : 0; border.color: cSelection
+                            Column {
+                                id: colEntree
+                                x: 12; y: 10; width: parent.width - 24; spacing: 8
+                                T { text: (index + 1) + ". " + (modelData.texte || "(sans texte)") + (modelData.langue ? "  ·  " + modelData.langue : ""); width: parent.width }
+                                Row {
+                                    spacing: 16; width: parent.width
+                                    Repeater {
+                                        model: ["gauche", "droite"]
+                                        Column {
+                                            property string cote: modelData
+                                            property var ligne: caseEntree.ligne
+                                            width: (parent.width - 16) / 2; spacing: 6
+                                            T { width: parent.width; font.weight: Font.DemiBold
+                                                text: (cote === "gauche" ? "Gauche" : "Droite") + (ligne.qui ? " : " + ligne.qui[cote] : "") + (ligne.notes ? "  ·  juge " + String(ligne.notes[cote]).replace(".", ",") + "/10" : "") }
+                                            Image { visible: (ligne[cote] || []).length > 0 && estImage(ligne[cote][0]); width: parent.width; height: visible ? width * 9 / 16 : 0
+                                                    source: visible ? url(ligne[cote][0]) : ""; fillMode: Image.PreserveAspectFit; Accessible.name: "Sortie " + cote }
+                                            Bouton { objectName: "ecouter_" + cote + "_" + caseEntree.n; visible: (ligne[cote] || []).length > 0 && !estImage(ligne[cote][0])
+                                                     texte: lecteurBanc.playbackState === MediaPlayer.PlayingState && String(lecteurBanc.source) === url(ligne[cote][0] || "") ? "Arrêter" : "Écouter / voir"
+                                                     onClic: { if (lecteurBanc.playbackState === MediaPlayer.PlayingState && String(lecteurBanc.source) === url(ligne[cote][0])) lecteurBanc.stop()
+                                                               else { lecteurBanc.source = url(ligne[cote][0]); lecteurBanc.play() } } }
+                                        }
+                                    }
+                                }
+                                Row {
+                                    visible: banc.etat === "a_voter" || modelData.vote !== ""
+                                    spacing: 6
+                                    Puce { objectName: "vote_gauche_" + index; texte: "Gauche (G)"; choisi: modelData.vote === "gauche"; actif: banc.etat === "a_voter"
+                                           onClic: { ligneBanc = index; voterBanc("gauche") } }
+                                    Puce { objectName: "vote_egal_" + index; texte: "Égal (E)"; choisi: modelData.vote === "egal"; actif: banc.etat === "a_voter"
+                                           onClic: { ligneBanc = index; voterBanc("egal") } }
+                                    Puce { objectName: "vote_droite_" + index; texte: "Droite (D)"; choisi: modelData.vote === "droite"; actif: banc.etat === "a_voter"
+                                           onClic: { ligneBanc = index; voterBanc("droite") } }
+                                }
+                            }
+                        }
+                    }
+                }
+                Panneau {
+                    titre: "Bancs"
+                    T { visible: !bancs.length; text: "Aucun banc encore."; color: cSecond; width: parent.width }
+                    Repeater {
+                        model: bancs
+                        Rectangle {
+                            objectName: "banc_liste_" + index
+                            width: parent.width; height: ligneBancs.implicitHeight + 20; radius: 6; color: banc.id === modelData.id || survolBanc.hovered ? cTrait : cLeve
+                            activeFocusOnTab: true; border.width: activeFocus ? 1 : 0; border.color: cSelection
+                            Keys.onReturnPressed: ouvrirBanc(modelData.id)
+                            Keys.onSpacePressed: ouvrirBanc(modelData.id)
+                            Column {
+                                id: ligneBancs
+                                x: 12; y: 10; width: parent.width - 24; spacing: 4
+                                T { text: "Banc " + modelData.id + " · " + modelData.brique + " · " + modelData.session + " · " + modelData.video; font.weight: Font.DemiBold; width: parent.width }
+                                T { text: modelData.outils + "  ·  juge : " + modelData.juge; font.pixelSize: 12; color: cSecond; width: parent.width }
+                                T { text: modelData.etat_nom + (modelData.etat === "a_voter" ? " (" + modelData.votes + "/" + modelData.entrees + ")" : "") + (modelData.raison ? " — " + modelData.raison : "")
+                                    color: modelData.etat === "a_voter" ? cAttention : modelData.etat === "erreur" ? cDefaut : modelData.etat === "fini" ? cReussi : cSecond; width: parent.width; font.pixelSize: 12 }
+                                T { visible: modelData.verdict !== ""; text: modelData.verdict; width: parent.width; font.pixelSize: 12 }
+                            }
+                            HoverHandler { id: survolBanc }
+                            Clic { onTapped: ouvrirBanc(modelData.id) }
+                            Accessible.role: Accessible.Button; Accessible.name: "Banc " + modelData.id + " : " + modelData.etat_nom; Accessible.onPressAction: ouvrirBanc(modelData.id)
+                        }
+                    }
+                }
+
+                Panneau {
+                    titre: "Nouveau banc"
+                    T { text: "Brique"; color: cSecond; width: parent.width }
+                    Flow {
+                        width: parent.width; spacing: 6
+                        Repeater {
+                            model: outils.briques
+                            Puce { objectName: "brique_" + modelData.id; texte: modelData.titre; choisi: nouveauBanc.brique === modelData.id
+                                   onClic: nouveauBanc = {brique: modelData.id, outil: "", video: nouveauBanc.video, juge: modelData.juges.length ? modelData.juges[0].id : ""} }
+                        }
+                    }
+                    T { visible: nouveauBanc.brique !== ""; text: "Outil à mesurer à l'outil en place (" + briqueChoisie().defaut + ")"; color: cSecond; width: parent.width }
+                    Flow {
+                        width: parent.width; spacing: 6
+                        Repeater {
+                            model: briqueChoisie().outils.filter(o => !o.defaut && o.etat !== "retire")
+                            Puce { objectName: "outil_banc_" + modelData.id; texte: modelData.nom; choisi: nouveauBanc.outil === modelData.id
+                                   onClic: nouveauBanc = Object.assign({}, nouveauBanc, {outil: modelData.id}) }
+                        }
+                    }
+                    T { text: "Vidéo de « " + sessionChoisie().nom + " » dont les morceaux finis sont rejoués"; color: cSecond; width: parent.width }
+                    Flow {
+                        width: parent.width; spacing: 6
+                        Repeater {
+                            model: videos
+                            Puce { objectName: "video_banc_" + index; texte: modelData.titre; choisi: nouveauBanc.video === modelData.id
+                                   onClic: nouveauBanc = Object.assign({}, nouveauBanc, {video: modelData.id}) }
+                        }
+                    }
+                    T { text: "Juge automatique (un seul par banc)"; color: cSecond; width: parent.width }
+                    Flow {
+                        width: parent.width; spacing: 6
+                        Repeater {
+                            model: briqueChoisie().juges
+                            Puce { objectName: "juge_" + modelData.id; texte: modelData.titre; choisi: nouveauBanc.juge === modelData.id
+                                   onClic: nouveauBanc = Object.assign({}, nouveauBanc, {juge: modelData.id}) }
+                        }
+                        Puce { objectName: "juge_aucun"; texte: "Sans juge"; choisi: nouveauBanc.juge === ""; onClic: nouveauBanc = Object.assign({}, nouveauBanc, {juge: ""}) }
+                    }
+                    Bouton { objectName: "lancer_banc"; texte: "Lancer le banc"; actif: nouveauBanc.brique !== "" && nouveauBanc.outil !== "" && nouveauBanc.video !== ""
+                             onClic: pont.agir("nouveau_banc", {corps: {session: session, video: nouveauBanc.video, brique: nouveauBanc.brique, outil: nouveauBanc.outil, juge: nouveauBanc.juge}}) }
                 }
             }
         }

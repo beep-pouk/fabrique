@@ -23,7 +23,9 @@ LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280
          ("nouvelle_5", "nouvelle:5", "1280x800", "1"), ("planche", "video:planche", "1280x800", "1"), ("suivi", "video:suivi", "1280x800", "1"),
          ("calendrier_150", "sessions:calendrier", "1920x1200", "1.5"), ("accueil_2560", "accueil", "2560x1440", "1"), ("videos", "sessions:videos", "1280x800", "1"),
          ("video_script", "video:script", "1280x800", "1"), ("fabrication", "video:fabrication", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("publication", "publication", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
-         ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1")]
+         ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1"), ("outils", "outils", "1280x800", "1"),
+         ("outils_150", "outils", "1920x1200", "1.5"), ("banc", "banc", "1280x800", "1"), ("banc_vote", "banc:1", "1280x800", "1"), ("banc_verdict", "banc:2", "1280x800", "1"),
+         ("banc_2560", "banc:1", "2560x1440", "1")]
 
 
 def valeur(f, nom):
@@ -128,9 +130,9 @@ def test_parcours(qtbot):
     assert element(f, "releve").property("text") == "Statistiques relevées le 18/11 à 09:00 (chaque jour après 9 h)."
     clic(f, "relier_xx")
     qtbot.waitUntil(lambda: ("/api/sessions/s1/destinations/xx/relier", None) in t.actions)
-    QTest.keyPress(f, Qt.Key.Key_4, Qt.KeyboardModifier.ControlModifier)
-    QTest.keyPress(f, Qt.Key.Key_4, Qt.KeyboardModifier.ControlModifier)  # touche tenue : pas rejouée
-    QTest.keyRelease(f, Qt.Key.Key_4, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyPress(f, Qt.Key.Key_9, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyPress(f, Qt.Key.Key_9, Qt.KeyboardModifier.ControlModifier)  # touche tenue : pas rejouée
+    QTest.keyRelease(f, Qt.Key.Key_9, Qt.KeyboardModifier.ControlModifier)
     assert vus == ["file", "sessions", "systeme"] and f.property("ecran") == "systeme"
 
     clic(f, "bouton_sauvegarder")
@@ -366,6 +368,61 @@ def test_captures(tmp_path, nom, ecran, taille, echelle):
         reference.write_bytes(png.read_bytes())
         pytest.fail(f"capture de référence écrite, à regarder : {reference}")
     assert differe(image, QImage(str(reference))) <= TOLERANCE, f"{nom} a changé : comparer {png} et {reference}"
+
+
+def voir(f, nom_ecran, nom):
+    """Fait défiler l'écran jusqu'à l'élément (200 px sous le haut)."""
+    QTest.qWait(50)
+    ecran, el = element(f, nom_ecran), element(f, nom)
+    ecran.setProperty("contentY", max(0, el.mapToItem(ecran, QPointF(0, 0)).y() + ecran.property("contentY") - 200))
+
+
+def test_outils_et_banc(qtbot):
+    """Outils : installer, banc contre l'outil en place, plafond ; Banc : nouveau banc, vote à l'aveugle au clavier (D), adopter."""
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: len(valeur(f, "outils")["briques"]) == 2 and len(valeur(f, "sessions")) == 3)
+    QTest.keyClick(f, Qt.Key.Key_4, Qt.KeyboardModifier.ControlModifier)
+    assert f.property("ecran") == "outils" and element(f, "ecran_outils").isVisible()
+    clic(f, "installer_voix_b")
+    qtbot.waitUntil(lambda: ("/api/outils/voix_b/installer", None) in t.actions)
+    assert element(f, "retirer_voix_a") is None or not element(f, "retirer_voix_a").isVisible()  # un défaut ne se retire pas
+    assert element(f, "remettre_images_vieilles").isVisible()
+    qtbot.waitUntil(lambda: element(f, "champ_plafond").property("text") == "2")
+    element(f, "champ_plafond").setProperty("text", "3,5")
+    outils = element(f, "ecran_outils")
+    outils.setProperty("contentY", outils.property("contentHeight") - outils.height())
+    clic(f, "enregistrer_plafond")
+    qtbot.waitUntil(lambda: ("/api/depenses/plafond", {"valeur": 3.5}) in t.actions)
+    clic(f, "veille_essayer_0")
+    qtbot.waitUntil(lambda: ("/api/veille/1/statut", {"valeur": "a_essayer"}) in t.actions)
+    outils.setProperty("contentY", 0)
+    clic(f, "banc_voix_b")  # banc contre l'outil en place : le formulaire est prérempli
+    assert f.property("ecran") == "banc" and valeur(f, "nouveauBanc") == {"brique": "voix", "outil": "voix_b", "video": "", "juge": "whisper"}
+    qtbot.waitUntil(lambda: len(valeur(f, "videos")) == 1)
+    assert not element(f, "lancer_banc").property("actif")
+    voir(f, "ecran_banc", "video_banc_0")
+    clic(f, "video_banc_0")
+    clic(f, "lancer_banc")
+    qtbot.waitUntil(lambda: ("/api/bancs", {"session": "s1", "video": "v1", "brique": "voix", "outil": "voix_b", "juge": "whisper"}) in t.actions)
+    voir(f, "ecran_banc", "banc_liste_0")
+    clic(f, "banc_liste_0")
+    qtbot.waitUntil(lambda: len(valeur(f, "banc")["lignes"]) == 3)
+    element(f, "ecran_banc").setProperty("contentY", 0)
+    assert element(f, "ecouter_gauche_1").isVisible() and valeur(f, "banc")["lignes"][0]["qui"] is None  # à l'aveugle
+    assert f.property("ligneBanc") == 1  # la première entrée sans vote
+    QTest.keyClick(f, Qt.Key.Key_D)
+    qtbot.waitUntil(lambda: ("/api/bancs/1/voter", {"entree": 1, "choix": "droite"}) in t.actions)
+    assert f.property("ligneBanc") == 2
+    voir(f, "ecran_banc", "banc_liste_1")
+    clic(f, "banc_liste_1")
+    qtbot.waitUntil(lambda: valeur(f, "banc")["peut_adopter"])
+    assert "Images B gagne" in element(f, "verdict_banc").property("text")
+    voir(f, "ecran_banc", "adopter_session")
+    clic(f, "adopter_session")
+    qtbot.waitUntil(lambda: ("/api/bancs/2/adopter", {"ou": "session"}) in t.actions)
+    f.close()
 
 
 def test_sonnette_traitee_dans_le_fil_de_la_fenetre(qtbot):

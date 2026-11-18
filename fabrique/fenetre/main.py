@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
 GARDE_MS = 30_000
 CREATIONS = {"nouvelle_session", "relier", "code_telephone"}  # des lectures qui font quelque chose : leur refus est dit à RT
-VK_1, VK_2, VK_3, VK_4 = 0x31, 0x32, 0x33, 0x34  # touches 1 à 4 du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
+VK_1, VK_2, VK_3, VK_4, VK_5, VK_9 = 0x31, 0x32, 0x33, 0x34, 0x35, 0x39  # touches du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
 
 
 class Pont(QObject):
@@ -100,7 +100,7 @@ class Pont(QObject):
             repetee = e.isAutoRepeat() or e.key() in self.tenues
             self.tenues.add(e.key())
             ctrl = bool(e.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "systeme"))
+            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "outils"), (VK_5, "banc"), (VK_9, "systeme"))
                            if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
             ecran = touche or ("" if e.key() == Qt.Key.Key_F5 else None)
             if ecran is not None:
