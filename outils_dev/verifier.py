@@ -7,6 +7,8 @@ lui-même son état, sa base et ses journaux : ces fichiers-là sont montrés à
 J2 : le moteur à recettes en vrais processus (moteur()), puis tout J1 (la recette d'installation joue aussi un essai de recette).
 J3 : les preuves des longs passages de nuit, carte libre (egalite.py : égalité étape par étape ; essai_long.py : essai pleine longueur), lues ;
 les tests de F1 et des écrans ; puis tout J2.
+J4 : la publication en vrais processus (faux YouTube, page iPhone, paquets contre les fiches des réseaux, relevé du jour), la construction et
+l'installation, puis les gestes de RT (§ 7.3) lus dans l'installation réelle.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -282,7 +284,227 @@ def j3(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return points + moteur(dire) + construction(dire, publier) + bramble_points(avant)
 
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3}
+YOUTUBE_TXT = "TITRE :\nHistoire factice de la recette {n}\n\nDESCRIPTION :\nUne histoire factice.\n\n00:00 Début\n00:15 Milieu\n00:30 Fin\n\nCrédits : factices.\n\nTAGS :\nrecette, histoire factice\n"
+VIDEOS_J4 = ((1, "2099-12-01-s1e01", 70), (2, "2099-12-02-s1e02", 40))  # 70 s : trop longue pour Snapchat (60 s) ; 40 s : tous les réseaux
+HOTE_TS = "recette.tailnet-factice.ts.net"
+
+
+def preparer_j4():
+    """Dans un sous-processus (FABRIQUE_RACINE posée) : une session réelle, deux vidéos finies avec leurs fichiers finaux (vraie vidéo 16:9
+    à silences, miniature, youtube.txt, sous-titres) ; écrit {session, videos} sur la sortie."""
+    import os
+
+    import django
+
+    os.environ["DJANGO_SETTINGS_MODULE"] = "fabrique.settings"
+    django.setup()
+    from django.conf import settings
+
+    from fabrique.moteur.faux import lancer, programme as exe
+    from fabrique.noyau import bases, routeur
+    from fabrique.session import models as m
+
+    bases.migrer()
+    s = bases.creer("Session de la recette")
+    ids = []
+    with routeur.session(s):
+        m.Langue.objects.create(code="en", nom="Anglais")
+        for n, nom, secondes in VIDEOS_J4:
+            v = m.Video.objects.create(titre=f"Histoire factice {n}", nom=nom, script={"title": f"Histoire factice {n}", "language": "en"},
+                                       recette={"id": "F1", "version": 2, "reglages": {"langues": ["en"]}, "etapes": []})
+            m.Morceau.objects.create(video=v, etape="montage", brique="montage", unite="", langue="", ordre=0, outil="f1_montage", etat="fini")
+            d = settings.SESSIONS / s.dossier / "videos" / v.id / "commun" / "atelier" / nom / "final"
+            d.mkdir(parents=True)
+            lancer(exe("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=s=1280x720:r=25:d={secondes}", "-f", "lavfi",
+                   "-i", f"aevalsrc=0.4*sin(2*PI*330*t)*gte(mod(t\\,7)\\,0.6):s=44100:d={secondes}", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest",
+                   d / f"{nom}.mp4")
+            lancer(exe("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=orange:s=1280x720", "-frames:v", "1", d / "miniature.jpg")
+            (d / "youtube.txt").write_bytes(YOUTUBE_TXT.format(n=n).encode("utf-8"))
+            (d / "sous_titres.srt").write_bytes(b"1\n00:00:00,000 --> 00:00:02,000\nUne phrase factice.\n")
+            ids.append(v.id)
+    print(json.dumps({"session": s.id, "videos": ids}))
+
+
+def publication_j4(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire : chaîne reliée au faux YouTube, vidéo 1 approuvée et publiée depuis le PC
+    (non répertoriée : la première de la chaîne), vidéo 2 approuvée et publiée depuis l'iPhone (cookie de la page, code à 6 chiffres, hôte de
+    Tailscale : privée puis publique au créneau), double clic refusé ; paquets faits par leur tâche et contrôlés contre les vraies fiches ;
+    relevé du jour en base."""
+    import os
+    import socket
+    import tempfile
+    import time
+    import urllib.error
+    import urllib.request
+
+    from fabrique.fenetre.client import Client, ErreurApi
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j4_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+    r = subprocess.run([sys.executable, "-c", "import verifier; verifier.preparer_j4()"], cwd=DEPOT / "outils_dev", env=env, capture_output=True, text=True,
+                       encoding="utf-8", timeout=300)
+    if r.returncode:
+        return [(False, f"recette J4 : préparation ratée — {r.stderr.strip()[-300:]}")]
+    prep = json.loads(r.stdout.strip().splitlines()[-1])
+    sid, (v1, v2) = prep["session"], prep["videos"]
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    fenetre = Client("fenetre", port=port, donnees=racine / "donnees")
+    base = f"http://127.0.0.1:{port}"
+    cookie = {}
+
+    def iphone(methode: str, chemin: str, corps=None) -> tuple[int, dict]:
+        h = {"Host": HOTE_TS, "Content-Type": "application/json", **({"X-Fabrique": "iphone"} if methode == "POST" else {}),
+             **({"Cookie": f"fabrique_iphone={cookie['jeton']}"} if cookie else {})}
+        q = urllib.request.Request(base + chemin, data=json.dumps(corps or {}).encode() if methode == "POST" else None, method=methode, headers=h)
+        try:
+            with urllib.request.urlopen(q, timeout=60) as rep:
+                if c := rep.headers.get("Set-Cookie", ""):
+                    cookie["entete"], cookie["jeton"] = c, c.split(";")[0].split("=", 1)[1]
+                return rep.status, json.loads(rep.read() or b"null") if "json" in rep.headers.get("Content-Type", "") else {"html": True}
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def pubs(video: str) -> list[dict]:
+        return fenetre.appeler("publications", id=sid, video=video)
+
+    try:
+        banc.attendre(fenetre.repond, 60, "le noyau répond")
+        dire("chaîne reliée au faux YouTube (navigateur simulé)…")
+        lien = fenetre.appeler("relier", id=sid, langue="en")
+        with urllib.request.urlopen(lien["url"], timeout=30) as page:
+            relie = "Chaîne reliée" in page.read().decode("utf-8")
+        d = fenetre.appeler("destinations", id=sid)[0]
+        points.append((relie and d["reliee"] and d["chaine"] != "", f"chaîne de la langue reliée (connexion guidée, faux Google) : {d['etat']}, « {d['chaine']} », "
+                                                                    f"{len(d['playlists'])} playlist(s)"))
+        dire("vidéo 1 : approuvée puis publiée depuis le PC…")
+        fenetre.appeler("approuver", id=sid, video=v1)
+        p = pubs(v1)[0]
+        a = (p["non_repertorie"], p["miniature"] != "", len(p["chapitres"]), p["enfants"], p["ia"], p["fautes"])
+        fenetre.appeler("publier", id=sid, pub=p["id"], action="publier")
+        try:
+            fenetre.appeler("publier", id=sid, pub=p["id"], action="publier")
+            double = "accepté"
+        except ErreurApi as e:
+            double = str(e)
+        p = banc.attendre(lambda: (x := pubs(v1)[0])["statut"] in ("non_repertoriee", "planifiee", "erreur") and x, 180, "l'envoi de la vidéo 1")
+        points.append((a[0] and a[1] and a[2] == 3 and a[3] and a[4] and not a[5] and p["statut"] == "non_repertoriee" and p["lien"] != "" and double != "accepté"
+                       and all(x in p["envoi"] for x in ("video", "sous_titres", "miniature")) and "playlist" not in p["envoi"],
+                       f"depuis le PC : aperçu complet (non répertorié {a[0]}, miniature {a[1]}, {a[2]} chapitres, enfants {a[3]}, IA {a[4]}, "
+                       f"fautes {a[5] or 'aucune'} ; une vidéo d'essai n'entre dans aucune playlist) ; "
+                       f"publiée : {p['statut']} ({p['envoi']}) {p['lien']} ; double clic : {double}"))
+        dire("page iPhone : code, cookie, puis vidéo 2 approuvée et publiée depuis l'iPhone…")
+        code_page, page_ = iphone("GET", "/iphone/")
+        sans = iphone("GET", "/api/etat")[0]
+        code = fenetre.appeler("code_telephone")["code"]
+        faux_code = iphone("POST", "/iphone/connexion", {"code": f"{(int(code) + 1) % 10**6:06d}"})[0]
+        connecte = iphone("POST", "/iphone/connexion", {"code": code})[0]
+        sur = all(x in cookie.get("entete", "") for x in ("HttpOnly", "Secure", "SameSite=Strict"))
+        etat_i = iphone("GET", "/api/etat")[0]
+        refus = iphone("POST", "/api/sauvegardes")[0]
+        points.append((code_page == 200 and sans == 401 and faux_code == 403 and connecte == 200 and sur and etat_i == 200 and refus == 403,
+                       f"page iPhone servie à l'hôte de Tailscale ({code_page}) ; sans cookie : {sans} ; mauvais code : {faux_code} ; bon code : {connecte}, cookie "
+                       f"{'HttpOnly, Secure, SameSite=Strict' if sur else 'SANS SES PROTECTIONS'} ; état lu : {etat_i} ; sauvegarde (droit de la fenêtre) : {refus}"))
+        st_a = iphone("POST", f"/api/sessions/{sid}/videos/{v2}/approuver")
+        p = banc.attendre(lambda: pubs(v2), 30, "le brouillon de la vidéo 2")[0]
+        fenetre.appeler("choisir", {"playlist": d["playlists"][0]["id"]}, id=sid, pub=p["id"])  # la playlist se choisit à la fenêtre seulement
+        st_p = iphone("POST", f"/api/sessions/{sid}/publications/{p['id']}/publier")
+        p = banc.attendre(lambda: (x := pubs(v2)[0])["statut"] in ("non_repertoriee", "planifiee", "erreur") and x, 180, "l'envoi de la vidéo 2")
+        points.append((st_a[0] == st_p[0] == 200 and p["statut"] == "planifiee" and not p["non_repertorie"] and p["lien"] != ""
+                       and all(x in p["envoi"] for x in ("video", "playlist", "sous_titres", "miniature")),
+                       f"depuis l'iPhone : approuver {st_a[0]}, publier {st_p[0]} ({st_p[1].get('message', st_p[1].get('detail'))}) ; {p['statut']}, privée puis publique le "
+                       f"{p['creneau']}, playlist « {p['playlist_titre']} » ({p['envoi']})"))
+        with closing(sqlite3.connect(f"file:{racine / 'donnees' / 'noyau.sqlite3'}?mode=ro", uri=True)) as b:
+            gestes = [json.loads(x) for (x,) in b.execute("SELECT detail FROM noyau_journal WHERE action = 'geste'")]
+        vus = sorted({(g["quoi"], g["appelant"]) for g in gestes})
+        points.append((vus == [("approuver", "fenetre"), ("approuver", "iphone"), ("publier", "fenetre"), ("publier", "iphone")],
+                       f"gestes journalisés « RT » avec leur origine : {', '.join(f'{q} ({a})' for q, a in vus)}"))
+        dire("paquets prêts à poster (tâche « paquets », vraies fiches)…")
+        fiches = {f["id"]: f for f in json.loads((DEPOT / "fabrique" / "publication" / "reseaux.json").read_text(encoding="utf-8"))["reseaux"]}
+        for v, (n, _, secondes) in ((v1, VIDEOS_J4[0]), (v2, VIDEOS_J4[1])):
+            q = banc.attendre(lambda: (x := fenetre.appeler("paquets", id=sid, video=v)) and all(y["etat"] != "à faire" for y in x) and x, 900, f"les paquets de la vidéo {n}", pas=2)
+            ecarts = []
+            for y in q:
+                f = fiches[y["reseau"]]
+                for x in y["fichiers"]:
+                    pr = json.loads(subprocess.run([ffprobe(), "-v", "error", "-show_entries", "stream=codec_name,pix_fmt", "-of", "json", str(Path(y["dossier"]) / x["nom"])],
+                                                   capture_output=True, text=True, encoding="utf-8").stdout)["streams"]
+                    if sorted(s["codec_name"] for s in pr) != ["aac", "h264"] or "yuv420p" not in [s.get("pix_fmt") for s in pr]:
+                        ecarts.append(f"{x['nom']} : {pr}")
+                ecarts += y["fautes"] + [f"{y['nom']} : texte de {len(t['texte'])} caractères" for t in y["textes"] if len(t["texte"]) > f["texte_max"]]
+                ecarts += [f"{y['nom']} : titre trop long" for t in y["textes"] if len(t["titre"]) > f["titre_max"]]
+            attendus = {k for k, f in fiches.items() if secondes <= f["duree_max_s"] * f["parties_max"]}
+            faits = {y["reseau"] for y in q if y["etat"] == "fait"}
+            points.append((faits == attendus and not ecarts and all(y["raison"] for y in q if y["etat"] == "impossible"),
+                           f"paquets de la vidéo {n} ({secondes} s) conformes aux fiches (format, durée, poids, h264 + aac, texte) : "
+                           + " ; ".join(f"{y['nom']} {y['etat']}" + (f" ({len(y['fichiers'])} fichier(s), {', '.join(str(x['largeur']) + '×' + str(x['hauteur']) for x in y['fichiers'])})"
+                                                                     if y["fichiers"] else f" — {y['raison']}") for y in q)
+                           + (f" ; ÉCARTS : {ecarts[:5]}" if ecarts else "")))
+        dire("relevé des statistiques (tâche « releve »)…")
+        r = subprocess.run([sys.executable, "-m", "fabrique", "executer", "releve"], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
+        dossier = next(p for p in (racine / "sessions").iterdir() if (p / "session.sqlite3").is_file() and p.name != "essais")
+        with closing(sqlite3.connect(f"file:{dossier / 'session.sqlite3'}?mode=ro", uri=True)) as b:
+            jours = b.execute("SELECT COUNT(*), MIN(date), MAX(date) FROM session_statistiquejour WHERE publication_id IS NULL").fetchone()
+        e = json.loads((racine / "donnees" / "taches" / "releve.json").read_text(encoding="utf-8"))
+        points.append((r.returncode == 0 and e["etat"] == "fait" and e["fin"][:10] == f"{datetime.now():%Y-%m-%d}" and jours[0] > 0,
+                       f"relevé du jour en base : {e['etat']} le {e['fin']}, chaîne : {jours[0]} jour(s) du {jours[1]} au {jours[2]} ({'; '.join(e.get('faits', []))})"))
+    except (AssertionError, ErreurApi, OSError, KeyError, ValueError) as e:
+        points.append((False, f"publication en vrais processus : {type(e).__name__} : {e}"))
+    finally:
+        subprocess.run([sys.executable, "-m", "fabrique", "arreter"], cwd=DEPOT, env=env, capture_output=True, timeout=120)
+        noyau.kill()
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_publication.py", "fabrique/tests/test_telephone.py", "fabrique/tests/test_api.py",
+                        "fabrique/tests/test_fenetre.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests de la publication : coupure et reprise à l'octet reçu (processus tué, jamais une 2e vidéo), double clic, non répertorié "
+                                      "d'abord, langue sans chaîne, erreur en clair et alerte, jeton jamais rendu ni journalisé, refus de Google, simulation jamais vers une "
+                                      "vraie chaîne, miniature, playlist, sous-titres ; paquets (parties aux silences, reprise, droits) ; relevé (quota, réessai) ; page "
+                                      f"iPhone (code, cookie, droits) ; écrans Publication, Destinations, Téléphone — {dernier(r)}"))
+    shutil.rmtree(tmp, ignore_errors=True)
+    return points
+
+
+def ffprobe() -> str:
+    from fabrique.moteur.faux import programme
+
+    return programme("ffprobe")
+
+
+def gestes_j4() -> list[tuple[bool, str]]:
+    """Les gestes de RT (plan § 7.3), lus dans l'installation réelle (lecture seule) : chaînes reliées, vidéo d'essai publiée en non répertorié
+    depuis le PC puis depuis l'iPhone."""
+    studio = garde.studio_bramble() or DEPOT.parents[1]
+    donnees = studio / "FABRIQUE" / "donnees" / "noyau.sqlite3"
+    try:
+        with closing(sqlite3.connect(f"file:{donnees}?mode=ro", uri=True)) as b:
+            gestes = [json.loads(x) for (x,) in b.execute("SELECT detail FROM noyau_journal WHERE action = 'geste' AND acteur = 'RT'")]
+            sessions = [(i, d) for i, d in b.execute("SELECT id, dossier FROM noyau_session WHERE essais = 0")]
+        reliees, publiees = [], []
+        for i, d in sessions:
+            with closing(sqlite3.connect(f"file:{studio / 'FABRIQUE' / 'sessions' / d / 'session.sqlite3'}?mode=ro", uri=True)) as b:
+                reliees += [x for (x,) in b.execute("SELECT langue FROM session_destination WHERE simulation = 0 AND jeton != '' AND refusee IS NULL")]
+                publiees += [(i, pk, s) for pk, s in b.execute("SELECT id, statut FROM session_publication WHERE simulation = 0 AND identifiant_youtube != ''")]
+        depuis = {g["appelant"] for g in gestes if g.get("quoi") == "publier" and any(g.get("publication") == pk and g.get("session") == i for i, pk, _ in publiees)}
+        non_rep = [s for _, _, s in publiees if s == "non_repertoriee"]
+    except (sqlite3.Error, OSError, ValueError, KeyError) as e:
+        return [(False, f"gestes de RT : installation réelle illisible ({e})")]
+    return [(bool(reliees), f"geste de RT : chaînes reliées dans Fabrique (réel) : {', '.join(reliees) or 'AUCUNE ENCORE'}"),
+            (bool(non_rep) and {"fenetre", "iphone"} <= depuis,
+             f"geste de RT : vidéo d'essai publiée en non répertorié sur une chaîne reliée ({len(non_rep)} non répertoriée(s)), depuis : "
+             f"{', '.join(sorted(depuis)) or 'NI LE PC NI L’IPHONE ENCORE'} (le PC puis l'iPhone attendus)")]
+
+
+def j4(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J4 (plan § 7.1) : la publication en vrais processus sur le faux YouTube, la page iPhone, les paquets contre les fiches, le relevé ; puis la
+    construction et la recette d'installation, Bramble Studio intact ; enfin les gestes de RT lus dans l'installation réelle."""
+    avant = bramble_avant(dire)
+    return publication_j4(dire) + construction(dire, publier) + bramble_points(avant) + gestes_j4()
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4}
 
 
 def main(argv=None) -> int:

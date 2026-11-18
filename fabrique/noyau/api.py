@@ -321,7 +321,9 @@ def approuver(request, id: str, video: str):
     """Geste de RT (fenêtre, iPhone) : la vidéo finie reçoit un brouillon de publication par langue, à relire avant « Publier »."""
     from fabrique.publication import publication
 
-    return {"message": publication.approuver(session_(id), video, ACTEURS[request.auth])}
+    r = {"message": publication.approuver(session_(id), video, ACTEURS[request.auth])}
+    noter(ACTEURS[request.auth], "geste", quoi="approuver", appelant=request.auth, session=id, video=video)  # d'où (fenêtre ou iPhone) : la recette J4 le lit
+    return r
 
 
 @api.get("/sessions/{id}/videos/{video}/publications", response=list[schemas.Publication])
@@ -384,7 +386,9 @@ def publier(request, id: str, pub: int, action: Literal["publier", "reprendre", 
     """Geste de RT (fenêtre, iPhone) : Publier (l'envoi part en tâche détachée légère), Reprendre l'envoi après une erreur, Annuler avant le départ."""
     from fabrique.publication import publication
 
-    return {"message": getattr(publication, action)(session_(id), pub, ACTEURS[request.auth])}
+    r = {"message": getattr(publication, action)(session_(id), pub, ACTEURS[request.auth])}
+    noter(ACTEURS[request.auth], "geste", quoi=action, appelant=request.auth, session=id, publication=pub)
+    return r
 
 
 @api.post("/telephone/code", response=schemas.CodeTelephone)
