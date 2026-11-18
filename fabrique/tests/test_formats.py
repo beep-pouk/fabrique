@@ -266,3 +266,71 @@ def test_video_pilote_au_format_voix_off(request):
             assert {m.outil for m in v.morceaux.all()} <= {f"faux_{b}" for b in ("voix", "images", "animation", "musique", "montage", "miniature", "controle")}
     finally:
         Tache.objects.filter(session_id=s.id).delete()
+
+
+def test_f4_en_mode_reel_outils_de_la_carte_simules(essais, monkeypatch):
+    """F4 en mode réel, de bout en bout, les modèles simulés au plus près (Chatterbox, Whisper, l'outil de voix de la langue, Qwen-Image,
+    ComfyUI, ACE-Step) : chaque étape de la carte fait toute sa langue d'un coup (un lot, un démarrage de ComfyUI), chaque morceau lie le sien ;
+    le score de Whisper va au contrôle ; une coupure reprend aux fichiers manquants."""
+    from fabrique.moteur.f1 import adaptateur, comfy, images, langue, musique, voix
+    from fabrique.moteur.faux import lancer, programme
+    from fabrique.noyau import etat
+
+    monkeypatch.setattr(etat, "simulation", lambda: False)
+    reglages = execution.settings.SESSIONS / essais.dossier / "reglages"
+    reglages.mkdir(exist_ok=True)
+    (reglages / "config.json").write_text(json.dumps({"style": "style factice", "negatif_image": "x", "voix": {"ref_audio": "ref.wav", "ref_text": "x"},
+                                                      "images": {"largeur": 64, "hauteur": 32, "pas": 1, "cfg": 1, "shift": 1}}), encoding="utf-8")
+    appels = {"voix": [], "langue": [], "image": [], "start": 0, "stop": 0, "musique": []}
+
+    def dire(o, dossier, scenes, cfg, *a, **k):
+        for s in scenes:
+            if not (w := Path(dossier) / "voix" / f"s{s['id']:03d}.wav").exists():
+                lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=300:duration={1 + s['id'] / 10}", w)
+        return {str(s["id"]): {"score": 0.5 if s["id"] == 2 else 0.99, "entendu": s["narration"]} for s in scenes}
+
+    monkeypatch.setattr(voix, "faire", lambda o, d, sc, cfg: appels["voix"].append(len(sc)) or dire(o, d, sc, cfg))
+    monkeypatch.setattr(langue, "voix", lambda o, d, sc, l, ref, log=print: appels["langue"].append((l["code"], ref)) or dire(o, d, sc, None))
+    monkeypatch.setattr(adaptateur, "langue_de", lambda session, code: {"code": code})
+
+    def qwen(self, prompt, out, seed, w=None, h=None, **k):
+        appels["image"].append((prompt, seed, w, h))
+        lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"color=c=0x{seed % 1000 * 70:06x}:s={w}x{h}", "-frames:v", "1", out)
+
+    monkeypatch.setattr(images.Images, "qwen_image", qwen)
+    monkeypatch.setattr(comfy, "start", lambda *a, **k: appels.__setitem__("start", appels["start"] + 1))
+    monkeypatch.setattr(comfy, "stop", lambda *a, **k: appels.__setitem__("stop", appels["stop"] + 1))
+
+    def composer(o, dossier, data, total, cfg):
+        appels["musique"].append(round(total, 2))
+        lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=200:duration={total}", out := Path(dossier) / "musique.wav")
+        return out
+
+    monkeypatch.setattr(musique, "faire", composer)
+    try:
+        v = execution.preparer(essais, f4(langues=["en", "xx"]), VOIX_OFF, traductions={"xx": VOIX_OFF_XX})
+        with execution.routeur.session(essais):
+            assert {m.outil for m in v.morceaux.all()} >= {"plan_voix", "plan_images", "plan_musique", "plan_camera", "plan_montage"}
+        execution.jouer(essais, v.id)
+        assert appels["voix"] == [3, 3, 3] and appels["langue"] == [("xx", "ref.wav")] * 3  # un lot par morceau, chacun ne refait que ce qui manque
+        assert [x[1] for x in appels["image"]] == [1001, 1002, 1003] and appels["start"] == appels["stop"] == 1  # un seul démarrage de ComfyUI
+        assert appels["image"][1][0] == "sleeping trees. Style: style factice" and appels["image"][0][2:] == (64, 32)
+        assert appels["musique"] == [pytest.approx(1.1 + 1.2 + 1.3 + 3 * 0.6, abs=0.05)] * 2  # la durée de la voix montée, par langue
+        for langue_ in ("en", "xx"):
+            m = montages.mesure(execution.finale(essais, v.id, langue_))
+            assert m["duree_s"] == pytest.approx(1.7 + 1.8 + 1.9, abs=0.1) and m["son"]
+            d = rapport(essais, v.id, langue_)["defauts"]
+            assert [(x["code"], x["debut"]) for x in d] == [("voix", pytest.approx(1.7, abs=0.05))]  # le plan s1/p2, minuté
+        assert morceau(essais, v.id, "voix", "s1/p2", "xx")["resultat"]["infos"]["controle"] == {"score": 0.5, "entendu": "Phrase factice deux.", "seuil": langue.SEUIL}
+        # coupure : une image et son morceau perdus, refaits seuls
+        base = execution.settings.SESSIONS / essais.dossier / "videos" / v.id / "commun"
+        import shutil
+
+        shutil.rmtree(base / "images" / "s2" / "p1")
+        (base / "atelier" / "video" / "images" / "plan_003.png").unlink()
+        with execution.routeur.session(essais):
+            execution.Morceau.objects.filter(video_id=v.id, etape="images", unite="s2/p1").update(etat="attente")
+        execution.jouer(essais, v.id)
+        assert [x[1] for x in appels["image"]] == [1001, 1002, 1003, 1003] and appels["start"] == 2
+    finally:
+        (reglages / "config.json").unlink()
