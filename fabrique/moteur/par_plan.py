@@ -59,7 +59,10 @@ def plans(d: Demande) -> list[dict]:
     script = Path(d.script)
     if d.langue and (t := script.with_name(f"{script.stem}.{d.langue}.json")).is_file():
         script = t
-    return [{"unite": f"{sc['id']}/{p['id']}", **p} for sc in json.loads(script.read_text(encoding="utf-8"))["scenes"] for p in sc["plans"]]
+    s = json.loads(script.read_text(encoding="utf-8"))
+    if "sections" in s:  # une chanson : une section = un plan (ses paroles pour texte)
+        return [{**x, "unite": x["id"], "texte": "\n".join(x.get("paroles", []))} for x in s["sections"]]
+    return [{"unite": f"{sc['id']}/{p['id']}", **p} for sc in s["scenes"] for p in sc["plans"]]
 
 
 def rang(d: Demande, tous: list[dict]) -> int:
@@ -221,6 +224,11 @@ def animation(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     mouvement = d.consigne.get("mouvement", "avancee")
     if mouvement == "fixe" and (max_s := d.reglages.get("plan_fixe_max_s")) and secondes > max_s:
         mouvement = "avancee"  # jamais une image tenue sans mouvement au-delà de la limite du format (F1 v2)
+    return filmer(image, mouvement, secondes, d, dossier)
+
+
+def filmer(image: Path, mouvement: str, secondes: float, d: Demande, dossier: Path) -> Resultat:
+    """clip.mp4 : la caméra sur l'image pendant `secondes`, au cadre du format."""
     l, h = CADRES.get(d.reglages.get("cadre", "16:9"), CADRES["16:9"])
     z, x, y = camera(mouvement, secondes)
     n = max(1, round(secondes * IPS))

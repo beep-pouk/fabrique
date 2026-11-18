@@ -29,6 +29,9 @@ Nom = Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,40}$"), AfterValidator(pas_re
 Langue = Annotated[str, Field(pattern=r"^[a-z]{2,3}(-[a-z0-9]+)?$"), AfterValidator(pas_reserve)]
 
 
+Mouvement = Literal["fixe", "avancee", "recul", "gauche", "droite"]  # la caméra sur une image
+
+
 class Reglages(Strict):
     duree_s: tuple[int, int] | None = None
     cadre: str = "16:9"
@@ -52,7 +55,7 @@ class Recette(Strict):
     nom: str
     version: int = Field(ge=1)
     reglages: Reglages
-    script: Literal["scenes-plans-narrateur", "voix-off", "scenario-bramble", "compilation", "extrait"]
+    script: Literal["scenes-plans-narrateur", "voix-off", "chanson", "scenario-bramble", "compilation", "extrait"]
     etapes: list[Etape] = Field(min_length=1)
     controles: str = ""
     outils: dict[str, str] = {}  # défaut du format : étape → outil
@@ -92,7 +95,7 @@ class Script(Strict):
 class PlanVoixOff(Plan):
     texte: str = Field(min_length=1, max_length=300)  # ce que la voix dit sur ce plan (une ou deux phrases : la voix lit mal au-delà)
     image: str = Field(min_length=1)  # la consigne de l'image du plan
-    mouvement: Literal["fixe", "avancee", "recul", "gauche", "droite"] = "avancee"  # la caméra sur l'image
+    mouvement: Mouvement = "avancee"  # la caméra sur l'image
 
 
 class SceneVoixOff(Scene):
@@ -102,6 +105,37 @@ class SceneVoixOff(Scene):
 class ScriptVoixOff(Script):
     """F4 (et F3 créée seule) : une voix raconte, plan par plan, sur des images animées."""
     scenes: list[SceneVoixOff] = Field(min_length=1)
+
+
+class Section(Strict):
+    """Une partie de la chanson : ses paroles (une ligne par vers ; aucune pour une intro), son image et la caméra sur elle."""
+    id: Nom
+    type: Literal["intro", "couplet", "refrain", "pont", "fin"]
+    paroles: list[Annotated[str, Field(min_length=1, max_length=120)]] = []
+    image: str = Field(min_length=1)
+    mouvement: Mouvement = "avancee"
+    outils: dict[str, str] = {}  # exception de la section : étape → outil
+
+
+class StyleMusique(Strict):
+    tags: str = Field(min_length=1)  # genre, instruments, voix (« children's song, ukulele, female voice »)
+    bpm: int = Field(100, ge=40, le=200)
+    tonalite: str = "C major"
+
+
+class Chanson(Strict):
+    """F5 : une chanson (paroles par section, style de la musique), ses images animées et ses paroles calées (karaoké)."""
+    titre: str
+    description: str = ""
+    tags: list[str] = []
+    musique: StyleMusique
+    sections: list[Section] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def chantee(self):
+        if not any(s.paroles for s in self.sections):
+            raise ValueError("une chanson a des paroles")
+        return self
 
 
 class SceneBramble(BaseModel):
@@ -151,8 +185,9 @@ class Extrait(Strict):
         return self
 
 
-FORMES = {"scenes-plans-narrateur": Script, "voix-off": ScriptVoixOff, "scenario-bramble": ScenarioBramble, "compilation": Compilation, "extrait": Extrait}
-PAR_PLAN = ("scenes-plans-narrateur", "voix-off")  # les formes qui se fabriquent plan par plan
+FORMES = {"scenes-plans-narrateur": Script, "voix-off": ScriptVoixOff, "chanson": Chanson, "scenario-bramble": ScenarioBramble, "compilation": Compilation,
+          "extrait": Extrait}
+PAR_PLAN = ("scenes-plans-narrateur", "voix-off", "chanson")  # les formes qui se fabriquent plan par plan (une section de chanson = un plan)
 
 
 def recette(donnees: dict) -> Recette:
@@ -168,9 +203,9 @@ def script(donnees: dict, forme: str = "scenes-plans-narrateur") -> Script | Sce
     s = controler(FORMES[forme], donnees, "script")
     if forme not in PAR_PLAN:
         return s
-    ids = [(sc.id, p.id) for sc in s.scenes for p in sc.plans]
-    if len(set(ids)) != len(ids) or len({sc.id for sc in s.scenes}) != len(s.scenes):
-        raise Refus("script refusé : deux scènes ou deux plans d'une scène ont le même id")
+    plans, scenes = [u for u, *_ in unites(s, "plan")], [u for u, *_ in unites(s, "scene")]
+    if len(set(plans)) != len(plans) or len(set(scenes)) != len(scenes):
+        raise Refus("script refusé : deux scènes, deux plans d'une scène ou deux sections ont le même id")
     return s
 
 
@@ -188,6 +223,8 @@ def lire(source: str | Path) -> dict:
 def unites(s: Script, par: str) -> list[tuple[str, dict, str, dict]]:
     """(unité, exception d'outils, texte, consigne) de chaque morceau d'une étape « par » plan, scène ou vidéo ; la consigne d'un plan = ses
     champs propres à la forme (voix-off : image, mouvement)."""
+    if isinstance(s, Chanson):  # une section est un plan et une scène ; son texte : ses paroles
+        return [(x.id, x.outils, "\n".join(x.paroles), x.model_dump(include={"type", "image", "mouvement"})) for x in s.sections] if par != "video" else [("", {}, s.titre, {})]
     if par == "plan":
         return [(f"{sc.id}/{p.id}", p.outils, p.texte, p.model_dump(exclude={"id", "texte", "outils"})) for sc in s.scenes for p in sc.plans]
     if par == "scene":

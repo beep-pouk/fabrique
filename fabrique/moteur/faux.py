@@ -10,7 +10,7 @@ from fabrique import garde
 from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
 SORTIES = {"voix": "voix.wav", "images": "image.png", "animation": "clip.mp4", "musique": "musique.wav", "levres": "clip.mp4",
-           "montage": "video.mp4", "miniature": "miniature.png", "controle": "rapport.json"}
+           "montage": "video.mp4", "miniature": "miniature.png", "controle": "rapport.json", "chant": "chanson.wav"}
 SECONDES = 0.3  # estimation sans chrono
 
 
@@ -58,6 +58,16 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
         duree = float(lancer(programme("ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video).strip())
         sortie.write_text(json.dumps({"video": Path(video).name, "duree_s": duree, "defauts": []}, ensure_ascii=False), encoding="utf-8")
         return Resultat(fichiers=[sortie.name], duree_s=duree, infos={**infos, "defauts": []})
+    if demande.brique == "chant":  # deux secondes par section, les mots de ses paroles répartis dedans, comme l'outil réel les cale
+        from fabrique.moteur import paroles
+
+        sections, mots = paroles.script_de(demande)["sections"], []
+        for i, s in enumerate(sections):
+            ms = paroles.mots_du_texte([s])
+            mots += [{**m, "debut": round(2 * i + 2 * j / len(ms), 3), "fin": round(2 * i + 2 * (j + 1) / len(ms), 3)} for j, m in enumerate(ms)]
+        duree = 2.0 * len(sections)
+        lancer(programme("ffmpeg"), "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", f"sine=frequency={r.get('hauteur_hz', 440)}:duration={duree}:sample_rate=24000", sortie)
+        return Resultat(fichiers=[sortie.name], duree_s=duree, infos={**infos, "mots": mots, "sections": paroles.bornes(sections, mots, duree), "compris": 1.0})
     duree = float(max([1, *map(len, demande.entrees.values())])) if demande.brique == "montage" else 1.0  # le montage : une seconde par plan
     couleur, hz = r.get("couleur", "5c8048"), r.get("hauteur_hz", 440)
     image = f"color=c=0x{couleur}:s={'36x64' if demande.reglages.get('cadre') == '9:16' else '64x36'}"

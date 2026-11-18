@@ -277,7 +277,7 @@ def test_outil_payant_plafond_nouvelle_tentative_repli(essais, monkeypatch):
 def test_recettes_et_scripts_controles():
     r = recettes.lire("essai")
     assert recettes.recette(r).reglages.plan_fixe_max_s is None
-    for mauvaise, motif in ((recette(schema=2), "schéma 2 inconnu"), (recette(etapes=[{"id": "x", "brique": "chant", "par": "plan"}]), "brique inconnue"),
+    for mauvaise, motif in ((recette(schema=2), "schéma 2 inconnu"), (recette(etapes=[{"id": "x", "brique": "danse", "par": "plan"}]), "brique inconnue"),
                             (recette(etapes=[{"id": "x", "brique": "voix", "par": "plan"}] * 2), "même id"),
                             (recette(outils={"voix": "inconnu"}), "n'existe pas"), (recette(outils={"absente": "faux_voix"}), "étapes absentes"),
                             (recette(couleur="rouge"), "couleur"), (recette(reglages={"langues": []}), "langues"),

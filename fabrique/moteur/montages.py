@@ -16,6 +16,7 @@ from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
 CADRES = {"16:9": (1920, 1080), "9:16": (1080, 1920)}
 FORMAT = ("codec_name", "profile", "width", "height", "pix_fmt", "sample_aspect_ratio", "r_frame_rate", "time_base", "sample_rate", "channels", "channel_layout")  # bout à bout sans réencoder : tout égal
+PAROLES_COMPRISES = 0.5  # part des mots des paroles retrouvés par Whisper dans la chanson (le chant est moins net que la voix parlée)
 ECART_VOIX = 0.15  # sous le seuil de Whisper de plus que cela : la phrase n'est plus comprise, défaut bloquant
 BLOC_SRT = re.compile(r"(\d+:\d+:\d+[,.]\d+)\s*-->\s*(\d+:\d+:\d+[,.]\d+)[^\n]*\n(.+?)(?:\n\s*\n|\Z)", re.S)
 
@@ -173,7 +174,7 @@ def controle(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
         incrustes = None
     if d.reglages.get("sous_titres") == "incrustes" and incrustes == 0:
         defauts.append({"debut": None, "fin": None, "texte": "sous-titres incrustés attendus par le format : la source n'en a aucun", "gravite": "forte"})
-    defauts += voix_peu_intelligibles(d)
+    defauts += voix_peu_intelligibles(d) + paroles_peu_comprises(d)
     if max_s := d.reglages.get("plan_fixe_max_s"):
         from fabrique.moteur.f1 import mouvement
         from fabrique.moteur.faux import programme
@@ -182,6 +183,19 @@ def controle(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     (dossier / "rapport.json").write_text(json.dumps({"video": str(video), **{k: v for k, v in m.items() if k != "format"}, "defauts": defauts}, ensure_ascii=False, indent=1),
                                           encoding="utf-8")
     return Resultat(fichiers=["rapport.json"], duree_s=m["duree_s"], infos={"defauts": defauts})
+
+
+def paroles_peu_comprises(d: Demande) -> list[dict]:
+    """Une chanson dont Whisper retrouve moins de la moitié des paroles au calage (« compris » du chant) : chantée de travers, ou le karaoké
+    est mal calé ; moins du quart : bloquant."""
+    defauts = []
+    for e, fs in d.entrees.items():
+        if d.sources.get(e) == "chant" and fs and (r := Path(fs[0]).parent / "resultat.json").is_file():
+            c = json.loads(r.read_text(encoding="utf-8"))["infos"].get("compris")
+            if c is not None and c < PAROLES_COMPRISES:
+                defauts.append({"debut": None, "fin": None, "code": "paroles", "gravite": "forte" if c < PAROLES_COMPRISES / 2 else "moyenne",
+                                "texte": f"paroles peu comprises : Whisper en retrouve {c:.0%} (karaoké calé au mieux)"})
+    return defauts
 
 
 def voix_peu_intelligibles(d: Demande) -> list[dict]:

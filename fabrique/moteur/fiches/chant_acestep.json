@@ -1,0 +1,29 @@
+{
+ "id": "chant_acestep",
+ "nom": "Chanson (ACE-Step 1.5 de Bramble Studio, par ComfyUI ; paroles calées par Whisper)",
+ "roles": [
+  "chant"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "celle de l'outil de Bramble Studio (à reporter au banc, J6)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 8,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "30 s à 4 min ; paroles et balises de section, style du script ; calage des mots par Whisper large-v3 (Linux)",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "module": "fabrique.moteur.par_section",
+ "reglages": {
+  "secondes": 240
+ },
+ "exige": [
+  "reglages/config.json"
+ ]
+}

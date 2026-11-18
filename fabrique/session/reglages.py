@@ -170,6 +170,11 @@ def script_pilote(d: dict, forme: str = "scenes-plans-narrateur") -> dict:
     s = {"titre": f"Vidéo pilote — {d['nom']}"[:200], "scenes": [
         {"id": "s1", "plans": [{"id": "p1", "texte": texte}, {"id": "p2", "texte": d["style"] or texte}]},
         {"id": "s2", "plans": [{"id": "p1", "texte": d["difference"] or texte}]}]}
+    if forme == "chanson":  # une intro, un couplet, un refrain : paroles tirées de la session, images à son style
+        image = d["style"] or texte
+        return {"titre": s["titre"], "musique": {"tags": "gentle children's song, soft voice", "bpm": 100}, "sections": [
+            {"id": "s1", "type": "intro", "image": image}, {"id": "s2", "type": "couplet", "paroles": [texte[:120]], "image": image, "mouvement": "droite"},
+            {"id": "s3", "type": "refrain", "paroles": [(d["difference"] or texte)[:120]], "image": image}]}
     if forme == "voix-off":  # chaque plan a sa consigne d'image (le style de la session) et un mouvement
         for sc in s["scenes"]:
             for p, mouvement in zip(sc["plans"], ("avancee", "droite")):

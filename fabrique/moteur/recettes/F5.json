@@ -1,0 +1,66 @@
+{
+ "schema": 1,
+ "id": "F5",
+ "nom": "Chanson, comptine",
+ "version": 1,
+ "reglages": {
+  "duree_s": [
+   30,
+   240
+  ],
+  "cadre": "16:9",
+  "langues": [
+   "en"
+  ],
+  "sous_titres": "incrustes",
+  "enfants": true,
+  "declaration_ia": true,
+  "plan_fixe_max_s": 12
+ },
+ "script": "chanson",
+ "etapes": [
+  {
+   "id": "chant",
+   "brique": "chant",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "images",
+   "brique": "images",
+   "par": "plan"
+  },
+  {
+   "id": "animation",
+   "brique": "animation",
+   "par": "plan"
+  },
+  {
+   "id": "montage",
+   "brique": "montage",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "miniature",
+   "brique": "miniature",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "revue",
+   "brique": "controle",
+   "par": "video",
+   "langue": true
+  }
+ ],
+ "controles": "technique",
+ "outils": {
+  "chant": "chant_acestep",
+  "images": "plan_images",
+  "animation": "section_camera",
+  "montage": "montage_karaoke",
+  "miniature": "miniature_image",
+  "revue": "controle_technique"
+ }
+}

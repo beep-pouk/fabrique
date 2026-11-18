@@ -388,3 +388,123 @@ def test_demande_d_ecriture_dit_les_champs_de_la_forme(essais):
     finally:
         with routeur.session(essais):
             Reglage.objects.filter(cle__in=("formats", "format")).delete()
+
+
+# ---- J9 : F5 chanson, comptine ----
+
+CHANSON = {"titre": "La comptine factice", "description": "Une comptine factice.", "tags": ["comptine"],
+           "musique": {"tags": "children's song, ukulele", "bpm": 100, "tonalite": "B-flat major"}, "sections": [
+               {"id": "s1", "type": "intro", "image": "a sunny meadow"},
+               {"id": "s2", "type": "couplet", "paroles": ["Petit lapin dans le pré", "saute saute sans arrêt"], "image": "a rabbit jumping", "mouvement": "droite"},
+               {"id": "s3", "type": "refrain", "paroles": ["Bonne nuit petit lapin"], "image": "a rabbit asleep", "mouvement": "fixe"}]}
+
+
+def f5(**reglages) -> dict:
+    r = recettes.lire("F5")
+    return {**r, "reglages": {**r["reglages"], "duree_s": [1, 60], **reglages}}  # le faux chant dure 2 s par section
+
+
+def test_f5_chanson_de_bout_en_bout_karaoke_incruste(essais):
+    v = fabriquer(essais, f5(), CHANSON)
+    finale = execution.finale(essais, v, "en")
+    m = montages.mesure(finale)
+    assert (m["largeur"], m["hauteur"], m["son"]) == (1920, 1080, True) and m["duree_s"] == pytest.approx(6, abs=0.1)  # la chanson entière
+    r = json.loads((finale.parent / "resultat.json").read_text(encoding="utf-8"))
+    assert [(p["unite"], p["debut"]) for p in r["infos"]["plans"]] == [("s1", 0), ("s2", 1.7), ("s3", 3.7)]  # une section commence juste avant son 1er mot
+    ass = (finale.parent / "karaoke.ass").read_text(encoding="utf-8")
+    assert r["infos"]["incrustes"] == 3 and "{\\k" in ass and "Bonne nuit petit lapin" not in ass and "{\\k" + "50}Bonne" in ass  # un mot surligné à son moment
+    assert [x["text"] for x in montages.sous_titres(finale)] == ["Petit lapin dans le pré", "saute saute sans arrêt", "Bonne nuit petit lapin"]
+    assert clair(finale, 2.2) > 1000 and rapport(essais, v)["defauts"] == []
+    anim = morceau(essais, v, "animation", "s3")
+    assert anim["demande"]["consigne"] == {"type": "refrain", "image": "a rabbit asleep", "mouvement": "fixe"} and anim["resultat"]["duree_s"] == pytest.approx(2.3, abs=0.05)
+
+
+def test_f5_paroles_peu_comprises_et_refus(essais, monkeypatch):
+    from fabrique.moteur import faux
+
+    vrai = faux.fabriquer
+
+    def mal_chante(fiche, d, dossier):
+        r = vrai(fiche, d, dossier)
+        if d.brique == "chant":
+            r.infos["compris"] = 0.2
+        return r
+
+    monkeypatch.setattr(faux, "fabriquer", mal_chante)
+    v = fabriquer(essais, f5(), CHANSON)
+    assert [(x["code"], x["gravite"]) for x in rapport(essais, v)["defauts"]] == [("paroles", "forte")]
+    with pytest.raises(Refus, match="une chanson a des paroles"):
+        execution.preparer(essais, f5(), {**CHANSON, "sections": [CHANSON["sections"][0]]})
+    with pytest.raises(Refus, match="sections ont le même id"):
+        execution.preparer(essais, f5(), {**CHANSON, "sections": [CHANSON["sections"][1], CHANSON["sections"][1]]})
+
+
+def test_f5_en_mode_reel_ace_step_et_whisper_simules(essais, monkeypatch):
+    """Le chant réel, ComfyUI et Whisper simulés au plus près : le flux de F1 reçoit les paroles balisées, le style et la langue ; ComfyUI est
+    arrêté avant Whisper ; les mots entendus calent les paroles (un mot manqué placé entre ses voisins) ; les sections prennent leurs bornes."""
+    from fabrique.moteur import par_section
+    from fabrique.moteur.f1 import comfy
+    from fabrique.moteur.faux import lancer, programme
+    from fabrique.noyau import etat
+
+    monkeypatch.setattr(etat, "simulation", lambda: False)
+    reglages = execution.settings.SESSIONS / essais.dossier / "reglages"
+    reglages.mkdir(exist_ok=True)
+    (reglages / "config.json").write_text(json.dumps({"style": "style factice", "images": {"largeur": 64, "hauteur": 32, "pas": 1, "cfg": 1, "shift": 1}}), encoding="utf-8")
+    vu = {"etats": []}
+
+    def run(prompt, timeout=0):
+        vu["consigne"] = prompt["4"]["inputs"]
+        lancer(programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=12", out := Path(execution.settings.RACINE) / "ace.wav")
+        return [str(out)]
+
+    monkeypatch.setattr(comfy, "start", lambda *a, **k: vu["etats"].append("start"))
+    monkeypatch.setattr(comfy, "stop", lambda *a, **k: vu["etats"].append("stop"))
+    monkeypatch.setattr(comfy, "run", run)
+
+    vrai_run = par_section.subprocess.run
+
+    def whisper(cmd, **k):  # Whisper entend le couplet sauf « dans », et pas le refrain ; le reste (ffmpeg) passe
+        if cmd[0] != "wsl":
+            return vrai_run(cmd, **k)
+        vu["etats"].append("whisper")
+        sortie = cmd[-1].split()[-1].strip("'")
+        fichier = Path(sortie[5].upper() + ":" + sortie[6:]) if sortie.startswith("/mnt/") else Path(sortie)
+        mots = [("petit", 3.0), ("lapin", 3.5), ("le", 4.5), ("pré", 5.0), ("saute", 6.0), ("saute", 6.5), ("sans", 7.0), ("arrêt", 7.5)]
+        fichier.write_text(json.dumps([{"mot": m, "debut": a, "fin": a + 0.4} for m, a in mots]), encoding="utf-8")
+
+    monkeypatch.setattr(par_section.subprocess, "run", whisper)
+    from fabrique.moteur.f1 import images
+
+    monkeypatch.setattr(images.Images, "qwen_image", lambda self, prompt, out, seed, w=None, h=None, **k: lancer(
+        programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c=0x406080:s={w}x{h}", "-frames:v", "1", out))
+    try:
+        v = execution.preparer(essais, f5(), CHANSON).id
+        execution.jouer(essais, v)  # sans la file : son verrou de carte lirait la vraie carte
+        c = morceau(essais, v, "chant", "video", "en")["resultat"]["infos"]
+        assert vu["consigne"]["lyrics"] == "[Intro]\n\n[Verse]\nPetit lapin dans le pré\nsaute saute sans arrêt\n\n[Chorus]\nBonne nuit petit lapin"
+        assert (vu["consigne"]["tags"], vu["consigne"]["bpm"], vu["consigne"]["keyscale"], vu["consigne"]["language"]) == ("children's song, ukulele", 100, "Bb major", "en")
+        assert vu["consigne"]["duration"] == pytest.approx(30.0)  # 3 lignes et une intro au tempo, 30 s au moins
+        assert vu["etats"][:3] == ["start", "stop", "whisper"]  # la carte libérée avant Whisper
+        assert c["compris"] == pytest.approx(8 / 13, abs=0.01) and [m["debut"] for m in c["mots"][:4]] == [3.0, 3.5, 3.9, 4.5]
+        assert c["sections"] == [{"id": "s1", "debut": 0.0, "fin": 2.7}, {"id": "s2", "debut": 2.7, "fin": 7.6}, {"id": "s3", "debut": 7.6, "fin": 12.0}]
+        assert montages.mesure(execution.finale(essais, v, "en"))["duree_s"] == pytest.approx(12, abs=0.1)
+    finally:
+        (reglages / "config.json").unlink()
+
+
+def test_video_pilote_au_format_chanson(request):
+    from fabrique.noyau.models import Tache
+    from fabrique.session import reglages
+
+    s = reglages.creer(f"Session {request.node.name}", [{"code": "xx", "nom": "Langue factice"}], promesse="une comptine calme")
+    try:
+        reglages.ecrire(s, {"formats": ["F5"], "difference": "un animal différent", "style": "aquarelle douce"}, "RT")
+        reglages.finir(s, "RT")
+        s.refresh_from_db()
+        assert "dans la file" in reglages.pilote(s, "RT")
+        with execution.routeur.session(s):
+            v = execution.Video.objects.get(id=Tache.objects.get(session_id=s.id).video_id)
+            assert v.recette["id"] == "F5" and recettes.script(v.script, "chanson").sections[1].paroles == ["une comptine calme"]
+    finally:
+        Tache.objects.filter(session_id=s.id).delete()
