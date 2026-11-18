@@ -27,6 +27,8 @@ def alertes(e: dict, libre: int) -> list[str]:
         a.append(f"disque : {libre / 1e9:.0f} Go libres (moins de {SEUIL_DISQUE_GO} Go)")
     if e["sauvegarde"].get("etat") == "erreur":
         a.append(f"la dernière sauvegarde a raté : {e['sauvegarde'].get('message', '')}")
+    if e["publication"].get("etat") == "erreur":
+        a += e["publication"].get("alertes", [])
     a += [f"« {t['titre']} » : {x}" for t in e["file"]["taches"] if t["etat"] not in ("finie", "annulee") for x in t["alertes"]]
     return a
 
@@ -40,7 +42,7 @@ def etat(maintenant: datetime | None = None) -> dict:
          "sessions": list(Session.objects.order_by("cree").values_list("nom", flat=True)),
          "file": {"attente": [t["titre"] for t in attente], "encours": encours and f"{encours['titre']} ({encours['progression']})",
                   "raison": attente[0]["raison"] if attente and not encours else "", "taches": liste},
-         "sauvegarde": taches.lire("sauvegarde")}
+         "sauvegarde": taches.lire("sauvegarde"), "publication": taches.lire("publication")}
     e["alertes"] = alertes(e, shutil.disk_usage(settings.RACINE).free)
     s, f = e["sauvegarde"], e["file"]
     e["texte"] = [f"[{datetime.fromisoformat(e['heure']):%d/%m %H:%M}] Fabrique {e['version']} ({e['mode']})",

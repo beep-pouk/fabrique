@@ -1,6 +1,7 @@
 """Le processus du noyau (« Fabrique.exe noyau ») : instance unique (prise exclusive du port de l'API, faite ici : waitress seul laisserait deux
 serveurs écouter le même port sous Windows), migrations en attente, jetons, puis l'API ; une boucle de fond écrit l'état chaque minute, publie
-les changements, lance la sauvegarde du soir (installée seulement : jamais en développement). Repris de Bramble Studio (core/lancement.py)."""
+les changements, lance la sauvegarde du soir (installée seulement : jamais en développement), reprend un envoi que RT a lancé (Publier) et que plus rien n'envoie. Repris de Bramble
+Studio (core/lancement.py)."""
 import logging
 import os
 import threading
@@ -14,6 +15,7 @@ from fabrique import dossiers, programme
 from fabrique.moteur import file
 from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
 from fabrique.noyau.models import Parametre, noter
+from fabrique.publication import publication
 
 log = logging.getLogger(__name__)
 PAS = 2  # secondes entre deux tours de la boucle de fond
@@ -31,23 +33,27 @@ def quitter_bientot(delai: float = 0.5):
 
 def tour(vu: dict, maintenant: datetime) -> dict:
     """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
-    la tâche suivante lancée si la carte est libre (moteur/file.py)."""
+    la tâche suivante lancée si la carte est libre (moteur/file.py) ; un envoi coupé repris (publication/publication.py), son échec notifié."""
     try:  # une file ou un dépôt en panne n'arrêtent ni l'état ni la sauvegarde du soir
         depot.traiter()
         file.tour()
+        publication.relancer()
     except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
-        log.exception("dépôt ou file : tour raté")
-    s, f = taches.lire("sauvegarde"), file.lister()
+        log.exception("dépôt, file ou publication : tour raté")
+    s, f, p = taches.lire("sauvegarde"), file.lister(), taches.lire("publication")
     change = s != vu.get("sauvegarde") or f != vu.get("file")
     if "sauvegarde" in vu:
         if s != vu["sauvegarde"]:
             evenements.publier("sauvegarde", **s)
         if f != vu["file"]:
             evenements.publier("file", taches=f)
+        if p != vu["publication"] and p.get("etat") == "erreur":
+            for a in p.get("alertes", []):
+                evenements.publier("alerte", titre="Publication", message=a)
     if change or time.monotonic() - vu.get("ecrit", -MINUTE) >= MINUTE:
         evenements.publier("etat", **etat.ecrire())
         vu["ecrit"] = time.monotonic()
-    vu["sauvegarde"], vu["file"] = s, f
+    vu["sauvegarde"], vu["file"], vu["publication"] = s, f, p
     if programme.installee() and taches.due(Parametre.lire("auto_sauvegarde"), maintenant) and not taches.occupe("sauvegarde"):
         Parametre.ecrire("auto_sauvegarde", maintenant.isoformat(timespec="seconds"))
         taches.lancer("sauvegarde", "noyau")
