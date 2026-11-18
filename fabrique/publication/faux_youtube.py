@@ -5,8 +5,11 @@ contrôles de l'API sont repris (titre ≤ 100 sans < >, description ≤ 5000 oc
 et IA, miniature ≤ 2 Mo) : une requête hors règle reçoit l'erreur de Google (code + « reason »).
 `appels` note chaque requête (sans l'en-tête d'autorisation ni les secrets) ; `coupure` = nombre total d'octets reçus après lequel la
 connexion d'un envoi est coupée sans réponse, une fois ; `refuser` = le jeton de rafraîchissement est refusé (invalid_grant). Jetons
-« faux-acces-<expiration>-… » et « faux-rafraichi-… » : reconnus par n'importe quelle instance. Les statistiques du faux de Bramble
-arrivent avec le relevé quotidien."""
+« faux-acces-<expiration>-… » et « faux-rafraichi-… » : reconnus par n'importe quelle instance.
+API YouTube Analytics v2 (reports.query, columnHeaders + rows, sur le même serveur, reprise du faux de Bramble) : la chaîne (sans filtre) ou une
+vidéo (filters=video==ID), par jour ; `statistiques[vidéo ou CHAINE_STATS][jour]` = les chiffres que Google aurait (posés par les tests) ; une clé
+absente : des chiffres réguliers jusqu'à l'avant-veille (retard de 48-72 h), pour que la simulation montre un relevé ; `analytics_refus` = 403
+ou 429 → chaque reports.query est refusée (quota)."""
 import base64
 import hashlib
 import json
@@ -14,7 +17,7 @@ import os
 import secrets
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from email import message_from_bytes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -26,6 +29,11 @@ PORTEE = "https://www.googleapis.com/auth/youtube.force-ssl"
 CHAINE = ("UCfauxChaine", "Chaîne factice")
 PLAYLISTS = [("PLfauxUn", "Histoires du renard"), ("PLfauxDeux", "Histoires du hibou"), ("PLfauxTrois", "Compilations factices")]
 MINIATURE_MAX = 2 * 1024 * 1024
+METRIQUES = {"views": "INTEGER", "estimatedMinutesWatched": "INTEGER", "averageViewDuration": "INTEGER", "averageViewPercentage": "FLOAT",
+             "subscribersGained": "INTEGER", "subscribersLost": "INTEGER"}
+REFUS_ANALYTICS = {403: ("quotaExceeded", "The request cannot be completed because you have exceeded your quota."),
+                   429: ("rateLimitExceeded", "Quota exceeded for quota metric 'Queries' and limit 'Queries per minute'.")}
+CHAINE_STATS = ""  # clé des chiffres de la chaîne entière dans `statistiques`
 
 
 def longueur_tags(tags: list[str]) -> int:
@@ -45,10 +53,12 @@ class Faux(ThreadingHTTPServer):
         self.appels = []
         self.coupure = None
         self.refuser = False
+        self.statistiques = {}  # {vidéo ou CHAINE_STATS: {AAAA-MM-JJ: {métrique: valeur}}}
+        self.analytics_refus = None
 
     @property
     def urls(self) -> dict:
-        return {"auth": f"{self.base}/o/oauth2/v2/auth", "token": f"{self.base}/token", "api": self.base}
+        return {"auth": f"{self.base}/o/oauth2/v2/auth", "token": f"{self.base}/token", "api": self.base, "analytics": self.base}
 
     def demarrer(self) -> "Faux":
         threading.Thread(target=self.serve_forever, kwargs={"poll_interval": 0.05}, name="faux-youtube", daemon=True).start()
@@ -287,6 +297,28 @@ class Requete(BaseHTTPRequestHandler):
             page["nextPageToken"] = str(debut + n)
         self._repondre(200, page)
 
+    # ---- statistiques (API YouTube Analytics v2) ----
+
+    def _rapport(self, p: dict):
+        if self.server.analytics_refus:
+            return self._erreur(self.server.analytics_refus, *REFUS_ANALYTICS[self.server.analytics_refus])
+        metriques = p.get("metrics", "").split(",")
+        filtre = p.get("filters", "")
+        video = filtre[len("video=="):] if filtre.startswith("video==") else None
+        try:
+            debut, fin = (datetime.strptime(p[k], "%Y-%m-%d").date() for k in ("startDate", "endDate"))
+        except (KeyError, ValueError):
+            return self._erreur(400, "badRequest", "startDate et endDate (AAAA-MM-JJ) obligatoires")
+        if p.get("ids") != "channel==MINE" or p.get("dimensions") != "day" or (filtre and not video) or any(m not in METRIQUES for m in metriques) or debut > fin:
+            return self._erreur(400, "badRequest", "Requête Analytics invalide (ids, dimensions, filters, metrics)")
+        cle = video or CHAINE_STATS
+        jours = self.server.statistiques[cle] if cle in self.server.statistiques else {
+            f"{j}": {m: (7 * j.day + len(m)) % 50 + 1 for m in METRIQUES} for j in (debut + timedelta(n) for n in range((fin - debut).days + 1))
+            if j <= datetime.now().date() - timedelta(days=2)}
+        rows = [[j, *(jours[j].get(m, 0) for m in metriques)] for j in sorted(jours) if f"{debut}" <= j <= f"{fin}"]
+        entetes = [{"name": "day", "columnType": "DIMENSION", "dataType": "STRING"}] + [{"name": m, "columnType": "METRIC", "dataType": METRIQUES[m]} for m in metriques]
+        self._repondre(200, {"kind": "youtubeAnalytics#resultTable", "columnHeaders": entetes, **({"rows": rows} if rows else {})})  # sans donnée : pas de clé rows (comme l'API)
+
     # ---- routes ----
 
     def do_GET(self):
@@ -300,6 +332,8 @@ class Requete(BaseHTTPRequestHandler):
             return self._playlists(p)
         if chemin == "/youtube/v3/channels" and p.get("mine") == "true":
             return self._repondre(200, {"kind": "youtube#channelListResponse", "items": [{"kind": "youtube#channel", "id": CHAINE[0], "snippet": {"title": CHAINE[1]}}]})
+        if chemin == "/v2/reports":
+            return self._rapport(p)
         self._erreur(404, "notFound", "Not Found")
 
     def do_POST(self):

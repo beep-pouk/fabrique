@@ -36,6 +36,7 @@ class Etat(BaseModel):
     sessions: list[str]
     file: dict
     sauvegarde: dict
+    releve: dict
     alertes: list[str]
     texte: list[str]
 

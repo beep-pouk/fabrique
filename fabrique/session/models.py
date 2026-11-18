@@ -168,3 +168,17 @@ class Publication(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["video", "langue"], name="publication_unique")]
+
+
+class StatistiqueJour(models.Model):
+    """Un jour d'une chaîne (publication vide) ou d'une de ses vidéos chez YouTube (reports.query de l'API Analytics : chiffres en retard de
+    48 à 72 h, relus et corrigés au relevé suivant). Repris de Bramble Studio (core/models.StatistiqueJour), par destination."""
+    destination = models.ForeignKey(Destination, on_delete=models.CASCADE, related_name="statistiques")
+    publication = models.ForeignKey(Publication, on_delete=models.CASCADE, null=True, related_name="statistiques")
+    date = models.DateField()
+    vues = models.PositiveIntegerField(default=0)
+    heures = models.FloatField(default=0)
+    duree_moyenne = models.FloatField(null=True)
+    retention = models.FloatField(null=True)  # % vu
+    abonnes = models.IntegerField(default=0)  # gagnés
+    abonnes_perdus = models.IntegerField(default=0)

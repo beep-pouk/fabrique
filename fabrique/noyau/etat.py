@@ -27,8 +27,9 @@ def alertes(e: dict, libre: int) -> list[str]:
         a.append(f"disque : {libre / 1e9:.0f} Go libres (moins de {SEUIL_DISQUE_GO} Go)")
     if e["sauvegarde"].get("etat") == "erreur":
         a.append(f"la dernière sauvegarde a raté : {e['sauvegarde'].get('message', '')}")
-    if e["publication"].get("etat") == "erreur":
-        a += e["publication"].get("alertes", [])
+    for t in ("publication", "releve"):
+        if e[t].get("etat") == "erreur":
+            a += e[t].get("alertes", [])
     a += [f"« {t['titre']} » : {x}" for t in e["file"]["taches"] if t["etat"] not in ("finie", "annulee") for x in t["alertes"]]
     return a
 
@@ -42,13 +43,14 @@ def etat(maintenant: datetime | None = None) -> dict:
          "sessions": list(Session.objects.order_by("cree").values_list("nom", flat=True)),
          "file": {"attente": [t["titre"] for t in attente], "encours": encours and f"{encours['titre']} ({encours['progression']})",
                   "raison": attente[0]["raison"] if attente and not encours else "", "taches": liste},
-         "sauvegarde": taches.lire("sauvegarde"), "publication": taches.lire("publication")}
+         "sauvegarde": taches.lire("sauvegarde"), "publication": taches.lire("publication"), "releve": taches.lire("releve")}
     e["alertes"] = alertes(e, shutil.disk_usage(settings.RACINE).free)
     s, f = e["sauvegarde"], e["file"]
     e["texte"] = [f"[{datetime.fromisoformat(e['heure']):%d/%m %H:%M}] Fabrique {e['version']} ({e['mode']})",
                   f"Sessions : {', '.join(e['sessions']) or 'aucune'} | en cours : {f['encours'] or 'rien'} | file : {len(f['attente'])}"
                   + (f" (attend : {f['raison']})" if f["raison"] else ""),
                   f"Dernière sauvegarde : {s.get('etat', 'aucune')} {s.get('fin', '')} {s.get('fichier', s.get('message', ''))}".rstrip(),
+                  f"Dernier relevé des statistiques : {e['releve'].get('etat', 'aucun')} {e['releve'].get('fin', '')}".rstrip(),
                   *(f"! {a}" for a in e["alertes"])]
     return e
 

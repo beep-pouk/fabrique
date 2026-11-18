@@ -478,3 +478,86 @@ def test_retoucher_choisir_et_droits(session, faux, envois):
     assert (a["titre"], a["versions"], a["playlist_titre"]) == ("Un autre titre", 2, "Histoires du hibou")
     assert agir(session, pk, "publier", "iphone").status_code == 200 and publication.executer() == 0  # Publier : aussi depuis l'iPhone
     assert api("post", f"{base}/publications/{pk}/retoucher", "fenetre", {"titre": "x", "description": "y"}).status_code == 409  # parti
+
+
+# ---- relevé quotidien des statistiques ----
+
+from datetime import timedelta  # noqa: E402
+
+from django.utils import timezone  # noqa: E402
+
+from fabrique.noyau.models import Parametre  # noqa: E402
+from fabrique.publication import statistiques  # noqa: E402
+
+
+def publiee(s, langue="xx", ident="vidFaux1", jours=5, **k) -> m.Publication:
+    with routeur.session(s):
+        v = m.Video.objects.create(titre="Le petit renard", nom=f"2099-12-0{jours}-{ident}", script={}, recette={})
+        return m.Publication.objects.create(video=v, langue=langue, dossier=langue, identifiant_youtube=ident, statut="planifiee", simulation=True,
+                                            planifiee_le=timezone.now() - timedelta(days=jours), **k)
+
+
+def stats(s, pub=None) -> dict:
+    with routeur.session(s):
+        return {f"{x.date}": (x.vues, x.abonnes) for x in m.StatistiqueJour.objects.filter(publication=pub).order_by("date")}
+
+
+def test_releve_quotidien_chaine_et_videos_publiees(session, faux, monkeypatch):
+    relier(session)
+    pub = publiee(session)
+    publiee(session, ident="vidEssai", non_repertorie=True)  # un essai non répertorié : jamais relevé
+    autre = bases.creer("Essais du relevé")
+    Session.objects.filter(id=autre.id).update(essais=True)
+    j = [f"{timezone.localdate() - timedelta(days=n)}" for n in range(6, -1, -1)]
+    faux.statistiques = {faux_youtube.CHAINE_STATS: {d: {"views": 10 + i, "subscribersGained": 1} for i, d in enumerate(j[:-2])},
+                         "vidFaux1": {d: {"views": 3, "estimatedMinutesWatched": 90} for d in j[1:-2]}}
+    taches.fichier("releve").unlink(missing_ok=True)
+    Parametre.ecrire("releve_jour", "")
+    assert statistiques.executer() == 0
+    e = taches.lire("releve")
+    assert e["etat"] == "fait" and f"{session.nom} (xx) : chaîne 5 jour(s), 1 vidéo(s) 4 jour(s)" in e["faits"] and not [f for f in e["faits"] if "Essais" in f]
+    assert stats(session) == {d: (10 + i, 1) for i, d in enumerate(j[:-2])} and set(stats(session, pub)) == set(j[1:-2])
+    with routeur.session(session):
+        assert m.StatistiqueJour.objects.get(publication=pub, date=j[1]).heures == 1.5
+    assert Parametre.lire("releve_jour") == f"{timezone.localdate()}" and not statistiques.du(datetime.now().replace(hour=23))
+    filtres = [a["params"].get("filters", "") for a in faux.appels_de("GET", "/v2/reports")]
+    assert filtres[-2:] == ["", "video==vidFaux1"] and "video==vidEssai" not in filtres and faux.appels_de("GET", "/youtube/v3/channels")  # l'API Data aussi : le projet Google reste actif
+    # le lendemain : les 3 derniers jours connus relus, un chiffre corrigé par YouTube remplace l'ancien
+    faux.statistiques[faux_youtube.CHAINE_STATS][j[4]] = {"views": 99}
+    assert statistiques.executer() == 0
+    assert faux.appels_de("GET", "/v2/reports")[-2]["params"]["startDate"] == j[2] and stats(session)[j[4]] == (99, 0)
+
+
+def test_releve_refuse_par_le_quota_puis_reessai(session, faux, monkeypatch):
+    relier(session)
+    faux.analytics_refus = 403
+    Parametre.ecrire("releve_jour", "")
+    assert statistiques.executer() == 1
+    e = taches.lire("releve")
+    assert e["etat"] == "erreur" and f"relevé des statistiques de {session.nom} (xx) reporté : YouTube a répondu 403 (quotaExceeded)" in e["alertes"]
+    assert any("relevé des statistiques" in a for a in etat.etat()["alertes"])
+    dix = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    taches.ecrire("releve", {**e, "fin": dix.isoformat()})
+    assert not statistiques.du(dix + timedelta(minutes=30)) and statistiques.du(dix + timedelta(minutes=61))
+    faux.analytics_refus = None
+    assert statistiques.executer() == 0 and taches.lire("releve")["etat"] == "fait"
+
+
+def test_releve_lance_par_le_noyau_une_fois_par_jour_installe_seulement(monkeypatch):
+    lances = []
+    monkeypatch.setattr(statistiques, "lancer", lambda acteur: lances.append(acteur))
+    monkeypatch.setattr(taches, "lancer", lambda *a: None)
+    monkeypatch.setattr(taches, "occupe", lambda *a: "")
+    Parametre.ecrire("releve_jour", "")
+    taches.fichier("releve").unlink(missing_ok=True)
+    matin, midi = datetime.now().replace(hour=8, minute=59), datetime.now().replace(hour=12)
+    serveur.tour({}, midi)
+    assert lances == []  # le dépôt du code : jamais
+    monkeypatch.setattr(programme, "installee", lambda: True)
+    serveur.tour({}, matin)
+    assert lances == []
+    serveur.tour({}, midi)
+    assert lances == ["noyau"]
+    Parametre.ecrire("releve_jour", f"{midi.date()}")
+    serveur.tour({}, midi.replace(hour=13))
+    assert lances == ["noyau"]

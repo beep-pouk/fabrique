@@ -1,6 +1,6 @@
 """Le processus du noyau (« Fabrique.exe noyau ») : instance unique (prise exclusive du port de l'API, faite ici : waitress seul laisserait deux
 serveurs écouter le même port sous Windows), migrations en attente, jetons, puis l'API ; une boucle de fond écrit l'état chaque minute, publie
-les changements, lance la sauvegarde du soir (installée seulement : jamais en développement), reprend un envoi que RT a lancé (Publier) et que plus rien n'envoie. Repris de Bramble
+les changements, lance la sauvegarde du soir et le relevé quotidien des statistiques (installée seulement : jamais en développement), reprend un envoi que RT a lancé (Publier) et que plus rien n'envoie. Repris de Bramble
 Studio (core/lancement.py)."""
 import logging
 import os
@@ -15,7 +15,7 @@ from fabrique import dossiers, programme
 from fabrique.moteur import file
 from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
 from fabrique.noyau.models import Parametre, noter
-from fabrique.publication import publication
+from fabrique.publication import publication, statistiques
 
 log = logging.getLogger(__name__)
 PAS = 2  # secondes entre deux tours de la boucle de fond
@@ -57,6 +57,8 @@ def tour(vu: dict, maintenant: datetime) -> dict:
     if programme.installee() and taches.due(Parametre.lire("auto_sauvegarde"), maintenant) and not taches.occupe("sauvegarde"):
         Parametre.ecrire("auto_sauvegarde", maintenant.isoformat(timespec="seconds"))
         taches.lancer("sauvegarde", "noyau")
+    if programme.installee() and statistiques.du(maintenant) and not taches.occupe("releve"):
+        statistiques.lancer("noyau")
     return vu
 
 
