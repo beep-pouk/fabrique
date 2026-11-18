@@ -82,7 +82,7 @@ def test_les_trois_gestes_jamais_pour_claude_ni_l_assistant():
 
     with open(serveur.__file__, encoding="utf-8") as f:
         source = f.read()
-    assert re.findall(r'taches\.lancer\("(\w+)"', source) == ["sauvegarde"] and re.findall(r"publication\.(\w+)\(", source) == ["relancer"]
+    assert re.findall(r'taches\.lancer\("(\w+)"', source) == ["sauvegarde"] and re.findall(r"(?<![/\w])publication\.(\w+)", source) == ["relancer"]  # appelée ou passée à la boucle
     poseurs = {n for n, fn in inspect.getmembers(publication, inspect.isfunction) if fn.__module__ == publication.__name__ and 'statut="en_file"' in inspect.getsource(fn)}
     assert poseurs == {"publier", "reprendre"}
     for nom in poseurs:

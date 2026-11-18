@@ -225,6 +225,9 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
             raise Refus(f"vidéo inconnue : {video_id}")
         if v.recette.get("script") != "scenario-bramble":
             raise Refus("refaire un plan : seulement pour une vidéo du format F1 à ce jalon")
+        if v.publications.filter(statut__in=("en_file", "envoi")).exists():
+            raise Refus("un envoi de cette vidéo vers YouTube est en cours : refaire une fois l'envoi fini ou annulé")
+        envoyee = v.publications.exclude(identifiant_youtube="").exists()
         base = settings.SESSIONS / s.dossier / "videos" / v.id
         _, a_refaire, _ = f1.etapes(v.script, plans)  # les plans contrôlés avant que rien ne bouge
         a_refaire += ["langue"]  # chaque version de langue reprend les visuels de la langue du script : refaite avec eux
@@ -249,8 +252,10 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
         for m in morceaux:
             m.etat, m.essais, m.message = "attente", 0, ""
             m.save(update_fields=["etat", "essais", "message"])
+        v.publications.update(paquets={"fini": True, "erreur": "vidéo refaite : « Refaire les paquets » une fois la nouvelle vidéo finie"})
     t = file.mettre(s, v.id, v.titre, acteur)
-    return f"« {v.titre} » : plans {r['plans']} à refaire ({', '.join(r['etapes'])}) — {len(r['ranges'])} pièce(s) rangée(s) à côté, tâche {t.id} dans la file"
+    return (f"« {v.titre} » : plans {r['plans']} à refaire ({', '.join(r['etapes'])}) — {len(r['ranges'])} pièce(s) rangée(s) à côté, tâche {t.id} dans la file"
+            + (" ; déjà envoyée sur YouTube : la vidéo en ligne reste l'ancienne" if envoyee else ""))
 
 
 def estimer(s: Session, video_id: str) -> dict:

@@ -138,6 +138,12 @@ def test_parcours(qtbot):
     qtbot.waitUntil(lambda: element(f, "code_telephone").property("text") == "123 456")
     clic(f, "deconnecter_0")
     qtbot.waitUntil(lambda: ("/api/telephone/appareils/0123456789ab/deconnecter", None) in t.actions)
+    assert element(f, "adresse_iphone").property("text").startswith("Tailscale est introuvable")  # les données fixes n'ont pas d'adresse
+    systeme.setProperty("contentY", element(f, "bouton_mode").mapToItem(systeme, QPointF(0, 0)).y() + systeme.property("contentY") - 200)
+    clic(f, "bouton_mode")  # passer en mode réel : confirmé (geste de RT)
+    assert not [a for a in t.actions if a[0] == "/api/mode"]
+    clic(f, "confirmer_mode")
+    qtbot.waitUntil(lambda: ("/api/mode", {"reel": True}) in t.actions)
 
     systeme = element(f, "ecran_systeme")
     systeme.setProperty("contentY", systeme.property("contentHeight") - systeme.height())  # en bas de Système : les clés

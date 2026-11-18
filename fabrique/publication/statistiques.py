@@ -34,8 +34,8 @@ def du(maintenant: datetime) -> bool:
     if maintenant < maintenant.replace(hour=HEURE[0], minute=HEURE[1], second=0, microsecond=0) or Parametre.lire("releve_jour") == f"{maintenant.date()}":
         return False
     e = taches.lire("releve")
-    try:
-        return not (e.get("etat") == "erreur" and maintenant - datetime.fromisoformat(e["fin"]) < REESSAI)
+    try:  # un échec, ou un lancement dont le processus est mort sans rien écrire : réessai une heure plus tard
+        return not (e.get("etat") in ("erreur", "en_cours") and maintenant - datetime.fromisoformat(e.get("fin") or e.get("debut") or e["lancee"]) < REESSAI)
     except (KeyError, ValueError):
         return True
 

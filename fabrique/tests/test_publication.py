@@ -688,3 +688,77 @@ def test_copie_d_essai_toujours_non_repertoriee_et_marquee(session, faux, envois
     assert p["titre"].startswith("ESSAI — ") and p["non_repertorie"] and p["creneau"] == ""
     assert agir(cible, p["id"]).status_code == 200 and publication.executer() == 0
     assert lire(cible, p["id"]).statut == "non_repertoriee" and faux.appels_de("POST", "/upload/youtube/v3/videos")[-1]["corps"]["status"]["privacyStatus"] == "unlisted"
+
+
+# ---- corrections de la relecture à froid de J4 ----
+
+def test_passer_en_mode_reel_clic_de_rt_refuse_pendant_un_envoi(session, faux, envois):
+    from fabrique.noyau.models import Parametre
+
+    assert api("post", "/api/mode", "claude", {"reel": True}).status_code == 403
+    assert api("post", "/api/mode", "iphone", {"reel": True}).status_code == 403
+    relier(session, "en")
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    pk = apercu(session, v)[0]["id"]
+    assert agir(session, pk).status_code == 200  # en file d'envoi
+    r = api("post", "/api/mode", "fenetre", {"reel": True})
+    assert r.status_code == 409 and Parametre.lire("simulation", "oui") == "oui"
+    taches.fichier("publication").unlink(missing_ok=True)  # la tâche d'envoi (jamais lancée ici) n'est plus comptée en démarrage
+    r = api("post", "/api/mode", "fenetre", {"reel": True})
+    assert r.status_code == 409 and "envoi" in r.json()["detail"]
+    assert agir(session, pk, "annuler").status_code == 200
+    r = api("post", "/api/mode", "fenetre", {"reel": True})
+    assert r.status_code == 200 and Parametre.lire("simulation") == "non" and Journal.objects.filter(action="mode", acteur="RT").exists()
+    assert api("post", "/api/mode", "fenetre", {"reel": False}).status_code == 200 and Parametre.lire("simulation") == "oui"
+
+
+def test_creneau_trop_proche_pendant_l_envoi(session, faux, envois, monkeypatch):
+    relier(session, "en")
+    for nom in ("2099-12-01-s1e01", "2099-12-02-s1e02"):  # la 2e de la chaîne : privée, programmée
+        v = video_finie(session, nom=nom, langues=("en",))
+        approuver(session, v)
+        pk = apercu(session, v)[0]["id"]
+        assert agir(session, pk).status_code == 200
+    garder = publication._sauver
+
+    def tard(pub):  # après le premier morceau, le créneau n'est plus qu'à une minute (envoi lent)
+        if pub.envoi.get("octets"):
+            pub.planifiee_le = timezone.now() + timedelta(minutes=1)
+        garder(pub)
+
+    monkeypatch.setattr(publication, "_sauver", tard)
+    assert publication.executer() == 1
+    p = lire(session, pk)
+    assert p.statut == "erreur" and "créneau trop proche" in p.envoi["erreur"] and not p.identifiant_youtube
+
+
+def test_coupes_entre_deux_phrases_de_la_transcription(tmp_path):
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"")
+    (tmp_path / "v.transcription.json").write_bytes(json.dumps({"segments": [{"start": 0, "end": 6.8, "text": "Une."}, {"start": 7.4, "end": 13, "text": "Deux."},
+                                                                             {"start": 14, "end": 19, "text": "Trois."}]}).encode())
+    assert paquets.entre_phrases(video) == [7.1, 13.5]
+    assert paquets.coupes(20, 3, paquets.entre_phrases(video), 9) == [0.0, 7.1, 13.5, 20]
+
+
+def test_refaire_les_paquets_pendant_leur_travail(session, faux, envois, monkeypatch):
+    monkeypatch.setattr(paquets, "fiches", lambda: FICHES_ESSAI[1:2] + [{**FICHES_ESSAI[1], "id": "autre", "nom": "Autre réseau"}])
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    pk = apercu(session, v)[0]["id"]
+    vrai = paquets.faire_reseau
+
+    def puis_refaire(*a, **k):
+        r = vrai(*a, **k)
+        assert api("post", f"/api/sessions/{session.id}/videos/{v}/paquets").status_code == 200  # RT clique pendant le travail
+        return r
+
+    monkeypatch.setattr(paquets, "faire_reseau", puis_refaire)
+    vraie_video(apercu(session, v)[0]["video"], 4)
+    ffmpeg("-f", "lavfi", "-i", "color=c=orange:s=640x360", "-frames:v", "1", apercu(session, v)[0]["miniature"])
+    paquets.faire(session, pk)
+    assert lire(session, pk).paquets == {}  # le travail en cours n'a rien écrit par-dessus : tout est à refaire
+    monkeypatch.setattr(paquets, "faire_reseau", vrai)
+    assert paquets.suivante(set()) == (session, pk) and paquets.executer() == 0
+    assert {r: x["etat"] for r, x in lire(session, pk).paquets.items() if r != "fini"} == {"large": "fait", "autre": "fait"}

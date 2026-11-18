@@ -256,12 +256,13 @@ def copier_essai(video_id: str, suffixe: str) -> str:
     finals = list(source.glob("*/atelier/*/final"))
     if not finals:
         raise Refus(f"« {v.titre} » : aucun dossier final")
+    copie = m.Video(titre=f"ESSAI {suffixe} — {v.titre}"[:200], nom=v.nom, script=v.script, recette=v.recette, essai=True)
+    for d in finals:  # les fichiers d'abord : jamais une vidéo en base sans eux
+        shutil.copytree(d, settings.SESSIONS / cible.dossier / "videos" / copie.id / d.relative_to(source))
     with routeur.session(cible):
         with transaction.atomic(using=routeur.ouvrir(cible)):
-            copie = m.Video.objects.create(titre=f"ESSAI {suffixe} — {v.titre}"[:200], nom=v.nom, script=v.script, recette=v.recette, essai=True)
+            copie.save()
             m.Morceau.objects.bulk_create([m.Morceau(video=copie, **x) for x in morceaux])
-    for d in finals:
-        shutil.copytree(d, settings.SESSIONS / cible.dossier / "videos" / copie.id / d.relative_to(source))
     noter("claude", "copier_essai", source=video_id, session=cible.id, video=copie.id)
     return f"« {copie.titre} » copiée dans « {cible.nom} » (vidéo {copie.id}) : à approuver puis publier par RT, en non répertorié"
 
@@ -558,6 +559,10 @@ def _video(s: Session, pub: m.Publication):
         e.update(session=h["Location"], taille=taille, octets=0)
         _sauver(pub)
     while e["octets"] < taille:
+        if not pub.non_repertorie and pub.planifiee_le <= timezone.now() + timedelta(minutes=2):  # publique dès la fin : avant miniature et sous-titres
+            e.pop("session")
+            _sauver(pub)
+            raise Refus(f"créneau trop proche pendant l'envoi ({timezone.localtime(pub.planifiee_le):%d/%m %H:%M}) : en choisir un plus tard, puis Reprendre l'envoi")
         with f.open("rb") as fh:
             fh.seek(e["octets"])
             morceau = fh.read(MORCEAU)
@@ -633,6 +638,8 @@ def envoyer(s: Session, pk: int) -> str:
         if pub.simulation != etat.simulation():  # jamais un clic de la simulation envoyé à une vraie chaîne (ni l'inverse)
             return _echec(pub, Refus(MODE))
         while True:
+            if pub.simulation != etat.simulation():  # revu à chaque essai : RT a pu changer de mode pendant une attente
+                return _echec(pub, Refus(MODE))
             try:
                 if "video" not in pub.envoi.get("fait", []):
                     _video(s, pub)

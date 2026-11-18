@@ -291,9 +291,14 @@ class Paquet(BaseModel):
     fautes: list[str]  # écarts aux limites de la fiche (vide : conforme)
 
 
+class Mode(BaseModel):
+    reel: bool
+
+
 class CodeTelephone(BaseModel):
     code: str  # 6 chiffres
     expire: str  # HH:MM
+    adresse: str = ""  # la page sur l'iPhone ; vide : Tailscale introuvable sur ce PC
 
 
 class Appareil(BaseModel):

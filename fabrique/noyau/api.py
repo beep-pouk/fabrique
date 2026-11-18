@@ -23,7 +23,7 @@ from fabrique.session.models import Fiche
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", *GESTES},
+                "retoucher", "paquets", "telephone", "mode", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -389,6 +389,13 @@ def publier(request, id: str, pub: int, action: Literal["publier", "reprendre", 
     r = {"message": getattr(publication, action)(session_(id), pub, ACTEURS[request.auth])}
     noter(ACTEURS[request.auth], "geste", quoi=action, appelant=request.auth, session=id, publication=pub)
     return r
+
+
+@api.post("/mode", response=schemas.Message)
+@droit("mode")
+def changer_mode(request, corps: schemas.Mode):
+    """Fenêtre : passer en mode réel ou revenir en simulation (clic de RT, confirmé)."""
+    return {"message": etat.changer(corps.reel, ACTEURS[request.auth])}
 
 
 @api.post("/telephone/code", response=schemas.CodeTelephone)
