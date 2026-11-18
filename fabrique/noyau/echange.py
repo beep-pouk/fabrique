@@ -2,12 +2,17 @@
 dossier (univers, règles, réglages, calendrier ; les vidéos seulement si demandé) et un manifeste (nom, priorité, version de Fabrique,
 empreinte sha256 de chaque fichier). L'import pose un dossier neuf, jamais par-dessus une session : zip contrôlé (intégrité, aucun chemin hors
 de la session, rien de plus ni de moins que le manifeste, empreintes), puis base migrée et session inscrite dans le noyau. Une erreur en route :
-rien n'est inscrit et le dossier à moitié posé est rangé dans donnees\\_corbeille. La session « Essais » ne s'exporte ni ne s'importe."""
+rien n'est inscrit et le dossier à moitié posé est rangé dans donnees\\_corbeille. La session « Essais » ne s'exporte ni ne s'importe.
+Les comptes ne voyagent pas : le jeton de chaque destination est retiré de la copie (une chaîne se relie dans la session qui la publie).
+Dupliquer = exporter puis importer sous un autre nom ; un modèle = un export sans vidéos ni scripts ni idées ni comptes (cahier § B, § 7.1),
+d'où part une nouvelle session."""
 import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import zipfile
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +26,7 @@ from fabrique.session.models import Fiche
 EXT = ".fabrique"
 MANIFESTE, BASE = "manifeste.json", "session.sqlite3"
 FORMAT = 1
+CONTENUS = ("statistiquejour", "publication", "morceau", "video", "versionscript", "prevision", "script", "idee", "destination")  # vidés d'un modèle
 SAUTES = {"_old", "_corbeille"}
 
 
@@ -38,17 +44,25 @@ def fichiers(s: Session, videos: bool) -> dict[str, Path]:
             if f.is_file() and not f.name.startswith(BASE) and not SAUTES & set(f.relative_to(d).parts) and (videos or f.relative_to(d).parts[0] != "videos")}
 
 
-def exporter(s: Session, videos: bool = False, acteur: str = "RT") -> Path:
+def exporter(s: Session, videos: bool = False, acteur: str = "RT", modele: str = "") -> Path:
     if s.essais:
         raise Refus("la session « Essais » ne s'exporte pas")
-    sortie = settings.RACINE / "exports"
+    sortie = settings.RACINE / ("modeles" if modele else "exports")
     sortie.mkdir(parents=True, exist_ok=True)
-    zip_ = sortie / f"{s.dossier}_{datetime.now():%Y-%m-%d_%Hh%Mm%S}{EXT}"
+    zip_ = sortie / (f"{bases.dossier_libre(modele)}{EXT}" if modele else f"{s.dossier}_{datetime.now():%Y-%m-%d_%Hh%Mm%S}{EXT}")
+    if modele and zip_.exists():
+        raise Refus(f"un modèle s'appelle déjà « {modele} »")
     tmp, copie = zip_.with_name(zip_.name + f".{os.getpid()}.tmp"), sortie / f".base_{os.getpid()}.sqlite3"
     try:
         bases.copier(routeur.chemin(s), copie)
-        liste = fichiers(s, videos)
-        manifeste = {"format": FORMAT, "nom": s.nom, "priorite": s.priorite, "version": settings.VERSION, "videos": videos, "ancien_id": s.id,
+        with closing(sqlite3.connect(copie)) as c:
+            c.execute("UPDATE session_destination SET jeton = '', reliee = NULL, refusee = NULL")
+            for table in CONTENUS if modele else ():
+                c.execute(f"DELETE FROM session_{table}")
+            c.commit()
+            c.execute("VACUUM")
+        liste = fichiers(s, videos and not modele)
+        manifeste = {"format": FORMAT, "nom": modele or s.nom, "modele": bool(modele), "priorite": s.priorite, "version": settings.VERSION, "videos": videos, "ancien_id": s.id,
                      "empreintes": {BASE: empreinte(copie), **{rel: empreinte(f) for rel, f in liste.items()}}}
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as z:
             z.writestr(MANIFESTE, json.dumps(manifeste, ensure_ascii=False, indent=1))
@@ -59,8 +73,25 @@ def exporter(s: Session, videos: bool = False, acteur: str = "RT") -> Path:
     finally:
         tmp.unlink(missing_ok=True)
         copie.unlink(missing_ok=True)
-    noter(acteur, "session_exportee", session=s.id, fichier=zip_.name, videos=videos)
+    noter(acteur, "modele_enregistre" if modele else "session_exportee", session=s.id, fichier=zip_.name, videos=videos)
     return zip_
+
+
+def dupliquer(s: Session, nom: str, acteur: str = "RT") -> Session:
+    z = exporter(s, videos=False, acteur=acteur)
+    try:
+        return importer(z, nom, acteur)
+    finally:
+        z.unlink(missing_ok=True)
+
+
+def modeles() -> list[dict]:
+    d = settings.RACINE / "modeles"
+    lus = []
+    for z in sorted(d.glob(f"*{EXT}")) if d.is_dir() else []:
+        with zipfile.ZipFile(z) as f:
+            lus.append({"nom": lire_manifeste(f)["nom"], "fichier": z.name})
+    return lus
 
 
 def lire_manifeste(z: zipfile.ZipFile) -> dict:

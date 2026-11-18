@@ -89,3 +89,21 @@ def test_un_fichier_trafique_n_importe_rien(remplie, tmp_path):
 def test_la_session_essais_ne_s_exporte_pas():
     with pytest.raises(Refus):
         echange.exporter(Session.objects.get(essais=True))
+
+
+def test_les_comptes_ne_voyagent_pas_dupliquer_et_modele(remplie):
+    with routeur.session(remplie):
+        m.Destination.objects.create(langue="xx", reseau="youtube", jeton="jeton-chiffre-factice", chaine="Chaîne factice")
+    copie = echange.dupliquer(remplie, f"Copie {remplie.nom}")
+    with routeur.session(copie):
+        d = m.Destination.objects.get()
+        assert (d.jeton, d.reliee, d.chaine) == ("", None, "Chaîne factice") and m.Script.objects.count() == 1 and m.Video.objects.count() == 1
+    assert not list((settings.RACINE / "exports").glob(f"{remplie.dossier}_*.fabrique.tmp"))
+    z = echange.exporter(remplie, modele=f"Modèle {remplie.nom}")
+    assert z.parent.name == "modeles" and {"nom": f"Modèle {remplie.nom}", "fichier": z.name} in echange.modeles()
+    with pytest.raises(Refus, match="déjà"):
+        echange.exporter(remplie, modele=f"Modèle {remplie.nom}")
+    neuve = echange.importer(z, f"Neuve {remplie.nom}")
+    with routeur.session(neuve):  # le cadre seulement : langues, univers ; ni scripts, ni vidéos, ni comptes
+        assert m.Langue.objects.count() == 1 and not m.Script.objects.exists() and not m.Video.objects.exists() and not m.Destination.objects.exists()
+    assert (settings.SESSIONS / neuve.dossier / "univers" / "univers.json").is_file()
