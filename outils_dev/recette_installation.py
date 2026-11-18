@@ -105,11 +105,12 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
     lieux = banc.raccourcis()
     avant = {n: {f.name for f in d.glob("*.lnk")} for n, d in lieux.items()}
     consoles_avant = {f[0] for f in banc.fenetres() if f[2] in banc.CONSOLES}
-    vus, consoles, fini = set(), {}, threading.Event()
+    vus, consoles, fini, hors_guet = set(), {}, threading.Event(), threading.Event()
 
     def surveiller():  # tout au long de la recette : les exe du programme qui tournent, les consoles qui apparaissent
         while not fini.wait(0.3):
-            vus.update(Path(c).name for c in banc.sous(prog).values())
+            if not hors_guet.is_set():  # l'étape « lecteur » lance elle-même le Python installé : ce n'est pas un processus de Fabrique
+                vus.update(Path(c).name for c in banc.sous(prog).values())
             consoles.update({f[0]: f for f in banc.fenetres() if f[2] in banc.CONSOLES and f[0] not in consoles_avant})
 
     threading.Thread(target=surveiller, daemon=True).start()
@@ -208,7 +209,11 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
 
         film = bac / "lecture.mp4"
         lancer(faux.programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:d=6:r=25", "-pix_fmt", "yuv420p", film, creationflags=subprocess.CREATE_NO_WINDOW)
-        r = lancer(prog / "runtime" / "python.exe", "-c", LECTURE, film, env=env, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+        hors_guet.set()
+        try:
+            r = lancer(prog / "runtime" / "python.exe", "-B", "-c", LECTURE, film, env=env, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+        finally:
+            hors_guet.clear()
         assert r.stdout.strip().isdigit() and int(r.stdout.strip()) > 5000, f"le Python installé ne lit pas une vidéo : {r.stdout} {r.stderr[-800:]}"
         point(f"le lecteur de Vérification marche dans le programme installé (Qt Multimedia et son FFmpeg : vidéo d'essai de {int(r.stdout) / 1000:.1f} s lue)")
 
