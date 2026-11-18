@@ -155,7 +155,8 @@ def assembler(prog: Path):
         shutil.copy(DEPOT / f, prog / "app" / f)
     (prog / "construction.json").write_text(json.dumps({"version": version(), "date": f"{date.today():%d/%m/%Y}", "licences": licences(prog)}, ensure_ascii=False, indent=1), encoding="utf-8")
     dire("précompilation…")
-    compiler = [rt / "python.exe", "-m", "compileall", "-q", "-j", "0", "--invalidation-mode", "unchecked-hash"]
+    # -f : les .pyc déjà écrits par le Python du runtime (installation des paquets) seraient gardés horodatés, et réécrits une fois installés
+    compiler = [rt / "python.exe", "-m", "compileall", "-q", "-f", "-j", "0", "--invalidation-mode", "unchecked-hash"]
     lancer([*compiler, prog / "app"], capture_output=True)
     subprocess.run([str(c) for c in [*compiler, rt / "Lib"]], capture_output=True)  # quelques fichiers d'essai de paquets tiers ne se compilent pas : sans gravité
     lanceur(prog, SORTIE / "travail" / "lanceur")
