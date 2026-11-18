@@ -1,6 +1,6 @@
 """Le processus du noyau (« Fabrique.exe noyau ») : instance unique (prise exclusive du port de l'API, faite ici : waitress seul laisserait deux
 serveurs écouter le même port sous Windows), migrations en attente, jetons, puis l'API ; une boucle de fond écrit l'état chaque minute, publie
-les changements, lance la sauvegarde du soir et le relevé quotidien des statistiques (installée seulement : jamais en développement), reprend un envoi que RT a lancé (Publier) et que plus rien n'envoie. Repris de Bramble
+les changements, lance la sauvegarde du soir et le relevé quotidien des statistiques (installée seulement : jamais en développement), reprend un envoi que RT a lancé (Publier) et que plus rien n'envoie, fait les paquets prêts à poster d'une vidéo approuvée. Repris de Bramble
 Studio (core/lancement.py)."""
 import logging
 import os
@@ -15,7 +15,7 @@ from fabrique import dossiers, programme
 from fabrique.moteur import file
 from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
 from fabrique.noyau.models import Parametre, noter
-from fabrique.publication import publication, statistiques
+from fabrique.publication import paquets, publication, statistiques
 
 log = logging.getLogger(__name__)
 PAS = 2  # secondes entre deux tours de la boucle de fond
@@ -38,18 +38,20 @@ def tour(vu: dict, maintenant: datetime) -> dict:
         depot.traiter()
         file.tour()
         publication.relancer()
+        paquets.relancer()
     except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
         log.exception("dépôt, file ou publication : tour raté")
-    s, f, p = taches.lire("sauvegarde"), file.lister(), taches.lire("publication")
+    s, f, p = taches.lire("sauvegarde"), file.lister(), {t: taches.lire(t) for t in ("publication", "paquets")}
     change = s != vu.get("sauvegarde") or f != vu.get("file")
     if "sauvegarde" in vu:
         if s != vu["sauvegarde"]:
             evenements.publier("sauvegarde", **s)
         if f != vu["file"]:
             evenements.publier("file", taches=f)
-        if p != vu["publication"] and p.get("etat") == "erreur":
-            for a in p.get("alertes", []):
-                evenements.publier("alerte", titre="Publication", message=a)
+        for t, titre in (("publication", "Publication"), ("paquets", "Paquets prêts à poster")):
+            if p[t] != vu["publication"][t] and p[t].get("etat") == "erreur":
+                for a in p[t].get("alertes", []):
+                    evenements.publier("alerte", titre=titre, message=a)
     if change or time.monotonic() - vu.get("ecrit", -MINUTE) >= MINUTE:
         evenements.publier("etat", **etat.ecrire())
         vu["ecrit"] = time.monotonic()

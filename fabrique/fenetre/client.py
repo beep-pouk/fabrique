@@ -49,6 +49,8 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "retoucher": ("POST", "/api/sessions/{id}/publications/{pub}/retoucher", s.Message),
     "choisir": ("POST", "/api/sessions/{id}/publications/{pub}/choisir", s.Message),
     "publier": ("POST", "/api/sessions/{id}/publications/{pub}/{action}", s.Message),  # action : publier, reprendre, annuler
+    "paquets": ("GET", "/api/sessions/{id}/videos/{video}/paquets", list[s.Paquet]),
+    "refaire_paquets": ("POST", "/api/sessions/{id}/videos/{video}/paquets", s.Message),
 }
 
 

@@ -1,5 +1,6 @@
 """Les tâches détachées du noyau (« executer <tâche> ») : la sauvegarde (le soir à 23 h 30, ou au clic de RT), la publication (les envois
-lancés par « Publier », publication/publication.py) et le relevé quotidien des statistiques (publication/statistiques.py), tâches légères, et la fabrication d'une vidéo de la file (moteur/file.py), tâche lourde. L'état de chacune est un fichier (donnees\\taches\\<tâche>.json) : lu par le noyau, par
+lancés par « Publier », publication/publication.py), les paquets prêts à poster (publication/paquets.py) et le relevé quotidien des statistiques
+(publication/statistiques.py), tâches légères, et la fabrication d'une vidéo de la file (moteur/file.py), tâche lourde. L'état de chacune est un fichier (donnees\\taches\\<tâche>.json) : lu par le noyau, par
 « libre » (installateur) et par Claude, sans la base. Sans Django en tête de module : « libre » le lit sans le démarrer."""
 import json
 import logging
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 from fabrique import dossiers, programme
 
 log = logging.getLogger(__name__)
-TACHES = ("sauvegarde", "fabrication", "publication", "releve")
+TACHES = ("sauvegarde", "fabrication", "publication", "releve", "paquets")
 DEMARRAGE_S = 60  # lancée, pas encore de pid (le relais démarre l'exécuteur) : comptée comme en cours
 HEURE_SAUVEGARDE = (23, 30)
 
@@ -100,6 +101,10 @@ def executer(nom: str = "", *args) -> int:
         from fabrique.publication import publication
 
         return publication.executer()
+    if nom == "paquets":
+        from fabrique.publication import paquets
+
+        return paquets.executer()
     if nom == "releve":
         from fabrique.publication import statistiques
 

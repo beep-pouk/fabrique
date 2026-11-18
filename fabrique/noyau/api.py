@@ -7,7 +7,7 @@ from functools import wraps
 from typing import Literal
 
 from django.conf import settings
-from django.http import StreamingHttpResponse
+from django.http import FileResponse, StreamingHttpResponse
 from ninja import NinjaAPI
 from ninja.errors import HttpError
 from ninja.security import HttpBearer
@@ -23,8 +23,8 @@ from fabrique.session.models import Fiche
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", *GESTES},
-    "iphone": {"voir", "destinations", "approuver", "publier"},  # J4 : Tailscale + code à 6 chiffres
+                "retoucher", "paquets", *GESTES},
+    "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
 }
@@ -319,6 +319,35 @@ def publications(request, id: str, video: str):
     from fabrique.publication import publication
 
     return publication.apercu(session_(id), video)
+
+
+@api.get("/sessions/{id}/videos/{video}/paquets", response=list[schemas.Paquet])
+@droit("paquets")
+def lister_paquets(request, id: str, video: str):
+    """Les paquets prêts à poster de chaque langue et de chaque réseau (fenêtre, iPhone) : état, fichiers mesurés, miniature, textes."""
+    from fabrique.publication import paquets
+
+    return paquets.lister(session_(id), video)
+
+
+@api.post("/sessions/{id}/videos/{video}/paquets", response=schemas.Message)
+@droit("retoucher")
+def refaire_paquets(request, id: str, video: str):
+    """Fenêtre : refaire les paquets de la vidéo (après une erreur, ou une vidéo finale changée) ; la boucle du noyau les lance."""
+    s = session_(id)
+    with routeur.session(s):
+        n = m.Publication.objects.filter(video_id=video).update(paquets={})
+    noter(ACTEURS[request.auth], "paquets", session=id, video=video, quoi="refaire")
+    return {"message": f"paquets de {n} langue(s) à refaire : ils partent dans un instant" if n else "aucune publication : approuver d'abord la vidéo"}
+
+
+@api.get("/sessions/{id}/publications/{pub}/paquets/{reseau}/{nom}", openapi_extra={"responses": {200: {"description": "le fichier"}}})
+@droit("paquets")
+def fichier_paquet(request, id: str, pub: int, reseau: str, nom: str):
+    """Un fichier d'un paquet (vidéo ou miniature), à enregistrer sur l'iPhone ; seulement un fichier listé du paquet."""
+    from fabrique.publication import paquets
+
+    return FileResponse(paquets.fichier(session_(id), pub, reseau, nom).open("rb"), as_attachment=True, filename=nom)
 
 
 @api.post("/sessions/{id}/publications/{pub}/retoucher", response=schemas.Message)

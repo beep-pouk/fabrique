@@ -276,6 +276,21 @@ class Publication(BaseModel):
     erreur: str
 
 
+class Paquet(BaseModel):
+    """Un paquet prêt à poster : une langue d'une vidéo approuvée, pour un réseau (fiches dans publication/reseaux.json)."""
+    publication: int
+    langue: str
+    reseau: str  # id de la fiche
+    nom: str
+    etat: str  # à faire, fait, impossible, erreur
+    raison: str
+    fichiers: list[dict]  # {nom, largeur, hauteur, duree_s, poids_mo}, une vidéo par partie
+    miniature: str  # nom du fichier ; vide : aucune
+    dossier: str  # chemin complet sur le PC
+    textes: list[dict]  # {titre, texte}, un par partie
+    fautes: list[str]  # écarts aux limites de la fiche (vide : conforme)
+
+
 class Retouche(BaseModel):
     titre: str
     description: str

@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from django.conf import settings
@@ -20,7 +21,7 @@ from fabrique import programme
 from fabrique.garde import Refus
 from fabrique.noyau import bases, cles, etat, evenements, jetons, routeur, serveur, taches
 from fabrique.noyau.models import Journal, Session, Tache
-from fabrique.publication import faux_youtube, publication, youtube
+from fabrique.publication import faux_youtube, paquets, publication, youtube
 from fabrique.session import models as m
 
 
@@ -181,10 +182,14 @@ def envois(monkeypatch):
     monkeypatch.setattr(publication, "MORCEAU", MORCEAU)
     monkeypatch.setattr(publication, "PAUSE_S", 0)
     yield lances
+    while x := paquets.suivante(set()):  # ni des paquets à faire
+        with routeur.session(x[0]):
+            m.Publication.objects.filter(pk=x[1]).update(paquets={"fini": True})
     while x := publication.suivante(set()):  # jamais un envoi laissé en file pour la boucle du noyau d'un autre test
         with routeur.session(x[0]):
             m.Publication.objects.filter(pk=x[1]).update(statut="erreur")
     taches.fichier("publication").unlink(missing_ok=True)
+    taches.fichier("paquets").unlink(missing_ok=True)
 
 
 def video_finie(s, nom="2099-12-01-s1e01", langues=("en", "xx")) -> str:
@@ -427,7 +432,7 @@ def test_erreur_en_clair_alertee_puis_reprendre(session, faux, envois, monkeypat
     monkeypatch.setattr(evenements, "publier", lambda t, **d: vus.append((t, d)))
     monkeypatch.setattr(serveur.file, "tour", lambda: "")
     monkeypatch.setattr(serveur.depot, "traiter", lambda: None)
-    serveur.tour({"sauvegarde": taches.lire("sauvegarde"), "file": [], "publication": {}}, datetime.now())
+    serveur.tour({"sauvegarde": taches.lire("sauvegarde"), "file": [], "publication": {"publication": {}, "paquets": taches.lire("paquets")}}, datetime.now())
     assert ("alerte", {"titre": "Publication", "message": e["alertes"][0]}) in vus
     assert apercu(session, v)[0]["erreur"] == p.envoi["erreur"]
     faux.refuser = False
@@ -494,7 +499,7 @@ def publiee(s, langue="xx", ident="vidFaux1", jours=5, **k) -> m.Publication:
     with routeur.session(s):
         v = m.Video.objects.create(titre="Le petit renard", nom=f"2099-12-0{jours}-{ident}", script={}, recette={})
         return m.Publication.objects.create(video=v, langue=langue, dossier=langue, identifiant_youtube=ident, statut="planifiee", simulation=True,
-                                            planifiee_le=timezone.now() - timedelta(days=jours), **k)
+                                            planifiee_le=timezone.now() - timedelta(days=jours), paquets={"fini": True}, **k)
 
 
 def stats(s, pub=None) -> dict:
@@ -561,3 +566,95 @@ def test_releve_lance_par_le_noyau_une_fois_par_jour_installe_seulement(monkeypa
     Parametre.ecrire("releve_jour", f"{midi.date()}")
     serveur.tour({}, midi.replace(hour=13))
     assert lances == ["noyau"]
+
+
+# ---- paquets prêts à poster ----
+
+FICHES_ESSAI = [
+    {"id": "vertical", "nom": "Réseau vertical", "largeur": 180, "hauteur": 320, "duree_min_s": 3, "duree_max_s": 9, "parties_max": 3, "poids_max_mo": 5,
+     "texte_max": 120, "titre_max": 0, "hashtags_max": 2},
+    {"id": "large", "nom": "Réseau large", "largeur": 320, "hauteur": 180, "duree_min_s": 1, "duree_max_s": 60, "parties_max": 1, "poids_max_mo": 5,
+     "texte_max": 5000, "titre_max": 0, "hashtags_max": 5},
+    {"id": "court", "nom": "Réseau court", "largeur": 180, "hauteur": 320, "duree_min_s": 1, "duree_max_s": 5, "parties_max": 1, "poids_max_mo": 5,
+     "texte_max": 100, "titre_max": 0, "hashtags_max": 1},
+    {"id": "epingle", "nom": "Réseau à titre", "largeur": 200, "hauteur": 300, "duree_min_s": 1, "duree_max_s": 30, "parties_max": 1, "poids_max_mo": 5,
+     "texte_max": 40, "titre_max": 10, "hashtags_max": 1}]
+
+
+def ffmpeg(*args):
+    from fabrique.moteur.faux import lancer, programme as exe
+
+    lancer(exe("ffmpeg"), "-y", "-v", "error", *args)
+
+
+def vraie_video(f, secondes=20):
+    """16:9, un son coupé de silences de 0,6 s toutes les 7 s (milieux à 7,3 et 14,3 s : les coupes attendues)."""
+    ffmpeg("-f", "lavfi", "-i", f"testsrc2=s=320x180:r=12:d={secondes}", "-f", "lavfi", "-i", f"aevalsrc=0.4*sin(2*PI*330*t)*gte(mod(t\\,7)\\,0.6):s=22050:d={secondes}",
+           "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", f)
+
+
+def test_paquets_conformes_aux_fiches_parties_aux_silences_et_reprise(session, faux, envois, monkeypatch):
+    monkeypatch.setattr(paquets, "fiches", lambda: FICHES_ESSAI)
+    v = video_finie(session, langues=("en",))
+    assert approuver(session, v).status_code == 200
+    pub = apercu(session, v)[0]
+    vraie_video(pub["video"])
+    ffmpeg("-f", "lavfi", "-i", "color=c=orange:s=640x360", "-frames:v", "1", pub["miniature"])
+    assert paquets.suivante(set())[1] == pub["id"]
+    assert paquets.executer() == 0 and taches.lire("paquets")["etat"] == "faits" and paquets.suivante(set()) is None
+    r = api("get", f"/api/sessions/{session.id}/videos/{v}/paquets", "iphone")
+    assert r.status_code == 200
+    p = {x["reseau"]: x for x in r.json()}
+    assert [x["etat"] for x in p.values()] == ["fait", "fait", "impossible", "fait"] and not [x for x in p.values() if x["fautes"]]
+    assert p["court"]["raison"].startswith("vidéo de 0.3 min : Réseau court prend ") and "déclinaison courte" in p["court"]["raison"]
+    parties = p["vertical"]["fichiers"]
+    assert [(x["largeur"], x["hauteur"]) for x in parties] == [(180, 320)] * 3 and all(x["duree_s"] <= 9 for x in parties)
+    assert abs(parties[0]["duree_s"] - 7.3) < 0.2 and abs(parties[0]["duree_s"] + parties[1]["duree_s"] - 14.3) < 0.3  # coupées aux silences
+    assert abs(sum(x["duree_s"] for x in parties) - 20) < 0.5
+    assert [(x["largeur"], x["hauteur"]) for x in p["large"]["fichiers"]] == [(320, 180)] and p["large"]["miniature"] == "miniature.jpg"
+    mi = paquets.mesure(Path(p["vertical"]["dossier"]) / "miniature.jpg")
+    assert (mi["largeur"], mi["hauteur"]) == (180, 320)
+    # les textes : titre (n/3) en tête, sans les lignes de chapitres, hashtags limités, coupés aux limites de la fiche
+    t = p["vertical"]["textes"]
+    assert len(t) == 3 and t[0]["texte"].startswith("Le petit renard | Histoire factice (1/3)\n\n") and t[0]["texte"].endswith("\n\n#renard #histoiredusoir")
+    assert all(len(x["texte"]) <= 120 and "00:00" not in x["texte"] and "02:30" not in x["texte"] for x in t)
+    e = p["epingle"]["textes"][0]
+    assert e["titre"] == "Le petit r" and len(e["texte"]) <= 40 and e["texte"].endswith("#renard") and "…" in e["texte"]
+    assert "Crédits : voix et images factices." in p["large"]["textes"][0]["texte"]
+    # un fichier du paquet : à l'iPhone et à la fenêtre ; jamais à Claude, jamais un autre nom
+    nom = parties[1]["nom"]
+    url = f"/api/sessions/{session.id}/publications/{pub['id']}/paquets/vertical/"
+    r = api("get", url + nom, "iphone")
+    assert r.status_code == 200 and b"".join(r.streaming_content) == (Path(p["vertical"]["dossier"]) / nom).read_bytes()
+    assert api("get", url + nom, "claude").status_code == 403 and api("get", f"/api/sessions/{session.id}/videos/{v}/paquets", "claude").status_code == 403
+    for autre in ("..%2F..%2Fyoutube.txt", "inconnu.mp4", "miniature.tmp.jpg"):
+        assert api("get", url + autre, "iphone").status_code in (404, 409), autre
+    # processus tué après un réseau : la reprise ne refait que les autres
+    large = Path(p["large"]["dossier"]) / p["large"]["fichiers"][0]["nom"]
+    avant = large.stat().st_mtime_ns
+    with routeur.session(session):
+        m.Publication.objects.filter(pk=pub["id"]).update(paquets={"large": lire(session, pub["id"]).paquets["large"]})
+    assert paquets.executer() == 0 and large.stat().st_mtime_ns == avant and lire(session, pub["id"]).paquets["vertical"]["etat"] == "fait"
+    # refaire : la fenêtre seulement
+    assert api("post", f"/api/sessions/{session.id}/videos/{v}/paquets", "iphone").status_code == 403
+    assert "à refaire" in api("post", f"/api/sessions/{session.id}/videos/{v}/paquets").json()["message"] and paquets.suivante(set())
+
+
+def test_paquet_en_erreur_alerte_et_les_autres_reseaux_continuent(session, faux, envois, monkeypatch):
+    monkeypatch.setattr(paquets, "fiches", lambda: [FICHES_ESSAI[1], {**FICHES_ESSAI[1], "id": "casse", "nom": "Réseau cassé", "largeur": -5}])
+    v = video_finie(session, langues=("en",))
+    approuver(session, v)
+    vraie_video(apercu(session, v)[0]["video"], 4)
+    ffmpeg("-f", "lavfi", "-i", "color=c=orange:s=640x360", "-frames:v", "1", apercu(session, v)[0]["miniature"])
+    assert paquets.executer() == 1
+    p = {x["reseau"]: x for x in paquets.lister(session, v)}
+    assert p["large"]["etat"] == "fait" and p["casse"]["etat"] == "erreur" and p["casse"]["raison"]
+    a = taches.lire("paquets")["alertes"]
+    assert len(a) == 1 and a[0].startswith("paquet Réseau cassé de « Le petit renard | Histoire factice » (en) : ") and a[0] in etat.etat()["alertes"]
+
+
+def test_coupes_aux_silences():
+    assert paquets.coupes(20, 3, [0.3, 7.3, 14.3], 9) == [0.0, 7.3, 14.3, 20]
+    assert paquets.coupes(20, 2, [], 10) == [0.0, 10.0, 20]  # sans silence : parties égales
+    b = paquets.coupes(30, 2, [3.0], 16)  # un silence trop tôt (la 2e partie dépasserait 16 s) : ignoré
+    assert b == [0.0, 15.0, 30] and all(y - x <= 16 for x, y in zip(b, b[1:]))

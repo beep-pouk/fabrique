@@ -165,6 +165,7 @@ class Publication(models.Model):
     identifiant_youtube = models.CharField(max_length=50, default="")
     envoi = models.JSONField(default=dict)
     versions = models.JSONField(default=list)  # [{numero, titre, description, auteur, date}]
+    paquets = models.JSONField(default=dict)  # paquets prêts à poster : {réseau: {etat, raison, fichiers, miniature, fautes}, "fini": True}
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["video", "langue"], name="publication_unique")]
