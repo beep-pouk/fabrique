@@ -55,6 +55,12 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
         morceaux = decouper(R, S, reglages)
+        if manque := [f"{f.nom} ({x})" for o in sorted({m.outil for m in morceaux}) for f in [outils.fiches()[o]] for x in f.exige
+                      if not (settings.SESSIONS / s.dossier / x).is_file()]:
+            raise Refus(f"« {s.nom} » n'a pas ce que demandent les outils de ce format : {', '.join(manque)}")
+        if R.script in recettes.PAR_PLAN and (sans := sorted({m.langue for m in morceaux if m.langue not in ("", R.reglages.langues[0], *(traductions or {}))
+                                                                 and not outils.fiches()[m.outil].faux})):
+            raise Refus(f"pas de traduction en « {sans[0]} » : une voix réelle y lirait le texte de la langue du script")
         for m in morceaux:
             m.video = v
         Morceau.objects.bulk_create(morceaux)
@@ -245,7 +251,9 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
     if depense:
         depense.reel_eur = r.infos.get("cout_eur")
         depense.save(update_fields=["reel_eur"])
-    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes / (max(1, len(getattr(S, "scenes", []))) if not m.unite else 1))  # vidéo entière : par scène
+    if (lot := r.infos.get("lot")) != 0:  # un outil en lot (toute la langue au premier morceau) : son temps par fichier fait ; 0 : rien calculé ici
+        Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id,
+                              secondes=secondes / (lot or 1) / (max(1, len(getattr(S, "scenes", []))) if not m.unite else 1))  # vidéo entière : par scène
     m.etat, m.secondes, m.message = "fini", secondes, ""
     m.save(update_fields=["etat", "secondes", "message"])
 

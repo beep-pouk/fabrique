@@ -16,6 +16,7 @@ from fabrique.moteur.outils import Demande, Estimation, Fiche, Resultat
 
 CADRES = {"16:9": (1920, 1080), "9:16": (1080, 1920)}
 FORMAT = ("codec_name", "profile", "width", "height", "pix_fmt", "sample_aspect_ratio", "r_frame_rate", "time_base", "sample_rate", "channels", "channel_layout")  # bout à bout sans réencoder : tout égal
+ECART_VOIX = 0.15  # sous le seuil de Whisper de plus que cela : la phrase n'est plus comprise, défaut bloquant
 BLOC_SRT = re.compile(r"(\d+:\d+:\d+[,.]\d+)\s*-->\s*(\d+:\d+:\d+[,.]\d+)[^\n]*\n(.+?)(?:\n\s*\n|\Z)", re.S)
 
 
@@ -201,7 +202,7 @@ def voix_peu_intelligibles(d: Demande) -> list[dict]:
                 continue
             if c and c.get("score") is not None and c["score"] < c.get("seuil", 0.93):
                 p = quand.get(unite, {})
-                defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "voix", "gravite": "moyenne",
+                defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "voix", "gravite": "forte" if c["score"] < c.get("seuil", 0.93) - ECART_VOIX else "moyenne",
                                 "texte": f"voix peu intelligible ({unite} : {c['score']:.2f} sous {c.get('seuil', 0.93):.2f}, Whisper a entendu « {c.get('entendu', '')[:80]} »)"})
     return defauts
 

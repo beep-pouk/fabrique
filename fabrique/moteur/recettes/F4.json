@@ -38,8 +38,7 @@
   {
    "id": "musique",
    "brique": "musique",
-   "par": "video",
-   "langue": true
+   "par": "video"
   },
   {
    "id": "montage",

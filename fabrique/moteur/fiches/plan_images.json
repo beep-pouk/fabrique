@@ -22,5 +22,8 @@
  "module": "fabrique.moteur.par_plan",
  "reglages": {
   "secondes": 45
- }
+ },
+ "exige": [
+  "reglages/config.json"
+ ]
 }

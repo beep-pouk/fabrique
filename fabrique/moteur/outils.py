@@ -58,6 +58,7 @@ class Fiche(Strict):
     reglages: dict = {}
     installation: Installation | None = None  # absente : rien à installer (faux outil, service en ligne, outil partagé de Bramble Studio)
     cle: str = ""  # service en ligne : le nom de sa clé (noyau/cles.py), saisie par RT ; sans elle, l'outil ne sert pas
+    exige: list[str] = []  # fichiers de la session sans lesquels l'outil ne peut rien (refus dès la préparation de la vidéo)
 
     @model_validator(mode="after")
     def simulable_sur(self):

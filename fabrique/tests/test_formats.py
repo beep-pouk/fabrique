@@ -2,12 +2,14 @@
 chapitres, sous-titres décalés), un extrait vertical (1080 × 1920, sous-titres incrustés) et une courte verticale créée seule ; chacune passée
 au contrôle technique sans défaut bloquant. Les outils de F2 et F3 sont réels (ffmpeg, sans carte) et servent tels quels en simulation."""
 import json
+import time
 from pathlib import Path
 
 import pytest
 
 from fabrique.garde import Refus
 from fabrique.moteur import execution, file, montages, recettes
+from fabrique.noyau.models import Chrono
 from fabrique.tests.test_moteur import SCRIPT, essais, recette  # noqa: F401 — fixtures
 
 
@@ -109,17 +111,19 @@ def test_f4_controle_voix_peu_intelligible_et_plan_fixe_trop_long(essais, monkey
             fiche = fiche.model_copy(update={"reglages": {**fiche.reglages, "couleur": {"s1/p1": "5c8048", "s1/p2": "e0e0e0", "s2/p1": "404040"}[d.unite]}})
         r = vrai(fiche, d, dossier)
         if d.brique == "voix":
-            r.infos["controle"] = {"score": 0.5 if "arbres" in d.texte else 0.99, "entendu": "les zarbres", "seuil": 0.93}
+            r.infos["controle"] = {"score": {"arbres": 0.5, "neige": 0.85}.get(next((m for m in ("arbres", "neige") if m in d.texte), ""), 0.99),
+                                   "entendu": "les zarbres", "seuil": 0.93}
         return r
 
     monkeypatch.setattr(faux, "fabriquer", whisper)
     v = fabriquer(essais, f4(plan_fixe_max_s=1), VOIX_OFF)
     defauts = rapport(essais, v)["defauts"]
     voix = [x for x in defauts if x.get("code") == "voix"]
-    assert len(voix) == 1 and "s1/p2" in voix[0]["texte"] and "zarbres" in voix[0]["texte"] and voix[0]["debut"] == pytest.approx(1.6)
+    assert [(x["texte"].split(" : ")[0], x["gravite"]) for x in voix] == [("voix peu intelligible (s1/p1", "moyenne"), ("voix peu intelligible (s1/p2", "forte")]
+    assert "zarbres" in voix[1]["texte"] and voix[1]["debut"] == pytest.approx(1.6)  # 0,5 : plus comprise (bloquant) ; 0,85 : un peu sous 0,93
     fixes = [x for x in defauts if x.get("code") == "plan_fixe"]  # une couleur unie ne bouge pas, même sous la caméra : mesuré par la revue de F1
     assert [x["debut"] for x in fixes] == pytest.approx([1.6], abs=0.05)  # le plan du milieu (les deux autres ont un fondu, qui bouge)
-    assert all(x["gravite"] == "moyenne" for x in defauts)
+    assert all(x["gravite"] == "moyenne" for x in fixes)
     assert morceau(essais, v, "animation", "s1/p2")["resultat"]["infos"]["mouvement"] == "avancee"  # « fixe » au-delà de la limite : jamais tenu
 
 
@@ -228,10 +232,14 @@ def test_publication_de_f2_f3_et_f4(request, monkeypatch):
         v = execution.preparer(s, f4(langues=["en", "xx"]), VOIX_OFF, traductions={"xx": VOIX_OFF_XX})
         t = file.mettre(s, v.id, v.titre, "RT")
         assert file.executer(str(t.id)) == 0
-        assert "brouillon(s) en, xx" in publication.approuver(s, v.id, "RT")
+        with execution.routeur.session(s):
+            from fabrique.session.models import Ressource
+
+            Ressource.objects.create(type="voix", nom="Voix factice", licence="CC BY 4.0", credit="Voix factice (CC BY 4.0)")
+        assert "brouillon(s) en, xx" in (r := publication.approuver(s, v.id, "RT")) and "CRÉDIT" not in r
         en, xx = publication.apercu(s, v.id)
-        assert (en["titre"], en["description"], en["tags"]) == ("La forêt en hiver", "Un documentaire factice.", ["forêt", "hiver"])
-        assert (xx["titre"], xx["description"]) == ("Titre factice", "Description factice.")
+        assert (en["titre"], en["description"], en["tags"]) == ("La forêt en hiver", "Un documentaire factice.\n\nVoix factice (CC BY 4.0)", ["forêt", "hiver"])
+        assert (xx["titre"], xx["description"]) == ("Titre factice", "Description factice.\n\nVoix factice (CC BY 4.0)")
         for a in (en, xx):
             assert Path(a["video"]).is_file() and montages.mesure(Path(a["video"]))["largeur"] == 1920 and a["miniature"].endswith("miniature.jpg") and a["fautes"] == []
             assert not any("sans sous-titres" in x for x in a["avis"])
@@ -245,7 +253,7 @@ def test_publication_de_f2_f3_et_f4(request, monkeypatch):
         extrait = fabriquer(s, recettes.lire("F3"), {"titre": "Un extrait", "source": histoires[1], "debut_s": 1, "fin_s": 3}, "RT")
         publication.approuver(s, extrait, "RT")
         (e,) = publication.apercu(s, extrait)
-        assert montages.mesure(Path(e["video"]))["hauteur"] == 1920 and e["miniature"].endswith("miniature.jpg") and e["description"] == ""
+        assert montages.mesure(Path(e["video"]))["hauteur"] == 1920 and e["miniature"].endswith("miniature.jpg") and e["description"] == "Voix factice (CC BY 4.0)"
     finally:
         Tache.objects.filter(session_id=s.id).delete()
 
@@ -287,7 +295,9 @@ def test_f4_en_mode_reel_outils_de_la_carte_simules(essais, monkeypatch):
         for s in scenes:
             if not (w := Path(dossier) / "voix" / f"s{s['id']:03d}.wav").exists():
                 lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=300:duration={1 + s['id'] / 10}", w)
-        return {str(s["id"]): {"score": 0.5 if s["id"] == 2 else 0.99, "entendu": s["narration"]} for s in scenes}
+        fait = {str(s["id"]): {"score": 0.5 if s["id"] == 2 else 0.99, "entendu": s["narration"]} for s in scenes}
+        (Path(dossier) / "voix" / "_controle.json").write_text(json.dumps(fait), encoding="utf-8")  # comme f1 : le contrôle de Whisper, à côté des voix
+        return fait
 
     monkeypatch.setattr(voix, "faire", lambda o, d, sc, cfg: appels["voix"].append(len(sc)) or dire(o, d, sc, cfg))
     monkeypatch.setattr(langue, "voix", lambda o, d, sc, l, ref, log=print: appels["langue"].append((l["code"], ref)) or dire(o, d, sc, None))
@@ -308,14 +318,18 @@ def test_f4_en_mode_reel_outils_de_la_carte_simules(essais, monkeypatch):
 
     monkeypatch.setattr(musique, "faire", composer)
     try:
+        with pytest.raises(Refus, match="pas de traduction en « xx »"):
+            execution.preparer(essais, f4(langues=["en", "xx"]), VOIX_OFF)
+        chronos = Chrono.objects.filter(recette="F4", etape="voix").count()
         v = execution.preparer(essais, f4(langues=["en", "xx"]), VOIX_OFF, traductions={"xx": VOIX_OFF_XX})
         with execution.routeur.session(essais):
             assert {m.outil for m in v.morceaux.all()} >= {"plan_voix", "plan_images", "plan_musique", "plan_camera", "plan_montage"}
         execution.jouer(essais, v.id)
-        assert appels["voix"] == [3, 3, 3] and appels["langue"] == [("xx", "ref.wav")] * 3  # un lot par morceau, chacun ne refait que ce qui manque
-        assert [x[1] for x in appels["image"]] == [1001, 1002, 1003] and appels["start"] == 1 and appels["stop"] == 1 + 2  # un démarrage ; arrêté après les images et après chaque musique
-        assert appels["image"][1][0] == "sleeping trees. Style: style factice" and appels["image"][0][2:] == (64, 32)
-        assert appels["musique"] == [pytest.approx(1.1 + 1.2 + 1.3 + 3 * 0.6, abs=0.05)] * 2  # la durée de la voix montée, par langue
+        assert appels["voix"] == [3] and appels["langue"] == [("xx", "ref.wav")]  # un lot par langue (Whisper compris), au premier morceau
+        assert [x[1] for x in appels["image"]] == [1001, 1002, 1003] and appels["start"] == 1 and appels["stop"] == 2  # arrêté après les images et après la musique
+        assert appels["image"][1][0] == "style factice, sleeping trees, filling the whole frame, wide 16:9 composition" and appels["image"][0][2:] == (64, 32)
+        assert appels["musique"] == [pytest.approx(1.1 + 1.2 + 1.3 + 3 * 0.6, abs=0.05)]  # une musique commune, à la durée de la plus longue langue
+        assert Chrono.objects.filter(recette="F4", etape="voix").count() - chronos == 2  # un chrono par lot (divisé par ses voix), aucun pour un morceau qui lie
         for langue_ in ("en", "xx"):
             m = montages.mesure(execution.finale(essais, v.id, langue_))
             assert m["duree_s"] == pytest.approx(1.7 + 1.8 + 1.9, abs=0.1) and m["son"]
@@ -334,6 +348,28 @@ def test_f4_en_mode_reel_outils_de_la_carte_simules(essais, monkeypatch):
         assert [x[1] for x in appels["image"]] == [1001, 1002, 1003, 1003] and appels["start"] == 2
     finally:
         (reglages / "config.json").unlink()
+    with pytest.raises(Refus, match="n'a pas ce que demandent les outils de ce format"):  # une session sans les réglages des outils réels : refus d'emblée
+        execution.preparer(essais, f4(), VOIX_OFF)
+
+
+def test_lot_coupe_son_dernier_fichier_range_et_refait(tmp_path):
+    from fabrique.moteur import par_plan
+
+    d = tmp_path / "voix"
+    with par_plan.lot(d, ["s*.wav"]):
+        (d / "s001.wav").write_bytes(b"entier")
+    assert not (d / "_lot_en_cours").exists()
+    with pytest.raises(KeyboardInterrupt):  # coupé en plein lot : le marqueur reste
+        with par_plan.lot(d, ["s*.wav"]):
+            (d / "s002.wav").write_bytes(b"entier")
+            (d / "s003.wav").write_bytes(b"a moi")
+            raise KeyboardInterrupt
+    import os
+
+    os.utime(d / "s003.wav", (time.time() + 5, time.time() + 5))  # écrit en dernier
+    with par_plan.lot(d, ["s*.wav"]):
+        assert sorted(f.name for f in d.glob("s*.wav")) == ["s001.wav", "s002.wav"]  # le dernier écrit rangé, le reste gardé
+    assert [f.name for f in (d / "_coupes").rglob("*.wav")] == ["s003.wav"]
 
 
 def test_demande_d_ecriture_dit_les_champs_de_la_forme(essais):

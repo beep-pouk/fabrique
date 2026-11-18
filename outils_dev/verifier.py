@@ -1121,29 +1121,40 @@ def formats_j8(dire) -> list[tuple[bool, str]]:
 
 
 def en_vrai_j8() -> list[tuple[bool, str]]:
-    """F4 et F3 seule en vrai (session Essais, jamais publiées, outils réels par plan : aucun faux outil), lues dans la racine des essais réels sans
-    rien y écrire : finie, durée dans les bornes du format, contrôle sans défaut bloquant. Rouges tant que l'essai de nuit n'est pas fait."""
-    racine = SORTIE / "egalite" / "FABRIQUE" / "sessions" / "essais"
+    """F4 et F3 seule en vrai (session Essais, jamais publiées), lues dans la racine des essais réels sans rien y écrire : la recette livrée
+    (bornes de durée comprises), outils réels par plan seulement (aucun faux), finie, chaque voix réécoutée par Whisper (un score), contrôle
+    sans défaut bloquant (une voix que Whisper ne comprend plus en est un) ; et la carte rendue après l'essai (ESSAI_FORMATS.json). Rouges
+    tant que l'essai de nuit n'est pas fait."""
+    egalite = SORTIE / "egalite"
+    racine = egalite / "FABRIQUE" / "sessions" / "essais"
+    livrees = {r: json.loads((DEPOT / "fabrique" / "moteur" / "recettes" / f"{r}.json").read_text(encoding="utf-8")) for r in ("F4", "F3s")}
     faits = {}
     try:
         with closing(sqlite3.connect(f"file:{racine / 'session.sqlite3'}?mode=ro", uri=True)) as c:
             for vid, recette in c.execute("SELECT id, recette FROM session_video"):
                 r = json.loads(recette)
-                if r.get("id") not in ("F4", "F3s") or r.get("script") != "voix-off":
+                if r.get("id") not in livrees or r.get("reglages", {}).get("duree_s") != livrees[r["id"]]["reglages"]["duree_s"] or r.get("script") != "voix-off":
                     continue
                 if c.execute("SELECT 1 FROM session_morceau WHERE video_id = ? AND (outil LIKE 'faux%' OR etat != 'fini')", (vid,)).fetchone():
                     continue
-                for rapport in sorted((racine / "videos" / vid).glob("*/revue/video/rapport.json")):
-                    rap = json.loads(rapport.read_text(encoding="utf-8"))
-                    if not [x for x in rap["defauts"] if x["gravite"] == "forte"]:
-                        faits.setdefault(r["id"], (vid, rapport.parent.parent.parent.name, rap))
+                voix = [json.loads(f.read_text(encoding="utf-8"))["infos"].get("controle") for f in (racine / "videos" / vid).glob("*/voix/*/*/resultat.json")]
+                rapports = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((racine / "videos" / vid).glob("*/revue/video/rapport.json"))]
+                if voix and all(voix) and rapports and not [x for rap in rapports for x in rap["defauts"] if x["gravite"] == "forte"]:
+                    faits.setdefault(r["id"], (vid, len(voix), rapports[0]))
     except (sqlite3.Error, OSError, ValueError):
         pass
+    try:
+        essai = json.loads((egalite / "ESSAI_FORMATS.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        essai = {}
+    carte = essai.get("carte_apres")
     attente = "PAS ENCORE — essai de nuit, carte libre (outils_dev\\essai_formats.py, QUESTIONS)"
-    return [(recette in faits, f"{nom} en vrai (session Essais, outils réels par plan, aucun faux outil) : "
-             + (f"fait (vidéo {faits[recette][0]}, {faits[recette][1]}), {faits[recette][2].get('duree_s', 0):.0f} s, {len(faits[recette][2]['defauts'])} défaut(s), "
-                f"aucun bloquant" if recette in faits else attente))
-            for recette, nom in (("F4", "F4 voix off + images (vidéo pilote courte)"), ("F3s", "F3 créée seule"))]
+    return [(recette in faits, f"{nom} en vrai (session Essais, recette livrée, outils réels par plan, aucun faux outil) : "
+             + (f"fait (vidéo {faits[recette][0]}), {faits[recette][2].get('duree_s', 0):.0f} s, {faits[recette][1]} voix réécoutées par Whisper, "
+                f"{len(faits[recette][2]['defauts'])} défaut(s), aucun bloquant" if recette in faits else attente))
+            for recette, nom in (("F4", "F4 voix off + images (essai d'environ 4 min)"), ("F3s", "F3 créée seule"))] + [
+        (bool(carte) and carte["memoire_mio"] < carte["totale_mio"] / 4, "carte rendue après l'essai de nuit (nvidia-smi, ComfyUI arrêté) : "
+         + (f"{carte['memoire_mio']} / {carte['totale_mio']} Mio pris" if carte else attente))]
 
 
 def j8(dire, publier: bool = False) -> list[tuple[bool, str]]:

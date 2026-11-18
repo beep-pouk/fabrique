@@ -90,7 +90,7 @@ class Script(Strict):
 
 
 class PlanVoixOff(Plan):
-    texte: str = Field(min_length=1)  # ce que la voix dit sur ce plan
+    texte: str = Field(min_length=1, max_length=300)  # ce que la voix dit sur ce plan (une ou deux phrases : la voix lit mal au-delà)
     image: str = Field(min_length=1)  # la consigne de l'image du plan
     mouvement: Literal["fixe", "avancee", "recul", "gauche", "droite"] = "avancee"  # la caméra sur l'image
 

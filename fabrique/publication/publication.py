@@ -189,15 +189,15 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
         except ValueError:
             jour = None
         regles = reglages.lire(s)
-        faites = []
+        faites, sans_credits = [], []
         with transaction.atomic(using=routeur.ouvrir(s)):
             for langue in dict.fromkeys([base, *langues]):
                 if v.publications.filter(langue=langue).exists():
                     continue
                 pub = m.Publication(video=v, langue=langue, dossier="commun" if langue == base else langue)
                 d = final(s, pub)
-                if v.recette.get("script", "scenario-bramble") != "scenario-bramble":
-                    preparer_final(s, v, langue, d)
+                if v.recette.get("script", "scenario-bramble") != "scenario-bramble" and not preparer_final(s, v, langue, d):
+                    sans_credits.append(langue)
                 if (mp4 := max(d.glob("*.mp4"), key=lambda p: p.stat().st_mtime, default=None)) is None:
                     raise Refus(f"« {v.titre} » ({langue}) : aucune vidéo finale dans {d}")
                 t = youtube_txt(d / "youtube.txt") or {"titre": v.titre, "description": "", "tags": v.script.get("tags", [])}
@@ -211,7 +211,9 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                 pub.save()
                 faites.append(langue)
     noter(acteur, "approuver", session=s.id, video=video_id, langues=faites)
-    return f"« {v.titre} » approuvée : brouillon(s) {', '.join(faites)} à relire avant « Publier »" if faites else f"« {v.titre} » : brouillons déjà prêts"
+    return (f"« {v.titre} » approuvée : brouillon(s) {', '.join(faites)} à relire avant « Publier »"
+            + (f" ; AUCUN CRÉDIT trouvé en {', '.join(sans_credits)} (licence de la voix, outils d'IA) : l'ajouter à la description" if sans_credits else "")
+            if faites else f"« {v.titre} » : brouillons déjà prêts")
 
 
 def horodatage(t: float) -> str:
@@ -219,10 +221,25 @@ def horodatage(t: float) -> str:
     return f"{t // 3600}:{t // 60 % 60:02d}:{t % 60:02d}" if t >= 3600 else f"{t // 60:02d}:{t % 60:02d}"
 
 
-def preparer_final(s: Session, v: m.Video, langue: str, d: Path):
+def credits(s: Session, langue: str) -> str:
+    """Les crédits obligatoires (licence de la voix, outils d'IA, musiques) dans la langue : ceux que la session donne pour elle (univers\\langues.json,
+    repris de Bramble Studio), sinon le crédit de chaque ressource de son univers (voix, musiques) ; plus celui de la voix de la langue."""
+    try:
+        c = json.loads((settings.SESSIONS / s.dossier / "univers" / "langues.json").read_text(encoding="utf-8"))[langue]["credits"]
+    except (OSError, ValueError, KeyError, TypeError):
+        c = ""
+    c = c or "\n".join(dict.fromkeys(m.Ressource.objects.exclude(credit="").values_list("credit", flat=True)))
+    l = m.Langue.objects.filter(code=langue).first()
+    if l and (ref := (l.reglages_voix or {}).get("credit", "")) and ref not in c:
+        c += f"\n{ref}"
+    return c.strip()
+
+
+def preparer_final(s: Session, v: m.Video, langue: str, d: Path) -> bool:
     """Une vidéo d'un format hors F1 (F2, F3, F4) : à l'approbation, son dossier « final » est rempli comme celui de F1 (la publication le lit
     tel quel) : vidéo finale de la langue, sa miniature et ses sous-titres (liens durs, sinon copies), youtube.txt tiré du script dans la
-    langue (titre, description, chapitres d'une compilation, tags). Un fichier déjà là n'est pas refait."""
+    langue (titre, description, chapitres d'une compilation, crédits obligatoires, tags). Un fichier déjà là n'est pas refait. Faux : aucun
+    crédit trouvé (à ajouter avant « Publier »)."""
     from fabrique.moteur import execution
     from fabrique.moteur.f1.adaptateur import lier
 
@@ -240,9 +257,12 @@ def preparer_final(s: Session, v: m.Video, langue: str, d: Path):
             script = json.loads(t.read_text(encoding="utf-8"))
         r = json.loads((video.parent / execution.RESULTAT).read_text(encoding="utf-8"))
         chapitres = "\n".join(f"{horodatage(c['debut'])} {c['titre']}" for c in r["infos"].get("chapitres", []))
-        description = "\n\n".join(x for x in (script.get("description", "").strip(), chapitres) if x)
+        c = credits(s, langue)
+        description = "\n\n".join(x for x in (script.get("description", "").strip(), chapitres, c) if x)
         (d / "youtube.txt").write_text(f"TITRE : {script.get('titre') or v.titre}\nDESCRIPTION : {description}\nTAGS : {', '.join(script.get('tags', []))}\n",
                                        encoding="utf-8")
+        return bool(c)
+    return True
 
 
 def premiere(pub: m.Publication) -> bool:

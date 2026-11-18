@@ -453,7 +453,7 @@ def fabriquer(request, id: str, code: str):
     if Tache.objects.filter(session_id=s.id, video_id__in=en_cours, etat__in=("attente", "en_cours", "pause")).exists():
         raise Refus(f"« {sc.titre} » est déjà dans la file")
     recette = recettes.lire(forme)
-    base = v.contenu.get("language") or recette["reglages"]["langues"][0]
+    base = v.contenu.get("language") or sc.langue or recette["reglages"]["langues"][0]
     recette["reglages"]["langues"] = list(dict.fromkeys([base, *choisies]))
     video = execution.preparer(s, recette, v.contenu, nom=nom, traductions=traductions)
     t = file.mettre(s, video.id, video.titre, ACTEURS[request.auth])

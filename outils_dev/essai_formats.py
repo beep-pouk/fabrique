@@ -94,6 +94,12 @@ def main(argv=None) -> int:
                 noyau.wait(60)
             except Exception:  # noqa: BLE001
                 noyau.kill()
+        try:  # la carte rendue : plus rien des nôtres dessus (ComfyUI arrêté après chaque étape)
+            m = subprocess.run(["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"], capture_output=True, text=True,
+                               timeout=30, creationflags=subprocess.CREATE_NO_WINDOW).stdout.split(",")
+            rapport["carte_apres"] = {"memoire_mio": int(m[0]), "totale_mio": int(m[1])}
+        except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+            rapport["carte_apres"] = None
         rapport["fin"] = datetime.now().isoformat(timespec="seconds")
         RAPPORT.write_text(json.dumps(rapport, ensure_ascii=False, indent=1), encoding="utf-8")
     ok = not rapport.get("erreur") and all(v.get("etat") == "finie" and v["langues"] and not any(x["forte"] for x in v["langues"].values()) for v in rapport["videos"])
