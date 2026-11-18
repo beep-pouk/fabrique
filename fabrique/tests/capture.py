@@ -47,7 +47,7 @@ if __name__ == "__main__":
     if ecran.startswith("script"):  # « script_ecriture » : le même script, en cours d'écriture
         from PySide6.QtCore import Q_ARG, QMetaObject
 
-        QTimer.singleShot(300, lambda: QMetaObject.invokeMethod(f, "ouvrirScript", Q_ARG("QVariant", "s1e01")))
+        QTimer.singleShot(300, lambda: QMetaObject.invokeMethod(f, "ouvrirScript", Q_ARG("QVariant", onglet or "s1e01")))  # « script:s1e02 » : un autre script
         if ecran == "script_ecriture":
             QTimer.singleShot(900, lambda: QMetaObject.invokeMethod(f, "ecrire"))
     boucle = QEventLoop()
