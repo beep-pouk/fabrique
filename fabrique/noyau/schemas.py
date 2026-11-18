@@ -1,6 +1,6 @@
 """Les schémas de l'API : le noyau répond avec eux (api.py, contrat OpenAPI), la fenêtre lit avec eux (fenetre/client.py). Pydantic seul :
 la fenêtre les importe sans Django."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Message(BaseModel):
@@ -425,6 +425,7 @@ class TacheFile(BaseModel):
     reste_s: float | None = None  # durée estimée de ce qui reste (chronos : médianes), pour l'écran File
     cout_eur: float | None = None
     pret_vers: str = ""  # « JJ/MM HH:MM »
+    banc: int = 0  # un banc à l'aveugle plutôt qu'une fabrication
 
 
 class Playlist(BaseModel):
@@ -522,3 +523,118 @@ class Choix(BaseModel):
 
 
 ScriptDetail.model_rebuild()  # la planche utilise PlanVideo, défini plus bas
+
+
+class OutilFiche(BaseModel):
+    """Une fiche de l'écran Outils (moteur/installation.py, registre)."""
+    id: str
+    nom: str
+    local: bool
+    prix: str  # « gratuit » ou « 0,09 € / 1 000 caractères (prix du …) »
+    licence: str
+    credit: str
+    besoins: str
+    langues: str
+    limites: str
+    version: str
+    etat: str  # en_service, candidat, retire
+    etat_nom: str
+    installation: str  # en clair
+    action: str  # installer, mettre_a_jour, ou vide
+    simule: bool  # un faux outil (montré en simulation seulement)
+    defaut: bool  # le défaut de la brique
+    sessions: list[str]  # les sessions dont il est le défaut
+    dernier_banc: str
+
+
+class BriqueOutils(BaseModel):
+    id: str
+    titre: str
+    defaut: str
+    juges: list[dict]  # [{id, titre}] : ceux qu'un banc de cette brique peut prendre
+    outils: list[OutilFiche]
+
+
+class Outils(BaseModel):
+    briques: list[BriqueOutils]
+    installation: dict  # l'état de la tâche d'installation (donnees\taches\installation.json)
+
+
+class Depenses(BaseModel):
+    plafond_mois_eur: float
+    depense_mois_eur: float
+    lignes: list[dict]  # [{date, session, outil, estime_eur, reel_eur}], les plus récentes d'abord
+
+
+class Nombre(BaseModel):
+    valeur: float
+
+
+class NouveauBanc(BaseModel):
+    session: str
+    video: str
+    brique: str
+    outil: str  # celui qui se mesure à l'outil en place
+    juge: str = ""
+
+
+class BancListe(BaseModel):
+    id: int
+    brique: str
+    session: str
+    video: str
+    etat: str  # attente, en_cours, a_voter, fini, erreur, annule
+    etat_nom: str
+    outils: str  # « en place contre candidat »
+    juge: str
+    entrees: int
+    votes: int
+    verdict: str
+    raison: str
+    cree: str
+
+
+class BancDetail(BancListe):
+    """Avant le verdict : ni le nom des outils de chaque côté, ni les notes du juge."""
+    lignes: list[dict]  # [{n, texte, langue, gauche: [fichiers], droite: [fichiers], vote, notes: {gauche, droite} | None, qui: {gauche, droite} | None}]
+    gagnant: str
+    adopte: str
+    peut_adopter: bool
+
+
+class Vote(BaseModel):
+    entree: int
+    choix: str  # gauche, droite, egal
+
+
+class Adopter(BaseModel):
+    ou: str  # brique, session
+
+
+class CandidatVeille(BaseModel):
+    id: int
+    date: str
+    brique: str
+    nom: str
+    source: str
+    licence: str
+    commercial: bool | None
+    besoins: str
+    avis: str
+    statut: str
+    statut_nom: str
+
+
+class Repere(BaseModel):
+    """Un outil repéré par la veille du mois (Claude)."""
+    brique: str
+    nom: str = Field(min_length=1, max_length=100)
+    source: str = Field(default="", max_length=300)
+    licence: str = Field(default="", max_length=200)
+    commercial: bool | None = None  # usage commercial permis ; None : à vérifier
+    besoins: str = Field(default="", max_length=200)
+    avis: str = ""
+
+
+class Veille(BaseModel):
+    candidats: list[Repere] = Field(min_length=1)

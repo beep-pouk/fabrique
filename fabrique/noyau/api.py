@@ -28,9 +28,9 @@ log = logging.getLogger(__name__)
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", *GESTES},
+                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
-    "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
+    "claude": {"voir", "importer", "deposer", "veille"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
 }
 ACTEURS = {"fenetre": "RT", "iphone": "RT", "claude": "claude", "assistant": "assistant"}
@@ -747,7 +747,7 @@ def lire_file(request):
     prets, liste = calendrier.prets_vers(), file.lister()
     for t in liste:
         tache = Tache.objects.get(id=t["id"])
-        if e := prets.get((tache.session_id, tache.video_id)):
+        if e := prets.get((tache.session_id, f"banc{tache.banc}" if tache.banc else tache.video_id)):
             t |= {"reste_s": e["secondes"], "cout_eur": e["cout_eur"], "pret_vers": f"{e['fin']:%d/%m %H:%M}"}
     return liste
 
@@ -765,6 +765,121 @@ def arreter(request):
 
     serveur.quitter_bientot()
     return {"message": "le noyau s'arrête"}
+
+
+@api.get("/outils", response=schemas.Outils)
+@droit("voir")
+def outils_(request):
+    from fabrique.moteur import installation
+
+    return {"briques": installation.registre(etat.simulation()), "installation": taches.lire("installation")}
+
+
+@api.post("/outils/{outil}/{action}", response=schemas.Message)
+@droit("outils")
+def agir_outil(request, outil: str, action: Literal["installer", "retirer", "remettre"]):
+    """Fenêtre : installer (ou mettre à jour), retirer, remettre parmi les candidats ; jamais mettre en service (seulement après un banc)."""
+    from fabrique.moteur import installation
+
+    qui = ACTEURS[request.auth]
+    return {"message": {"installer": installation.lancer, "retirer": installation.retirer, "remettre": installation.remettre}[action](outil, qui)}
+
+
+@api.get("/depenses", response=schemas.Depenses)
+@droit("voir")
+def depenses(request):
+    from fabrique.moteur import execution
+    from fabrique.noyau.models import Depense, Parametre
+
+    noms = dict(Session.objects.values_list("id", "nom"))
+    lignes = [{"date": f"{timezone.localtime(d.date):%d/%m/%Y %H:%M}", "session": noms.get(d.session_id, ""), "outil": d.outil, "estime_eur": d.estime_eur,
+               "reel_eur": d.reel_eur} for d in Depense.objects.order_by("-date")[:200]]
+    return {"plafond_mois_eur": float(Parametre.lire("plafond_mois_eur") or 0), "depense_mois_eur": round(execution.depense_du_mois(), 2), "lignes": lignes}
+
+
+@api.post("/depenses/plafond", response=schemas.Message)
+@droit("outils")
+def plafond(request, corps: schemas.Nombre):
+    from fabrique.moteur import execution
+    from fabrique.noyau.models import Parametre
+
+    if not 0 <= corps.valeur <= 10000:
+        raise Refus("plafond attendu : entre 0 et 10 000 € par mois")
+    Parametre.ecrire("plafond_mois_eur", f"{corps.valeur:g}")
+    noter(ACTEURS[request.auth], "plafond", mois_eur=corps.valeur)
+    return {"message": f"Plafond des outils payants : {execution.euros(corps.valeur)} par mois" + (" (aucun outil payant ne servira)." if not corps.valeur else ".")}
+
+
+@api.get("/bancs", response=list[schemas.BancListe])
+@droit("voir")
+def bancs_(request):
+    from fabrique.moteur import bancs
+    from fabrique.noyau.models import Banc
+
+    return [bancs.resume(b) for b in Banc.objects.order_by("-cree")[:100]]
+
+
+@api.post("/bancs", response=schemas.Message)
+@droit("bancs")
+def nouveau_banc(request, corps: schemas.NouveauBanc):
+    from fabrique.moteur import bancs
+
+    b = bancs.creer(session_(corps.session), corps.video, corps.brique, corps.outil, corps.juge, ACTEURS[request.auth])
+    return {"message": f"Banc {b.id} dans la file : {len(b.entrees)} entrée(s), deux outils. Vous voterez à l'aveugle quand il sera prêt."}
+
+
+@api.get("/bancs/{id}", response=schemas.BancDetail)
+@droit("voir")
+def banc_(request, id: int):
+    from fabrique.moteur import bancs
+    from fabrique.noyau.models import Banc
+
+    b = Banc.objects.filter(id=id).first()
+    if b is None:
+        raise Refus(f"banc inconnu : {id}")
+    return bancs.detail(b)
+
+
+@api.post("/bancs/{id}/voter", response=schemas.Message)
+@droit("voter")
+def voter(request, id: int, corps: schemas.Vote):
+    from fabrique.moteur import bancs
+
+    return {"message": bancs.voter(id, corps.entree, corps.choix, ACTEURS[request.auth])}
+
+
+@api.post("/bancs/{id}/adopter", response=schemas.Message)
+@droit("outils")
+def adopter(request, id: int, corps: schemas.Adopter):
+    from fabrique.moteur import bancs
+
+    return {"message": bancs.adopter(id, corps.ou, ACTEURS[request.auth])}
+
+
+@api.get("/veille", response=list[schemas.CandidatVeille])
+@droit("voir")
+def veille_(request):
+    from fabrique.moteur import veille
+    from fabrique.noyau.models import Candidat
+
+    return [{**{k: getattr(c, k) for k in ("id", "brique", "nom", "source", "licence", "commercial", "besoins", "avis", "statut")},
+             "date": f"{c.date:%d/%m/%Y}", "statut_nom": veille.STATUTS[c.statut]} for c in Candidat.objects.order_by("-date", "brique", "nom")]
+
+
+@api.post("/veille", response=schemas.Message)
+@droit("veille")
+def verser_veille(request, corps: schemas.Veille):
+    from fabrique.moteur import veille
+
+    return {"message": veille.verser(corps, ACTEURS[request.auth])}
+
+
+@api.post("/veille/{pk}/statut", response=schemas.Message)
+@droit("outils")
+def statut_veille(request, pk: int, corps: schemas.Valeur):
+    from fabrique.moteur import veille
+
+    return {"message": veille.statut(pk, corps.valeur, ACTEURS[request.auth])}
 
 
 def exporter_en_fond(s: Session, videos: bool, qui: str):

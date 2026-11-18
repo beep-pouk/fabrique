@@ -142,7 +142,8 @@ def prets_vers(maintenant: datetime | None = None) -> dict[tuple[str, str], dict
     de la file (chronos : médianes). Gardé 10 s : la fenêtre et la page iPhone le demandent à chaque rafraîchissement."""
     import time as horloge
 
-    from fabrique.moteur import execution, file
+    from fabrique.moteur import bancs, execution, file
+    from fabrique.noyau.models import Banc
 
     if maintenant is None and horloge.monotonic() - _estimees["quand"] < 10:
         return _estimees["fin"]
@@ -152,12 +153,12 @@ def prets_vers(maintenant: datetime | None = None) -> dict[tuple[str, str], dict
         if (s := sessions.get(tache.session_id)) is None:
             continue
         try:
-            e = execution.estimer(s, tache.video_id)
+            e = bancs.estimer(Banc.objects.get(id=tache.banc)) if tache.banc else execution.estimer(s, tache.video_id)
         except Exception:  # noqa: BLE001 — une vidéo illisible n'empêche pas d'estimer les autres
             log.exception("estimation de la vidéo %s", tache.video_id)
             continue
         t = ajouter(t, e["secondes"])
-        fin[(s.id, tache.video_id)] = {"fin": t, "secondes": e["secondes"], "cout_eur": e["cout_eur"]}
+        fin[(s.id, f"banc{tache.banc}" if tache.banc else tache.video_id)] = {"fin": t, "secondes": e["secondes"], "cout_eur": e["cout_eur"]}
     if maintenant is None:
         _estimees.update(quand=horloge.monotonic(), fin=fin)
     return fin

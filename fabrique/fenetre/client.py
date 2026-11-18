@@ -79,6 +79,18 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "suivi": ("GET", "/api/sessions/{id}/videos/{video}/suivi", list[s.SuiviPublication]),
     "appareils": ("GET", "/api/telephone/appareils", list[s.Appareil]),
     "deconnecter": ("POST", "/api/telephone/appareils/{appareil}/deconnecter", s.Message),
+    "outils": ("GET", "/api/outils", s.Outils),
+    "agir_outil": ("POST", "/api/outils/{outil}/{action}", s.Message),  # installer (ou mettre à jour), retirer, remettre
+    "depenses": ("GET", "/api/depenses", s.Depenses),
+    "plafond": ("POST", "/api/depenses/plafond", s.Message),
+    "bancs": ("GET", "/api/bancs", list[s.BancListe]),
+    "nouveau_banc": ("POST", "/api/bancs", s.Message),
+    "banc": ("GET", "/api/bancs/{id}", s.BancDetail),
+    "voter": ("POST", "/api/bancs/{id}/voter", s.Message),
+    "adopter": ("POST", "/api/bancs/{id}/adopter", s.Message),
+    "veille": ("GET", "/api/veille", list[s.CandidatVeille]),
+    "verser_veille": ("POST", "/api/veille", s.Message),
+    "statut_veille": ("POST", "/api/veille/{pk}/statut", s.Message),
 }
 
 

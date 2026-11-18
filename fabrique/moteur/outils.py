@@ -27,12 +27,21 @@ class Besoins(Strict):
     disque_go: float = 0
 
 
+class Installation(Strict):
+    """La recette d'installation d'un outil (moteur/installation.py), jouée cachée vers outils\\<id>\\<version>."""
+    pas: list[dict] = []
+    temoins: list[str] = Field(min_length=1)  # fichiers qui doivent exister dans le dossier de l'outil installé
+    place_go: float = 0
+    manuel: str = ""  # ce qui demande des droits administrateur : l'explication montrée à RT, sans pas
+
+
 class Fiche(Strict):
     id: str
     nom: str
     roles: list[str] = Field(min_length=1)
     local: bool
     prix_unite_eur: float = 0
+    unite: str = "appel"  # ce que le prix paie : « appel », « 1 000 caractères »…
     prix_date: str | None = None
     licence: str
     credit: str = ""
@@ -45,6 +54,7 @@ class Fiche(Strict):
     faux: bool = False  # outil de simulation : sans carte, quelques secondes
     module: str
     reglages: dict = {}
+    installation: Installation | None = None  # absente : rien à installer (faux outil, service en ligne, outil partagé de Bramble Studio)
 
 
 class Demande(Strict):
@@ -91,13 +101,21 @@ def fiches() -> dict[str, Fiche]:
     return lues
 
 
-def fiche(outil: str, brique: str, langue: str = "") -> Fiche:
-    """La fiche d'un outil en service pour cette brique (et cette langue), sinon un refus en clair."""
+def etat(f: Fiche) -> str:
+    """En service, candidat ou retiré : celui de la base du noyau (installer, retirer, adopter après un banc), sinon celui de la fiche."""
+    from fabrique.noyau.models import Outil
+
+    o = Outil.objects.filter(id=f.id).first()
+    return (o and o.etat) or f.etat
+
+
+def fiche(outil: str, brique: str, langue: str = "", en_service: bool = True) -> Fiche:
+    """La fiche d'un outil de cette brique (et de cette langue), en service sauf pour un banc, sinon un refus en clair."""
     f = fiches().get(outil)
     if f is None or brique not in f.roles:
         raise Refus(f"l'outil « {outil} » n'existe pas pour la brique {brique}")
-    if f.etat != "en_service":
-        raise Refus(f"l'outil {f.nom} n'est pas en service ({f.etat})")
+    if en_service and (e := etat(f)) != "en_service":
+        raise Refus(f"l'outil {f.nom} n'est pas en service ({e})")
     if langue and f.langues and langue not in f.langues:
         raise Refus(f"l'outil {f.nom} ne parle pas la langue « {langue} » ({', '.join(f.langues)})")
     return f
@@ -121,7 +139,7 @@ def choisir(brique: str, etape: str, langue: str, du_plan: dict, du_format: dict
 def local(brique: str, langue: str, de_la_session: dict) -> Fiche:
     """L'outil local de repli d'une brique : le premier local en service parmi ses défauts (session, noyau, brique), sinon parmi tous."""
     candidats = [*(fiches().get(o) for o in defauts(brique, de_la_session)), *fiches().values()]
-    f = next((f for f in candidats if f and f.local and f.etat == "en_service" and brique in f.roles and (not langue or not f.langues or langue in f.langues)), None)
+    f = next((f for f in candidats if f and f.local and etat(f) == "en_service" and brique in f.roles and (not langue or not f.langues or langue in f.langues)), None)
     if f is None:
         raise Refus(f"aucun outil local en service pour la brique {brique}")
     return f

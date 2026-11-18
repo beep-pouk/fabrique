@@ -14,7 +14,7 @@ from django.db import connections
 from fabrique import dossiers, programme
 from fabrique.moteur import file
 from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
-from fabrique.noyau.models import Parametre, noter
+from fabrique.noyau.models import Banc, Parametre, noter
 from fabrique.publication import paquets, publication, statistiques
 from fabrique.session import calendrier
 
@@ -42,8 +42,14 @@ def tour(vu: dict, maintenant: datetime) -> dict:
         except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
             log.exception("%s : tour raté", nom)
     s, f, p = taches.lire("sauvegarde"), file.lister(), {t: taches.lire(t) for t in ("publication", "paquets")}
-    change = s != vu.get("sauvegarde") or f != vu.get("file")
+    i, a_voter = taches.lire("installation"), set(Banc.objects.filter(etat="a_voter").values_list("id", flat=True))
+    change = s != vu.get("sauvegarde") or f != vu.get("file") or i != vu.get("installation")
     if "sauvegarde" in vu:
+        if i != vu.get("installation", i) and i.get("etat") in ("faite", "erreur"):
+            evenements.publier("info" if i["etat"] == "faite" else "alerte", titre="Outil installé" if i["etat"] == "faite" else "Installation ratée",
+                               message=f"{i.get('outil', '')} {i.get('message', '')}".strip())
+        for b in sorted(a_voter - vu.get("bancs", a_voter)):
+            evenements.publier("info", titre="Banc prêt", message=f"Banc {b} : à vous de voter, à l'aveugle (écran Banc, Ctrl+5)")
         if s != vu["sauvegarde"]:
             evenements.publier("sauvegarde", **s)
         if f != vu["file"]:
@@ -55,7 +61,7 @@ def tour(vu: dict, maintenant: datetime) -> dict:
     if change or time.monotonic() - vu.get("ecrit", -MINUTE) >= MINUTE:
         evenements.publier("etat", **etat.ecrire())
         vu["ecrit"] = time.monotonic()
-    vu["sauvegarde"], vu["file"], vu["publication"] = s, f, p
+    vu["sauvegarde"], vu["file"], vu["publication"], vu["installation"], vu["bancs"] = s, f, p, i, a_voter
     if programme.installee() and taches.due(Parametre.lire("auto_sauvegarde"), maintenant) and not taches.occupe("sauvegarde"):
         Parametre.ecrire("auto_sauvegarde", maintenant.isoformat(timespec="seconds"))
         taches.lancer("sauvegarde", "noyau")

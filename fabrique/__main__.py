@@ -26,11 +26,15 @@ def sortie_sans_console(dossier):
 def commande(args: list[str]) -> int:
     from fabrique.fenetre.client import Client, ErreurApi
 
-    if args[:1] == ["script"] and len(args) == 4:  # « commande script <id de session> <code> <fichier.json> » : une version de plus, règles comprises
+    fichiers = {"script": 4, "veille": 2}  # « script <id de session> <code> <fichier.json> » : une version de plus, règles comprises ; « veille <fichier.json> »
+    if args[:1] and args[0] in fichiers and len(args) == fichiers[args[0]]:
         try:
-            with open(args[3], encoding="utf-8") as f:
+            with open(args[-1], encoding="utf-8") as f:
                 contenu = json.load(f)
-            print(Client("claude").appeler("nouvelle_version", {"contenu": contenu}, id=args[1], code=args[2])["message"])
+            if args[0] == "veille":
+                print(Client("claude").appeler("verser_veille", contenu)["message"])
+            else:
+                print(Client("claude").appeler("nouvelle_version", {"contenu": contenu}, id=args[1], code=args[2])["message"])
         except (OSError, ValueError, ErreurApi) as e:
             print(f"refusé : {e}")
             return 1
@@ -48,7 +52,7 @@ def commande(args: list[str]) -> int:
         return 0
     if not args or args[0] not in COMMANDES_CLAUDE:
         print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, idee <session> <titre> [résumé], nouveau-script <session> <titre> [AAAA-MM-JJ], "
-              "reference <session> <personnage> <image>, importer-bramble [--pour-de-vrai], "
+              "reference <session> <personnage> <image>, veille <fichier.json> (candidats du mois), importer-bramble [--pour-de-vrai], "
               "copier-essai <vidéo> <suffixe>")
         return 2
     try:

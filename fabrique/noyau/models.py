@@ -58,6 +58,7 @@ class Tache(models.Model):
     alertes = models.JSONField(default=list)
     executeur = models.IntegerField(default=0)  # le pid de l'exécuteur qui la tient (pris d'un coup, en base : jamais deux à la fois)
     relances = models.IntegerField(default=0)  # relancée sans qu'un morceau ait fini depuis (plantage, coupures) : à 3, erreur
+    banc = models.IntegerField(default=0)  # un banc à l'aveugle (moteur/bancs.py) sur une vidéo finie, au lieu de sa fabrication
     cree = models.DateTimeField(auto_now_add=True)
     lancee = models.DateTimeField(null=True)
     fin = models.DateTimeField(null=True)
@@ -83,3 +84,44 @@ class Depense(models.Model):
     outil = models.CharField(max_length=50)
     estime_eur = models.FloatField()
     reel_eur = models.FloatField(null=True)
+
+
+class Outil(models.Model):
+    """Ce qui change d'un outil après la livraison (sa fiche reste une donnée du programme, jamais réécrite) : son état, la version installée."""
+    id = models.CharField(primary_key=True, max_length=50)  # celui de la fiche
+    etat = models.CharField(max_length=12, default="")  # vide : celui de la fiche ; en service seulement après un banc gagné et l'accord de RT
+    version = models.CharField(max_length=50, default="")  # installée dans outils\<id>\<version>
+
+
+class Banc(models.Model):
+    """Un banc à l'aveugle (moteur/bancs.py) : l'outil en place (a) contre un autre (b), sur les demandes de morceaux finis d'une vidéo."""
+    ETATS = ("attente", "en_cours", "a_voter", "fini", "erreur", "annule")
+    brique = models.CharField(max_length=30)
+    outil_a = models.CharField(max_length=50)
+    outil_b = models.CharField(max_length=50)
+    session_id = models.CharField(max_length=32)
+    video_id = models.CharField(max_length=32)
+    juge = models.CharField(max_length=30, default="")  # un seul par banc ; vide : sans juge
+    acteur = models.CharField(max_length=20)
+    etat = models.CharField(max_length=10, default="attente")
+    raison = models.CharField(max_length=500, default="")
+    entrees = models.JSONField(default=list)  # [{unite, langue, texte, demande (chemin), gauche: "a"|"b"}]
+    notes = models.JSONField(default=dict)  # « i » → {a, b} : notes du juge, sur 10
+    votes = models.JSONField(default=dict)  # « i » → "a", "b" ou "egal" (le côté réel, jamais montré à RT avant le verdict)
+    verdict = models.JSONField(default=dict)
+    adopte = models.CharField(max_length=100, default="")  # « brique » ou « session » : où le vainqueur est devenu le défaut
+    cree = models.DateTimeField(auto_now_add=True)
+    fini = models.DateTimeField(null=True)
+
+
+class Candidat(models.Model):
+    """La veille mensuelle : un outil repéré (par Claude, recherche du mois), jamais en service sans banc."""
+    date = models.DateField()
+    brique = models.CharField(max_length=30)
+    nom = models.CharField(max_length=100)
+    source = models.CharField(max_length=300, default="")
+    licence = models.CharField(max_length=200, default="")
+    commercial = models.BooleanField(null=True)  # usage commercial permis (la chaîne est monétisée) ; None : à vérifier
+    besoins = models.CharField(max_length=200, default="")
+    avis = models.TextField(default="")
+    statut = models.CharField(max_length=12, default="nouveau")  # nouveau, a_essayer, ecarte, essaye

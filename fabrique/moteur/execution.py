@@ -84,7 +84,10 @@ def couvre(a: str, b: str) -> bool:
 
 def resultat(s: Session, m: Morceau) -> outils.Resultat | None:
     """Le résultat d'un morceau dont tous les fichiers sont là ; None sinon."""
-    d = dossier(s, m)
+    return lu(dossier(s, m))
+
+
+def lu(d: Path) -> outils.Resultat | None:
     try:
         r = outils.Resultat.model_validate_json((d / RESULTAT).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -145,6 +148,22 @@ def renommer(tmp: Path, final: Path):
             time.sleep(0.5)
 
 
+def produire(f: outils.Fiche, d: outils.Demande, final: Path) -> outils.Resultat:
+    """Un essai de l'outil : il écrit dans <final>.tmp, son résultat est contrôlé, rangé à côté de sa demande, puis le dossier prend son nom."""
+    tmp = final.with_name(final.name + ".tmp")
+    if final.exists():  # sans résultat complet : abîmé, refait
+        shutil.rmtree(final)
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True)
+    r = outils.adaptateur(f).fabriquer(f, d, tmp)
+    outils.controler_resultat(d.brique, r, tmp)
+    (tmp / "demande.json").write_text(d.model_dump_json(indent=1), encoding="utf-8")
+    (tmp / RESULTAT).write_text(r.model_dump_json(indent=1), encoding="utf-8")
+    renommer(tmp, final)
+    return r
+
+
 def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: int, m: Morceau, reglages: dict, alerter):
     final = dossier(s, m)
     if resultat(s, m):  # renommé juste avant une coupure : fini
@@ -153,25 +172,15 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
         return
     d = demande(s, v, R, S, i, m)
     f = outils.fiche(m.outil, m.brique, m.langue)
-    tmp = final.with_name(final.name + ".tmp")
     while True:
         if not f.local and (raison := refus_payant(s, f, outils.adaptateur(f).estimer(f, d).cout_eur, reglages)):
             f = repli(m, raison, reglages, alerter)
         depense = None
         try:
-            if final.exists():  # sans résultat complet : abîmé, refait
-                shutil.rmtree(final)
-            if tmp.exists():
-                shutil.rmtree(tmp)
-            tmp.mkdir(parents=True)
             if not f.local:
                 depense = Depense.objects.create(session_id=s.id, outil=f.id, estime_eur=outils.adaptateur(f).estimer(f, d).cout_eur)
             debut = time.monotonic()
-            r = outils.adaptateur(f).fabriquer(f, d, tmp)
-            outils.controler_resultat(m.brique, r, tmp)
-            (tmp / "demande.json").write_text(d.model_dump_json(indent=1), encoding="utf-8")
-            (tmp / RESULTAT).write_text(r.model_dump_json(indent=1), encoding="utf-8")
-            renommer(tmp, final)
+            r = produire(f, d, final)
             break
         except Exception as e:  # noqa: BLE001 — l'outil peut tout lever : essai suivant, repli, ou arrêt avec la cause
             m.essais += 1  # seuls les échecs comptent : une coupure en plein morceau n'en est pas un

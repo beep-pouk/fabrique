@@ -9,7 +9,7 @@ from datetime import datetime
 from django.conf import settings
 
 from fabrique import dossiers, programme
-from fabrique.moteur import file
+from fabrique.moteur import file, veille
 from fabrique.noyau import taches
 from fabrique.noyau.models import Parametre, Session
 
@@ -51,6 +51,8 @@ def alertes(e: dict, libre: int) -> list[str]:
     for t in ("publication", "paquets", "releve"):
         if e[t].get("etat") == "erreur":
             a += e[t].get("alertes", [])
+    if (i := e.get("installation", {})).get("etat") == "erreur":
+        a.append(f"l'installation de {i.get('outil', 'un outil')} a raté : {i.get('message', '')}")
     a += [f"« {t['titre']} » : {x}" for t in e["file"]["taches"] if t["etat"] not in ("finie", "annulee") for x in t["alertes"]]
     return a
 
@@ -65,7 +67,8 @@ def etat(maintenant: datetime | None = None) -> dict:
          "file": {"attente": [t["titre"] for t in attente], "encours": encours and f"{encours['titre']} ({encours['progression']})",
                   "raison": attente[0]["raison"] if attente and not encours else "", "taches": liste},
          "sauvegarde": taches.lire("sauvegarde"), "publication": taches.lire("publication"), "paquets": taches.lire("paquets"),
-         "releve": taches.lire("releve")}
+         "releve": taches.lire("releve"), "installation": taches.lire("installation"),
+         "veille": {"derniere": Parametre.lire("veille_derniere"), "a_faire": veille.due()}}
     e["alertes"] = alertes(e, shutil.disk_usage(settings.RACINE).free)
     s, f = e["sauvegarde"], e["file"]
     e["texte"] = [f"[{datetime.fromisoformat(e['heure']):%d/%m %H:%M}] Fabrique {e['version']} ({e['mode']})",
@@ -73,6 +76,7 @@ def etat(maintenant: datetime | None = None) -> dict:
                   + (f" (attend : {f['raison']})" if f["raison"] else ""),
                   f"Dernière sauvegarde : {s.get('etat', 'aucune')} {s.get('fin', '')} {s.get('fichier', s.get('message', ''))}".rstrip(),
                   f"Dernier relevé des statistiques : {e['releve'].get('etat', 'aucun')} {e['releve'].get('fin', '')}".rstrip(),
+                  *(["À faire (Claude) : veille mensuelle des outils (« commande veille <fichier.json> »)"] if e["veille"]["a_faire"] else []),
                   *(f"! {a}" for a in e["alertes"])]
     return e
 
