@@ -291,6 +291,20 @@ Window {
         border.width: choisi ? 2 : 1; border.color: choisi || activeFocus ? cSelection : cTrait
         Accessible.checkable: true; Accessible.checked: choisi
     }
+    component PlansLus: Column {  // les plans d'une scène d'une forme par plan (voix-off : texte dit, consigne d'image, mouvement)
+        property var plans: []
+        property string scene: ""
+        width: parent.width; spacing: 4
+        Repeater {
+            model: plans
+            Column {
+                width: parent.width; spacing: 0
+                T { objectName: "plan_lu_" + scene + "_" + modelData.id; text: modelData.texte || ""; width: parent.width }
+                T { visible: !!modelData.image; width: parent.width; color: cSecond; font.pixelSize: 12
+                    text: "image : " + (modelData.image || "") + (modelData.mouvement ? "  ·  caméra : " + modelData.mouvement : "") }
+            }
+        }
+    }
     component Panneau: Rectangle {
         property alias titre: entete.text
         default property alias contenu: colonne.data
@@ -1385,7 +1399,8 @@ Window {
                                 id: ligneScene
                                 x: 12; y: 8; width: parent.width - 24; spacing: 2
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
-                                T { text: modelData.narration || ""; width: parent.width }
+                                T { visible: !modelData.plans; text: modelData.narration || ""; width: parent.width }
+                                PlansLus { plans: modelData.plans || []; scene: modelData.id }
                             }
                         }
                     }
@@ -1528,7 +1543,7 @@ Window {
                                 property string sceneId: modelData.id
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
                                 Repeater {
-                                    model: ["narration", "image", "motion"].filter(c => c === "narration" || modelData[c] !== undefined)
+                                    model: ["narration", "image", "motion"].filter(c => c === "narration" ? !modelData.plans : modelData[c] !== undefined)
                                     Column {
                                       width: parent.width; spacing: 2
                                       property string nomChamp: ({narration: "Narration", image: "Image", motion: "Mouvement"})[modelData]
@@ -1547,6 +1562,37 @@ Window {
                                             Accessible.name: parent.parent.nomChamp + " de la scène " + sceneId
                                         }
                                       }
+                                    }
+                                }
+                                Repeater {  // une forme par plan (voix-off) : chaque plan et ses champs
+                                    model: modelData.plans || []
+                                    Column {
+                                        width: parent.width; spacing: 2
+                                        property int planIdx: index
+                                        property string planId: modelData.id
+                                        Mono { text: "plan " + modelData.id; color: cSecond; font.pixelSize: 12 }
+                                        Repeater {
+                                            model: ["texte", "image", "mouvement"].filter(c => c === "texte" || modelData[c] !== undefined)
+                                            Column {
+                                              width: parent.width; spacing: 2
+                                              property string nomChamp: ({texte: "Texte dit", image: "Image (consigne)", mouvement: "Caméra (fixe, avancee, recul, gauche, droite)"})[modelData]
+                                              T { text: parent.nomChamp; color: cSecond; font.pixelSize: 12 }
+                                              Rectangle {
+                                                width: parent.width; height: Math.max(36, champPlan.implicitHeight + 12); radius: 6; color: cLeve
+                                                border.width: champPlan.activeFocus ? 2 : 1; border.color: champPlan.activeFocus ? cSelection : cTrait
+                                                TextEdit {
+                                                    id: champPlan
+                                                    objectName: "champ_" + modelData + "_" + scene + "_" + planIdx
+                                                    x: 8; y: 6; width: parent.width - 16; wrapMode: TextEdit.Wrap; selectByMouse: true
+                                                    color: cTexte; selectionColor: cSelection; font.family: "Segoe UI Variable"; font.pixelSize: 14
+                                                    text: brouillon.scenes[scene].plans[planIdx][modelData] || ""
+                                                    onTextChanged: if (brouillon && brouillon.scenes[scene].plans[planIdx][modelData] !== text) { brouillon.scenes[scene].plans[planIdx][modelData] = text; aControler.restart() }
+                                                    Accessible.role: Accessible.EditableText
+                                                    Accessible.name: parent.parent.nomChamp + " du plan " + planId + " de la scène " + sceneId
+                                                }
+                                              }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1568,7 +1614,8 @@ Window {
                             Column {
                                 width: parent.width; spacing: 2
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
-                                T { text: modelData.narration || ""; width: parent.width }
+                                T { visible: !modelData.plans; text: modelData.narration || ""; width: parent.width }
+                                PlansLus { plans: modelData.plans || []; scene: modelData.id }
                             }
                         }
                     }

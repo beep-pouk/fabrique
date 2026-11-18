@@ -47,6 +47,32 @@ def clic(f, nom):
     QTest.mouseClick(f, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, el.mapToScene(QPointF(el.width() / 2, el.height() / 2)).toPoint())
 
 
+def test_script_voix_off_lu_et_ecrit_plan_par_plan(qtbot):
+    """Un script de forme voix-off (F4) : chaque plan se lit (texte dit, consigne d'image, caméra) et s'écrit champ par champ ; rien n'est ajouté
+    au niveau de la scène (sa forme le refuserait)."""
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: valeur(f, "sante")["version"] == "0.1.0")
+    f.setProperty("session", "s1")
+    f.metaObject().invokeMethod(f, "ouvrirScript", Q_ARG("QVariant", "s1e02"))
+    qtbot.waitUntil(lambda: valeur(f, "script")["contenu"] != {})
+    assert element(f, "plan_lu_s1_p2").property("text") == "Le hibou ouvre les yeux."
+    clic(f, "modifier_script")
+    assert element(f, "champ_narration_0") is None and element(f, "champ_mouvement_0_1").property("text") == "fixe"
+    champ = element(f, "champ_texte_0_1")
+    champ.forceActiveFocus()
+    QTest.keyClick(f, Qt.Key.Key_End, Qt.KeyboardModifier.ControlModifier)
+    for lettre in " Chut":
+        QTest.keyClick(f, lettre)
+    b = valeur(f, "brouillon")
+    assert b["scenes"][0]["plans"][1]["texte"] == "Le hibou ouvre les yeux. Chut" and "narration" not in b["scenes"][0]
+    clic(f, "enregistrer_version")
+    qtbot.waitUntil(lambda: any(chemin == "/api/sessions/s1/scripts/s1e02/versions" for chemin, _ in t.actions))
+    contenu = next(c for chemin, c in t.actions if chemin == "/api/sessions/s1/scripts/s1e02/versions")["contenu"]
+    assert contenu["scenes"][0]["plans"][1] == {"id": "p2", "texte": "Le hibou ouvre les yeux. Chut", "image": "an owl on a branch", "mouvement": "fixe"}
+
+
 def test_parcours(qtbot):
     t = Transport()
     moteur, pont, f = main.ouvrir(Client(transport=t))

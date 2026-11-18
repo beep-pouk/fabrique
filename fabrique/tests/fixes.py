@@ -71,6 +71,13 @@ REPONSES = {
         "regles": {"erreurs": [], "avis": [["S-12", "une phrase un peu longue en scène 1"]], "mesures": {}},
         "plans": [{"n": 1, "image": "A small fox sleeps under a fern.", "scenes": [1], "bramble": False}, {"n": 2, "image": "", "scenes": [2], "bramble": True}],
         "estimation": {"secondes": 41400.0, "cout_eur": 0.0, "carte_go": 16}, "traductions": ["xx"]},
+    ("GET", "/api/sessions/s1/scripts/s1e02"): {  # un script de forme voix-off (F4) : par plan, texte dit, consigne d'image, caméra
+        "code": "s1e02", "titre": "La lune et le hibou", "statut": "scenario", "date_prevue": "2026-12-02",
+        "versions": [{"numero": 1, "auteur": "claude", "date": "2026-11-18T10:00", "validee": True}],
+        "contenu": {"titre": "La lune et le hibou", "scenes": [{"id": "s1", "plans": [
+            {"id": "p1", "texte": "La lune se lève.", "image": "a full moon over a pond", "mouvement": "avancee"},
+            {"id": "p2", "texte": "Le hibou ouvre les yeux.", "image": "an owl on a branch", "mouvement": "fixe"}]}]},
+        "regles": {"erreurs": [], "avis": [], "mesures": {}}, "plans": [], "estimation": {"secondes": 600.0, "cout_eur": 0.0, "carte_go": 16}, "traductions": []},
     ("GET", "/api/sessions/s1/univers"): {
         "personnages": [{"id": 1, "nom": "Ami Un", "role": "ami", "statut": "actif", "description": "un petit renard roux", "licence": "image générée", "credit": "",
                          "references": [{"id": 1, "chemin": REFERENCE, "vue": "face", "source": "gemini", "validee": True, "licence": "", "credit": ""},
