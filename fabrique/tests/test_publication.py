@@ -658,3 +658,32 @@ def test_coupes_aux_silences():
     assert paquets.coupes(20, 2, [], 10) == [0.0, 10.0, 20]  # sans silence : parties égales
     b = paquets.coupes(30, 2, [3.0], 16)  # un silence trop tôt (la 2e partie dépasserait 16 s) : ignoré
     assert b == [0.0, 15.0, 30] and all(y - x <= 16 for x, y in zip(b, b[1:]))
+
+
+# ---- vidéo d'essai copiée pour les gestes de RT (recette J4) ----
+
+def test_copie_d_essai_toujours_non_repertoriee_et_marquee(session, faux, envois):
+    essais = Session.objects.get(essais=True)
+    with routeur.session(essais):
+        m.Langue.objects.get_or_create(code="xx", defaults={"nom": "Langue factice"})
+    source = video_finie(essais, nom="2099-12-09-essai", langues=("en",))
+    cible = Session.objects.filter(essais=False).order_by("cree").first()
+    message = publication.copier_essai(source, "PC")
+    copie = message.split("(vidéo ")[1].split(")")[0]
+    with routeur.session(cible):
+        v = m.Video.objects.get(id=copie)
+        assert v.essai and v.titre == "ESSAI PC — Le petit renard" and v.morceaux.filter(etat="fini").count() == 1
+    finals = list((settings.SESSIONS / cible.dossier / "videos" / copie).rglob("final"))
+    assert len(finals) == 1 and (finals[0] / "2099-12-09-essai.mp4").is_file() and not list((settings.SESSIONS / cible.dossier / "videos" / copie).rglob("transcription"))
+    with pytest.raises(Refus):
+        publication.copier_essai("inconnue", "PC")
+    # dans la session réelle : une publication déjà partie n'y change rien, la copie d'essai part en non répertorié, titre marqué
+    relier(cible, "en")
+    with routeur.session(cible):
+        autre = m.Video.objects.create(titre="Déjà publiée", nom="2099-12-10-x", script={}, recette={})
+        m.Publication.objects.create(video=autre, langue="en", dossier="commun", statut="planifiee", simulation=True, identifiant_youtube="dejaFaux", paquets={"fini": True})
+    assert approuver(cible, copie).status_code == 200
+    p = apercu(cible, copie)[0]
+    assert p["titre"].startswith("ESSAI — ") and p["non_repertorie"] and p["creneau"] == ""
+    assert agir(cible, p["id"]).status_code == 200 and publication.executer() == 0
+    assert lire(cible, p["id"]).statut == "non_repertoriee" and faux.appels_de("POST", "/upload/youtube/v3/videos")[-1]["corps"]["status"]["privacyStatus"] == "unlisted"

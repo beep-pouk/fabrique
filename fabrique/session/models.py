@@ -104,6 +104,7 @@ class Video(models.Model):
     script = models.JSONField()
     recette = models.JSONField()
     cree = models.DateTimeField(auto_now_add=True)
+    essai = models.BooleanField(default=False)  # copiée de la session Essais (commande copier-essai) : toujours publiée en non répertorié, titre marqué
 
 
 class Morceau(models.Model):

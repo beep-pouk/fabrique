@@ -36,7 +36,8 @@ def commande(args: list[str]) -> int:
             return 1
         return 0
     if not args or args[0] not in COMMANDES_CLAUDE:
-        print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, importer-bramble [--pour-de-vrai]")
+        print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, importer-bramble [--pour-de-vrai], "
+              "copier-essai <vidéo> <suffixe>")
         return 2
     try:
         print(json.dumps(Client("claude").appeler(COMMANDES_CLAUDE[args[0]]), ensure_ascii=False, indent=1))
@@ -107,6 +108,24 @@ def importer(args: list[str]) -> int:
     return 0 if r["a_blanc"] or (r["copies_identiques"] and r["source_intacte"]) else 1
 
 
+def copier_essai(args: list[str]) -> int:
+    """« commande copier-essai <vidéo de la session Essais> <suffixe> » (Claude) : la copie à publier par RT en non répertorié (recette J4)."""
+    from django.db import DatabaseError
+
+    from fabrique.garde import Refus
+    from fabrique.publication import publication
+
+    if len(args) != 2:
+        print("usage : commande copier-essai <vidéo de la session Essais> <suffixe>")
+        return 2
+    try:
+        print(publication.copier_essai(*args))
+    except (Refus, OSError, DatabaseError) as e:
+        print(f"refusé : {e}")
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     programme.environnement()
     args = list(sys.argv[1:] if argv is None else argv)
@@ -135,13 +154,15 @@ def main(argv: list[str] | None = None) -> int:
         from fabrique.noyau import taches
 
         return 3 if taches.occupe() else 0
-    if role == "commande" and args[1:2] != ["importer-bramble"]:
+    if role == "commande" and args[1:2] not in (["importer-bramble"], ["copier-essai"]):
         return commande(args[1:])
     import django
 
     django.setup()
     if role == "moteur":
         return moteur(args[1:])
+    if role == "commande" and args[1] == "copier-essai":
+        return copier_essai(args[2:])
     if role == "commande":
         return importer(args[2:])
     if role == "noyau":

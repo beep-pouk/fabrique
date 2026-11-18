@@ -196,6 +196,8 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                 t = youtube_txt(d / "youtube.txt") or {"titre": v.titre, "description": "", "tags": v.script.get("tags", [])}
                 pub.fichier, pub.miniature = mp4.name, "miniature.jpg" if (d / "miniature.jpg").is_file() else ""
                 pub.titre, pub.description, pub.tags = t["titre"], t["description"], t["tags"]
+                if v.essai and "essai" not in pub.titre.lower():
+                    pub.titre = f"ESSAI — {pub.titre}"[:100]
                 pub.playlist, pub.planifiee_le = playlist_proposee(v.script, playlists.get(langue, [])), creneau(jour)
                 pub.versions = [{"numero": 1, "titre": pub.titre, "description": pub.description, "auteur": "noyau", "date": _maintenant()}]
                 pub.save()
@@ -205,8 +207,9 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
 
 
 def premiere(pub: m.Publication) -> bool:
-    """Aucune autre publication de sa destination (langue, mode) n'a quitté le brouillon : celle-ci part en non répertorié."""
-    return not m.Publication.objects.filter(langue=pub.langue, simulation=etat.simulation()).exclude(pk=pub.pk).exclude(statut="brouillon").exists()
+    """Aucune autre publication de sa destination (langue, mode) n'a quitté le brouillon : celle-ci part en non répertorié. Une vidéo d'essai
+    aussi, toujours : jamais programmée publique."""
+    return pub.video.essai or not m.Publication.objects.filter(langue=pub.langue, simulation=etat.simulation()).exclude(pk=pub.pk).exclude(statut="brouillon").exists()
 
 
 def apercu(s: Session, video_id: str) -> list[dict]:
@@ -233,6 +236,34 @@ def apercu(s: Session, video_id: str) -> list[dict]:
                 "envoi": f"{e.get('octets', 0) / 1e6:.1f} / {e['taille'] / 1e6:.1f} Mo".replace(".", ",") + (f" ; fait : {', '.join(e['fait'])}" if e.get("fait") else "")
                 if e.get("taille") else "", "erreur": e.get("erreur", "")})
     return lignes
+
+
+def copier_essai(video_id: str, suffixe: str) -> str:
+    """« commande copier-essai <vidéo> <suffixe> » (Claude, préparation des gestes de RT de la recette J4) : une vidéo finie de la session Essais
+    copiée dans la première session réelle, marquée essai (jamais au calendrier, toujours publiée en non répertorié) : la vidéo et ses morceaux
+    finis en base, seulement les dossiers « final » de chaque langue sur le disque. Rien n'est publié : RT approuve et publie."""
+    import shutil
+
+    essais, cible = Session.objects.get(essais=True), Session.objects.filter(essais=False).order_by("cree").first()
+    if cible is None:
+        raise Refus("aucune session réelle : importer d'abord Bramble Studio (commande importer-bramble --pour-de-vrai)")
+    with routeur.session(essais):
+        v = m.Video.objects.filter(id=video_id).first()
+        if v is None or not v.morceaux.exists() or v.morceaux.exclude(etat="fini").exists():
+            raise Refus(f"vidéo de la session Essais inconnue ou pas finie : {video_id}")
+        morceaux = list(v.morceaux.values("etape", "brique", "unite", "langue", "ordre", "outil", "etat", "secondes"))
+    source = settings.SESSIONS / essais.dossier / "videos" / v.id
+    finals = list(source.glob("*/atelier/*/final"))
+    if not finals:
+        raise Refus(f"« {v.titre} » : aucun dossier final")
+    with routeur.session(cible):
+        with transaction.atomic(using=routeur.ouvrir(cible)):
+            copie = m.Video.objects.create(titre=f"ESSAI {suffixe} — {v.titre}"[:200], nom=v.nom, script=v.script, recette=v.recette, essai=True)
+            m.Morceau.objects.bulk_create([m.Morceau(video=copie, **x) for x in morceaux])
+    for d in finals:
+        shutil.copytree(d, settings.SESSIONS / cible.dossier / "videos" / copie.id / d.relative_to(source))
+    noter("claude", "copier_essai", source=video_id, session=cible.id, video=copie.id)
+    return f"« {copie.titre} » copiée dans « {cible.nom} » (vidéo {copie.id}) : à approuver puis publier par RT, en non répertorié"
 
 
 # ---- retoucher, choisir ----
