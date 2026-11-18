@@ -218,3 +218,113 @@ def test_commandes_de_claude(monkeypatch):
     assert commande(["reference", "s1", "3"]) == 2  # incomplète : l'aide
     assert vus == [("claude", "ajouter_idee", {"titre": "Un hibou", "resume": "qui compte", "source": "claude"}, {"id": "s1"}),
                    ("claude", "importer_reference", {"fichier": "D:/images/hibou.png"}, {"id": "s1", "pk": "3"})]
+
+
+def test_scripts_crees_et_dates(nouvelle):
+    """Une session neuve met des scripts au calendrier : d'une idée ou non, datés par RT ; jamais une vidéo déjà confiée à YouTube."""
+    s = nouvelle
+    poster(f"/api/sessions/{s.id}/idees", {"titre": "Le hibou qui compte"})
+    idee = calendrier.idees(s)[0]["id"]
+    r = poster(f"/api/sessions/{s.id}/scripts", {"idee": idee}, qui="claude")
+    assert r.status_code == 200 and r.json()["code"] == "e01"
+    assert calendrier.idees(s)[0]["statut"] == "convertie"
+    assert poster(f"/api/sessions/{s.id}/scripts", {"titre": "Le pont", "date": "2099-02-03"}).json()["code"] == "e02"
+    assert poster(f"/api/sessions/{s.id}/scripts", {"titre": "x", "date": "demain"}).status_code == 400
+    assert poster(f"/api/sessions/{s.id}/scripts/e01/dater", {"date": "2099-02-01"}).status_code == 200
+    assert poster(f"/api/sessions/{s.id}/scripts/e01/dater", {"date": "2099-02-01"}, qui="claude").status_code == 403
+    assert [(x["code"], x["date"], x["statut"]) for x in calendrier.lire(s, date(2099, 2, 1), date(2099, 2, 28))] == [
+        ("e01", "2099-02-01", "idee"), ("e02", "2099-02-03", "idee")]
+    with routeur.session(s):
+        v = m.Video.objects.create(titre="v", nom="2099-02-03-e02", script={}, recette={})
+        m.Publication.objects.create(video=v, langue="xx", dossier="commun", statut="erreur", identifiant_youtube="ABC")  # déjà chez YouTube, même en erreur
+    assert "confiée à YouTube" in poster(f"/api/sessions/{s.id}/scripts/e02/dater", {"date": ""}).json()["detail"]
+    assert poster(f"/api/sessions/{s.id}/scripts/e01/dater", {"date": ""}).status_code == 200  # retiré du calendrier
+    assert [x["code"] for x in calendrier.lire(s, date(2099, 2, 1), date(2099, 2, 28))] == ["e02"]
+
+
+def test_fiches_du_calendrier_editorial(nouvelle):
+    s = nouvelle
+    with routeur.session(s):
+        m.Prevision.objects.create(date=date(2099, 3, 1), statut="acceptee", details={"type": "histoire", "heros": "Ami Un", "lieu": "Clairière", "saison": "hiver", "episode": ""})
+        m.Prevision.objects.create(date=date(2099, 3, 2), statut="refusee", details={"type": "histoire"})
+        m.Prevision.objects.create(date=date(2099, 3, 3), statut="acceptee", details={"type": "histoire", "episode": "e09"})
+        m.Script.objects.create(code="e09", titre="Déjà écrit", langue="xx", statut="idee", date_prevue=date(2099, 3, 3))
+    lu = calendrier.lire(s, date(2099, 3, 1), date(2099, 3, 31))
+    assert [(x["code"], x["titre"], x["statut_nom"]) for x in lu] == [("e09", "Déjà écrit", "idée"), ("", "histoire · Ami Un · Clairière · hiver", "fiche du calendrier éditorial")]
+
+
+def test_regles_selon_la_forme_du_format(nouvelle):
+    from fabrique.session import regles
+
+    reglages.ecrire(nouvelle, {"formats": ["essai"]}, "RT")
+    assert regles.controler(nouvelle, {"titre": "t", "scenes": [{"id": "s1", "plans": [{"id": "p1"}]}]}) == {"erreurs": [], "avis": [], "mesures": {}}
+    assert regles.controler(nouvelle, {"title": "un scénario de Bramble"})["erreurs"][0][0] == "forme"
+
+
+def test_langues_remplacees_et_creation_jamais_a_moitie(nouvelle, monkeypatch):
+    s = nouvelle
+    assert poster(f"/api/sessions/{s.id}/reglages", {"langues": [{"code": "zz"}], "formats": ["inconnu"]}).status_code == 409
+    assert [l["code"] for l in reglages.lire(s)["langues"]] == ["xx", "yy"]  # refusé : rien d'écrit
+    with routeur.session(s):
+        m.Destination.objects.create(langue="yy", reseau="youtube", jeton="chiffré")
+    assert "chaîne reliée" in poster(f"/api/sessions/{s.id}/reglages", {"langues": [{"code": "xx"}]}).json()["detail"]
+    assert poster(f"/api/sessions/{s.id}/reglages", {"langues": [{"code": "yy"}, {"code": "zz"}]}).status_code == 200
+    assert [l["code"] for l in reglages.lire(s)["langues"]] == ["yy", "zz"]
+    monkeypatch.setattr(reglages, "ecrire", lambda *a, **k: (_ for _ in ()).throw(Refus("format inconnu : F9")))
+    with pytest.raises(Refus, match="F9"):
+        reglages.creer("Ratée factice", [{"code": "xx"}])
+    assert not Session.objects.filter(nom="Ratée factice").exists() and list((settings.DONNEES / "_corbeille").glob("ratee_factice_*"))
+
+
+def test_reprendre_ni_archivee_ni_pas_finie(nouvelle):
+    s = nouvelle
+    assert "pas finie" in poster(f"/api/sessions/{s.id}/reprendre", {"nom": ""}).json()["detail"]
+    reglages.ecrire(s, {"formats": ["essai"], "difference": "x"}, "RT")
+    reglages.finir(s, "RT")
+    assert poster(f"/api/sessions/{s.id}/archiver", {"nom": ""}).status_code == 200
+    assert "archivée" in poster(f"/api/sessions/{s.id}/reprendre", {"nom": ""}).json()["detail"]
+    poster(f"/api/sessions/{s.id}/desarchiver", {"nom": ""})
+    assert poster(f"/api/sessions/{s.id}/reprendre", {"nom": ""}).status_code == 200
+
+
+def test_une_video_des_faux_outils_jamais_sur_une_vraie_chaine(nouvelle, monkeypatch):
+    from fabrique.publication import publication
+
+    with routeur.session(nouvelle):
+        v = m.Video.objects.create(titre="Pilote factice", nom="2099-01-01-pilote", script={}, recette={"reglages": {"langues": ["xx"]}})
+        m.Morceau.objects.create(video=v, etape="voix", brique="voix", unite="", langue="", ordre=0, outil="faux_voix", etat="fini")
+    assert calendrier.carte(nouvelle)["a_faire"] == 0  # la vidéo pilote se regarde, ne se publie pas
+    monkeypatch.setattr(etat, "simulation", lambda: False)
+    with pytest.raises(Refus, match="faux outils"):
+        publication.approuver(nouvelle, v.id, "RT")
+
+
+def test_partage_jamais_vers_l_image_d_un_autre(nouvelle):
+    s = nouvelle
+    autre = reglages.creer(f"Autre {s.nom}", [{"code": "xx"}])
+    univers.ajouter(s, "personnage", "Léa", "", "RT")
+    with routeur.session(s):
+        p = m.Personnage.objects.get(nom="Léa")
+        m.Reference.objects.create(personnage=p, fichier="univers/personnages/lea/face.png", date=timezone.now())
+        m.Reference.objects.create(personnage=p, fichier="univers/personnages/lea/absente.png", date=timezone.now())
+    for d, contenu in ((settings.SESSIONS / s.dossier, b"image de Lea"), (settings.SESSIONS / autre.dossier, b"image d'un autre")):
+        (d / "univers" / "personnages" / "lea").mkdir(parents=True, exist_ok=True)
+        (d / "univers" / "personnages" / "lea" / "face.png").write_bytes(contenu)
+    univers.partager(s, "personnage", p.id, autre, "RT")
+    refs = univers.lire(autre)["personnages"][0]["references"]
+    assert [Path(r["chemin"]).read_bytes() for r in refs] == [b"image de Lea"] and refs[0]["chemin"].endswith("face_2.png")
+
+
+def test_rattrapage_des_sessions_bramble_d_avant_j5(nouvelle):
+    import importlib
+
+    from django.apps import apps
+    from django.db import connections
+
+    mig = importlib.import_module("fabrique.session.migrations.0010_reglages_bramble")
+    with routeur.session(nouvelle):
+        m.Reglage.objects.create(cle="origine", valeur="bramble")
+        m.Reglage.objects.filter(cle="difference").delete()
+    mig.rattraper(apps, type("E", (), {"connection": connections[routeur.ouvrir(nouvelle)]})())
+    d = reglages.lire(nouvelle)
+    assert d["formats"] == ["F1"] and d["difference"].startswith("Chaque épisode") and d["assistant"] == "2"  # rien d'écrasé

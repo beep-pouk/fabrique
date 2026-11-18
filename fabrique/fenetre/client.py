@@ -71,6 +71,9 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "ecrire_reglages": ("POST", "/api/sessions/{id}/reglages", s.Message),
     "finir_session": ("POST", "/api/sessions/{id}/finir", s.Message),
     "pilote": ("POST", "/api/sessions/{id}/pilote", s.Message),
+    "etape_suivante": ("POST", "/api/sessions/{id}/reglages", s.Message),  # « Suivant » de la nouvelle session : son propre nom (la fenêtre avance sur sa réponse)
+    "creer_script": ("POST", "/api/sessions/{id}/scripts", s.ScriptCree),
+    "dater_script": ("POST", "/api/sessions/{id}/scripts/{code}/dater", s.Message),
     "idees": ("GET", "/api/sessions/{id}/idees", list[s.Idee]),
     "ajouter_idee": ("POST", "/api/sessions/{id}/idees", s.Message),
     "suivi": ("GET", "/api/sessions/{id}/videos/{video}/suivi", list[s.SuiviPublication]),

@@ -51,7 +51,18 @@ def charger():
 
 
 def controler(s: Session, contenu: dict, code: str = "") -> dict:
-    """{erreurs, avis, mesures} du script `contenu` (le script `code` de la session, ou un nouveau), face à l'univers et aux autres scripts."""
+    """{erreurs, avis, mesures} du script `contenu` (le script `code` de la session, ou un nouveau), face à l'univers et aux autres scripts.
+    Un format dont le script n'est pas un scénario de Bramble : sa forme seulement (schéma de la recette ; cahier F, forme propre au format)."""
+    from fabrique.moteur import recettes
+    from fabrique.session import reglages
+
+    forme = recettes.lire(reglages.lire(s)["format"])["script"]
+    if forme != "scenario-bramble":
+        try:
+            recettes.script(contenu, forme)
+            return {"erreurs": [], "avis": [], "mesures": {}}
+        except Refus as e:
+            return {"erreurs": [["forme", str(e)]], "avis": [], "mesures": {}}
     lint = charger()
     f = settings.SESSIONS / s.dossier / "univers" / "univers.json"
     if not f.is_file():

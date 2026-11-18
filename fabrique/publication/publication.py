@@ -178,6 +178,8 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
             raise Refus(f"vidéo inconnue : {video_id}")
         if reste := v.morceaux.exclude(etat="fini").count():
             raise Refus(f"« {v.titre} » : fabrication pas finie ({reste} morceau(x) à faire)")
+        if not etat.simulation() and v.morceaux.filter(outil__startswith="faux_").exists():
+            raise Refus(f"« {v.titre} » est faite par les faux outils (vidéo pilote, essai) : elle ne part jamais sur une vraie chaîne")
         langues = v.recette["reglages"]["langues"]
         base = v.script.get("language") or langues[0]
         playlists = {d.langue: d.playlists for d in youtube._destinations()}

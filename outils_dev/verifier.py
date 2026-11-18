@@ -576,7 +576,7 @@ def sessions_j5(dire) -> list[tuple[bool, str]]:
         except ErreurApi as e:
             sans_difference = str(e)
         f.appeler("ecrire_reglages", {"difference": "un animal et un lieu différents à chaque vidéo", "duree_min": 3, "duree_max": 8, "assistant": "6"}, id=sid)
-        f.appeler("ecrire_reglages", {"objectif": "une vidéo pilote", "arret": "après la recette", "plafond_eur": 0, "assistant": "7"}, id=sid)
+        f.appeler("ecrire_reglages", {"objectif": "une vidéo pilote", "arret": "après la recette", "plafond_eur": 0}, id=sid)
         f.appeler("finir_session", id=sid)
         r = f.appeler("reglages", id=sid)
         u = f.appeler("univers", id=sid)
@@ -596,15 +596,27 @@ def sessions_j5(dire) -> list[tuple[bool, str]]:
                        and all(o.startswith("faux_") for e in d["etapes"] for o in e["outils"]),
                        f"vidéo pilote fabriquée en simulation par la file (tâche {tache['etat']}, {v['progression']} morceaux, outils : "
                        f"{', '.join(sorted({o for e in d['etapes'] for o in e['outils']}))})"))
-        f.appeler("ajouter_idee", {"titre": "Une idée factice", "resume": "", "source": ""}, id=sid)
-        cal = f.appeler("calendrier", session=sid)
+        dire("puis « en vrai » : une idée devenue script, datée, écrite par Claude, fabriquée (simulation)…")
+        claude = Client("claude", port=port, donnees=racine / "donnees")
+        claude.appeler("ajouter_idee", {"titre": "Une idée factice", "resume": "", "source": ""}, id=sid)
+        code = f.appeler("creer_script", {"titre": "", "date": "", "idee": f.appeler("idees", id=sid)[0]["id"]}, id=sid)["code"]
+        f.appeler("dater_script", {"date": "2099-01-05"}, id=sid, code=code)
+        claude.appeler("nouvelle_version", {"contenu": {"titre": "Une idée factice", "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Il était une fois."}]}]}},
+                       id=sid, code=code)
+        statuts = [f.appeler("calendrier", session=sid, debut="2099-01-01", fin="2099-01-31")[0]["statut"]]
+        f.appeler("fabriquer", id=sid, code=code)
+        statuts.append(f.appeler("calendrier", session=sid, debut="2099-01-01", fin="2099-01-31")[0]["statut"])
+        banc.attendre(lambda: next(x for x in f.appeler("file") if x["titre"] == "Une idée factice")["etat"] == "finie", 240, "la vidéo du script finie")
+        cal = f.appeler("calendrier", session=sid, debut="2099-01-01", fin="2099-01-31")
+        statuts.append(cal[0]["statut"])
         cartes = {x["id"]: x for x in f.appeler("sessions")}
-        points.append((len(f.appeler("idees", id=sid)) == 1 and cal == [] and cartes[sid]["videos"] == 1 and cartes[sid]["a_faire"] == 1,
-                       f"idée ajoutée ; calendrier lu (la vidéo pilote n'y est pas) ; carte du mur : {cartes[sid]['videos']} vidéo, {cartes[sid]['a_faire']} à faire "
-                       f"(la vidéo pilote à regarder), « {cartes[sid]['derniere']} »"))
+        points.append((statuts == ["prete", "fabrication", "a_verifier"] and [(x["code"], x["date"]) for x in cal] == [(code, "2099-01-05")]
+                       and f.appeler("idees", id=sid)[0]["statut"] == "convertie" and cartes[sid]["videos"] == 2 and cartes[sid]["a_faire"] == 1,
+                       f"idée (Claude) → script {code} daté du 05/01/2099 → version écrite par Claude → « Fabriquer » : au calendrier, statut {' → '.join(statuts)} ; "
+                       f"carte du mur : {cartes[sid]['videos']} vidéos, {cartes[sid]['a_faire']} à faire (la vidéo du script ; la pilote se regarde seulement)"))
         dire("export avec les vidéos, puis import…")
-        message = f.appeler("agir_session", {"nom": "", "videos": True}, id=sid, action="exporter")["message"]
-        fichier = message.split(" : ", 1)[1]
+        f.appeler("agir_session", {"nom": "", "videos": True}, id=sid, action="exporter")  # à côté de la requête : une notification à la fin
+        fichier = str(banc.attendre(lambda: next((racine / "exports").glob("*.fabrique"), None), 120, "le fichier exporté"))
         f.appeler("importer_session", {"fichier": fichier, "nom": "Session de la recette J5 (réimportée)"})
         sid2 = next(x["id"] for x in f.appeler("sessions") if x["nom"] == "Session de la recette J5 (réimportée)")
         c = subprocess.run([sys.executable, "-c", f"import verifier; verifier.comparer_j5('{sid}', '{sid2}')"], cwd=DEPOT / "outils_dev", env=env,
@@ -613,7 +625,8 @@ def sessions_j5(dire) -> list[tuple[bool, str]]:
         points.append((egal["tables"] and egal["fichiers"] and egal.get("videos", 0) > 0,
                        f"exportée ({Path(fichier).name}, {Path(fichier).stat().st_size // 1024} Ko) puis réimportée à l'identique : tables {egal['tables']} "
                        f"({egal.get('n_tables')} tables, {egal.get('lignes')} lignes), fichiers {egal['fichiers']} ({egal.get('n_fichiers')} fichiers dont "
-                       f"{egal.get('videos')} de vidéos){' — ' + str(egal.get('differentes') or egal.get('erreur')) if not (egal['tables'] and egal['fichiers']) else ''}"))
+                       f"{egal.get('videos')} de vidéos finales et leurs scripts, sans les pièces intermédiaires)"
+                       f"{' — ' + str(egal.get('differentes') or egal.get('erreur')) if not (egal['tables'] and egal['fichiers']) else ''}"))
     except (AssertionError, ErreurApi, OSError, ValueError, KeyError, StopIteration) as e:
         points.append((False, f"recette J5 interrompue : {type(e).__name__} : {e}"))
     finally:

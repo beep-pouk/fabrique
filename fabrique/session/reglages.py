@@ -4,6 +4,7 @@ base : un dossier de session se suffit à lui-même). Et la nouvelle session pas
 vidéo pilote en simulation (faux outils, même en mode réel)."""
 import json
 import re
+import shutil
 
 from django.conf import settings
 from django.utils import timezone
@@ -94,8 +95,13 @@ def controler_langues(langues: list[dict]):
 
 
 def poser_langues(s: Session, langues: list[dict]):
+    """Remplace les langues de la session (une langue retirée : jamais celle d'une chaîne reliée)."""
     controler_langues(langues)
     with routeur.session(s):
+        retirees = m.Langue.objects.exclude(code__in=[l["code"] for l in langues])
+        if reliees := sorted(set(m.Destination.objects.filter(langue__in=retirees.values("code")).exclude(jeton="").values_list("langue", flat=True))):
+            raise Refus(f"la langue {', '.join(reliees)} a une chaîne reliée : elle ne se retire pas")
+        retirees.delete()
         for i, l in enumerate(langues):
             m.Langue.objects.update_or_create(code=l["code"], defaults={"nom": l.get("nom") or l["code"], "ordre": i})
 
@@ -117,12 +123,20 @@ def creer(nom: str, langues: list[dict], public: str = "", promesse: str = "", m
         s = echange.importer(fichier, nom, acteur)
     else:
         s = bases.creer(nom)
-    Session.objects.filter(id=s.id).update(pause=True)
-    s.refresh_from_db()
-    poser_langues(s, langues)
-    with routeur.session(s):
-        m.Reglage.objects.update_or_create(cle="assistant", defaults={"valeur": "2"})
-    ecrire(s, {"public": public, "promesse": promesse}, acteur)
+    try:
+        Session.objects.filter(id=s.id).update(pause=True)
+        s.refresh_from_db()
+        poser_langues(s, langues)
+        with routeur.session(s):
+            m.Reglage.objects.update_or_create(cle="assistant", defaults={"valeur": "2"})
+        ecrire(s, {"public": public, "promesse": promesse}, acteur)
+    except BaseException:  # un modèle d'une autre version (format inconnu ici…) : la session à moitié faite part dans la corbeille, son nom reste libre
+        from django.db import connections
+
+        connections[routeur.ouvrir(s)].close()
+        shutil.move(settings.SESSIONS / s.dossier, settings.DONNEES / "_corbeille" / f"{s.dossier}_{timezone.now():%Y%m%d_%H%M%S}")
+        s.delete()
+        raise
     noter(acteur, "session", session=s.id, quoi="creer", modele=modele)
     return s
 

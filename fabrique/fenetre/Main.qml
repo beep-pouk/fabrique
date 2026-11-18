@@ -71,6 +71,8 @@ Window {
     property string calJour: ""  // AAAA-MM-JJ dans la période montrée ; vide : aujourd'hui
     property string jourFixe: ""  // captures de référence : un « aujourd'hui » fixe
     property var aPartager: ({type: "", pk: -1})
+    property string reglagesDe: ""  // la session dont les champs des règles et de l'assistant ont été remplis
+    property string universDe: ""
     property bool aChangerMode: false  // « Passer en mode réel » attend la confirmation
     property var relier: ({url: "", message: ""})
     property int aPublier: -1  // la publication dont « Publier » attend la confirmation
@@ -83,11 +85,27 @@ Window {
     function recharger() {
         ["sante", "sauvegardes", "versions", "journal", "cles", "file", "machine", "sessions", "etat", "appareils", "formats", "modeles"].forEach(n => pont.charger(n))
         if (session !== "") ["scripts", "videos", "univers", "destinations", "reglages", "idees", "historique"].forEach(n => pont.lire(n, {id: session}))
-        if (session !== "" || calTout) chargerCal()
+        if (ecran === "sessions" && onglet === "calendrier") chargerCal()
         if (ecran === "video" && video.id !== "") ["video", "publications", "paquets", "suivi"].forEach(n => pont.lire(n, {id: session, video: video.id}))
         if (ecran === "script" && script.code !== "") pont.lire("script", {id: session, code: script.code})
     }
-    function choisir(id) { if (id !== session) reglages = reglagesVides; session = id; aFabriquer = ""; aPartager = {type: "", pk: -1}; recharger() }
+    function ouvrirOnglet(id) { onglet = id; defileSession.contentY = 0; if (id === "calendrier") chargerCal() }
+    function rafraichir() {  // un événement du noyau (un morceau fini, une sauvegarde…) : ce qui bouge seul, jamais les champs que RT remplit
+        ["file", "machine", "sessions", "etat"].forEach(n => pont.charger(n))
+        if (ecran === "video" && video.id !== "") ["video", "publications", "paquets", "suivi"].forEach(n => pont.lire(n, {id: session, video: video.id}))
+        if (ecran === "sessions" && onglet === "videos") pont.lire("videos", {id: session})
+        if (ecran === "sessions" && onglet === "calendrier") chargerCal()
+    }
+    function remplir() {  // les champs des règles et de l'assistant, une fois par session
+        reglagesDe = session
+        rDiff.texte = nDiff.texte = reglages.difference; rPublic.texte = nPublic.texte = reglages.public; rPromesse.texte = nPromesse.texte = reglages.promesse
+        rObjectif.texte = nObjectif.texte = reglages.objectif; rArret.texte = nArret.texte = reglages.arret; nStyle.texte = reglages.style
+        rMin.texte = nMin.texte = reglages.duree_min != null ? String(reglages.duree_min).replace(".", ",") : ""
+        rMax.texte = nMax.texte = reglages.duree_max != null ? String(reglages.duree_max).replace(".", ",") : ""
+        rPlafond.texte = nPlafond.texte = String(reglages.plafond_eur || 0).replace(".", ",")
+        if (nouvelle.id) { nNom.texte = reglages.nom; nLangues.texte = reglages.langues.map(l => l.code).join(", ") }
+    }
+    function choisir(id) { if (id !== session) { reglages = reglagesVides; reglagesDe = ""; universDe = "" }; session = id; aFabriquer = ""; aPartager = {type: "", pk: -1}; recharger() }
     function deux(n) { return String(n).padStart(2, "0") }
     function iso(d) { return d.getFullYear() + "-" + deux(d.getMonth() + 1) + "-" + deux(d.getDate()) }
     function jourDe(s) { var p = s.split("-"); return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])) }
@@ -114,7 +132,7 @@ Window {
         var l = lundi(d); return "semaine du " + l.getDate() + " " + mois[l.getMonth()]
     }
     function couleurStatut(s) {
-        return s === "reportee" ? cDefaut : s === "fabrication" || s === "a_verifier" ? cAttention : s === "approuvee" || s === "programmee" ? cSelection
+        return s === "reportee" || s === "script" ? cDefaut : s === "fabrication" || s === "a_verifier" ? cAttention : s === "approuvee" || s === "programmee" ? cSelection
              : s === "publiee" || s === "suivie" ? cReussi : s === "idee" ? cSecond : cTexte
     }
     function euros(x) { return (x || 0).toFixed(2).replace(".", ",") + " €" }
@@ -122,14 +140,13 @@ Window {
     function sessionChoisie() { return sessions.find(x => x.id === session) || {nom: "", pause: false, archivee: "", essais: false} }
     function basculerFormat(id) { var c = reglages.formats.slice(); var i = c.indexOf(id); if (i >= 0) c.splice(i, 1); else c.push(id)
                                   pont.agir("ecrire_reglages", {id: session, corps: {formats: c}}) }
-    function nouvelleSession() { nouvelle = {etape: 1}; modeleChoisi = ""; aller("nouvelle") }
+    function nouvelleSession() { nouvelle = {etape: 1, id: ""}; modeleChoisi = ""; nNom.texte = nLangues.texte = nPublic.texte = nPromesse.texte = ""; aller("nouvelle") }
     function ouvrirSession(s) {
         choisir(s.id)
-        if (s.assistant && s.assistant !== "fini") { nouvelle = {etape: Number(s.assistant)}; aller("nouvelle") } else aller("sessions")
+        if (s.assistant && s.assistant !== "fini") { nouvelle = {etape: Number(s.assistant), id: s.id}; reglagesDe = ""; aller("nouvelle") } else aller("sessions")
     }
-    function suivant(champs) {  // l'étape enregistrée, l'assistant avance (onFait) ; un refus le laisse à l'étape, le message dit pourquoi
-        nouvelle = {etape: nouvelle.etape, avance: true}
-        pont.agir("ecrire_reglages", {id: session, corps: Object.assign({assistant: String(nouvelle.etape + 1)}, champs)})
+    function suivant(champs) {  // l'étape enregistrée (appel à son propre nom), l'assistant avance (onFait) ; un refus le laisse à l'étape
+        pont.agir("etape_suivante", {id: session, corps: Object.assign(nouvelle.etape < 6 ? {assistant: String(nouvelle.etape + 1)} : {}, champs)})
     }
     function ouvrirVideo(id) { video = Object.assign({}, videoVide, {id: id}); coches = []; ongletVideo = "fabrication"; aller("video") }
     function mmss(s) { s = Math.floor(s); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0") }
@@ -159,8 +176,10 @@ Window {
     Connections {
         target: pont
         function onRecu(nom, d) {
-            if (nom === "nouvelle_session") { message = d.message; messageOk = true; nouvelle = {etape: 2}; choisir(d.id); return }  // la session créée : étape 2
+            if (nom === "nouvelle_session") { message = d.message; messageOk = true; nouvelle = {etape: 2, id: d.id}; choisir(d.id); return }  // la session créée : étape 2
             f[nom] = d
+            if (nom === "reglages" && reglagesDe !== session) remplir()
+            if (nom === "univers" && universDe !== session) { universDe = session; champStyle.texte = d.style }
             if (nom === "sessions" && session === "" && d.length) choisir(d[0].id)
             if (nom === "relier" && d.url) { message = d.message; messageOk = true; Qt.openUrlExternally(d.url) }  // la page de Google, dans le navigateur du PC
         }
@@ -168,15 +187,15 @@ Window {
             message = texte; messageOk = ok
             if (nom === "refaire") liberer = false
             if (nom === "nouvelle_version" && ok) brouillon = null  // refusé ou noyau absent : le texte tapé reste là
-            if (nom === "ecrire_reglages" && nouvelle.avance) {  // « Suivant » enregistré : l'assistant avance ; la 6e étape finit la session
-                if (ok && nouvelle.etape === 6) pont.agir("finir_session", {id: session})
-                nouvelle = {etape: ok && nouvelle.etape < 6 ? nouvelle.etape + 1 : nouvelle.etape}
+            if (nom === "etape_suivante" && ok) {  // « Suivant » enregistré : l'assistant avance ; la 6e étape finit la session (« fini » posé par le noyau)
+                if (nouvelle.etape === 6) pont.agir("finir_session", {id: session})
+                else nouvelle = {etape: nouvelle.etape + 1, id: nouvelle.id}
             }
-            if (nom === "finir_session" && ok) nouvelle = {etape: 7}
+            if (nom === "finir_session" && ok) nouvelle = {etape: 7, id: nouvelle.id}
             recharger()
         }
         function onAller(e) { aller(e) }
-        function onEvenement(type, d) { if (type !== "etat") recharger() }
+        function onEvenement(type, d) { if (type !== "etat") rafraichir() }
     }
 
     component T: Text { color: cTexte; font.family: "Segoe UI Variable"; font.pixelSize: 14; wrapMode: Text.Wrap }
@@ -189,7 +208,10 @@ Window {
         signal clic()
         width: bt.implicitWidth + 32; height: 32; radius: 6
         color: ambre ? cAccent : survol.hovered && actif ? cTrait : cLeve
-        border.width: 1; border.color: cTrait
+        border.width: 1; border.color: activeFocus ? cSelection : cTrait
+        activeFocusOnTab: actif
+        Keys.onReturnPressed: if (actif) clic()
+        Keys.onSpacePressed: if (actif) clic()
         opacity: actif ? 1 : 0.4
         Behavior on color { ColorAnimation { duration: 120 } }
         T { id: bt; anchors.centerIn: parent; wrapMode: Text.NoWrap; color: ambre ? cFond : cTexte; font.weight: ambre ? Font.DemiBold : Font.Normal }
@@ -202,6 +224,7 @@ Window {
         property alias nom: saisie.objectName
         property string libelle: ""
         property bool etiquette: false  // un champ rempli d'avance garde son libellé lisible
+        property alias seul: saisie.readOnly
         width: parent.width; height: etiquette ? 52 : 32
         Text { visible: etiquette; text: libelle; color: cSecond; font.family: "Segoe UI Variable"; font.pixelSize: 12; width: parent.width; elide: Text.ElideRight }
         Rectangle {
@@ -299,7 +322,8 @@ Window {
                             model: sessions.filter(x => !x.archivee)
                             Rectangle {
                                 objectName: "carte_" + index
-                                width: 300; height: carteSession.implicitHeight + 24; radius: 10; color: survolCarte.hovered ? cTrait : cLeve; border.width: 1; border.color: cTrait
+                                width: 300; height: carteSession.implicitHeight + 24; radius: 10; color: survolCarte.hovered ? cTrait : cLeve; border.width: 1
+                                border.color: activeFocus ? cSelection : cTrait
                                 property bool aFinir: !!modelData.assistant && modelData.assistant !== "fini"
                                 Column {
                                     id: carteSession
@@ -317,6 +341,9 @@ Window {
                                 }
                                 HoverHandler { id: survolCarte }
                                 Clic { onTapped: ouvrirSession(modelData) }
+                                activeFocusOnTab: true
+                                Keys.onReturnPressed: ouvrirSession(modelData)
+                                Keys.onSpacePressed: ouvrirSession(modelData)
                                 Accessible.role: Accessible.Button; Accessible.name: "Session " + modelData.nom; Accessible.onPressAction: ouvrirSession(modelData)
                             }
                         }
@@ -427,13 +454,14 @@ Window {
                 Panneau {
                     visible: nouvelle.etape === 1
                     titre: "1. Identité"
-                    Champ { id: nNom; nom: "nouvelle_nom"; libelle: "Nom de la session" }
-                    Champ { id: nLangues; nom: "nouvelle_langues"; libelle: "Langues, codes séparés par des virgules (ex. en, fr) : la première est celle des scripts" }
-                    Champ { id: nPublic; nom: "nouvelle_public"; libelle: "Public (ex. enfants de 3 à 6 ans)" }
-                    Champ { id: nPromesse; nom: "nouvelle_promesse"; libelle: "Promesse (ce que chaque vidéo apporte)" }
-                    T { text: "Partir d'un modèle de session (facultatif) : ses règles, son univers et ses formats sont repris, ni vidéos, ni scripts, ni comptes."
+                    Champ { id: nNom; nom: "nouvelle_nom"; libelle: "Nom de la session"; etiquette: !!nouvelle.id; seul: !!nouvelle.id }
+                    Champ { id: nLangues; nom: "nouvelle_langues"; libelle: "Langues, codes séparés par des virgules (ex. en, fr) : la première est celle des scripts"; etiquette: !!nouvelle.id }
+                    Champ { id: nPublic; nom: "nouvelle_public"; libelle: "Public (ex. enfants de 3 à 6 ans)"; etiquette: !!nouvelle.id }
+                    Champ { id: nPromesse; nom: "nouvelle_promesse"; libelle: "Promesse (ce que chaque vidéo apporte)"; etiquette: !!nouvelle.id }
+                    T { visible: !nouvelle.id; text: "Partir d'un modèle de session (facultatif) : ses règles, son univers et ses formats sont repris, ni vidéos, ni scripts, ni comptes."
                         color: cSecond; width: parent.width; font.pixelSize: 12 }
                     Flow {
+                        visible: !nouvelle.id
                         width: parent.width; spacing: 8
                         Bouton { objectName: "modele_aucun"; texte: "De zéro" + (modeleChoisi === "" ? " ✓" : ""); onClic: modeleChoisi = "" }
                         Repeater {
@@ -441,7 +469,10 @@ Window {
                             Bouton { objectName: "modele_" + index; texte: modelData.nom + (modeleChoisi === modelData.fichier ? " ✓" : ""); onClic: modeleChoisi = modelData.fichier }
                         }
                     }
-                    Bouton { objectName: "creer_session"; texte: "Créer la session"; actif: nNom.texte.trim() !== "" && nLangues.texte.trim() !== ""
+                    Bouton { objectName: "suivant_1"; visible: !!nouvelle.id; texte: "Enregistrer et continuer"; actif: nLangues.texte.trim() !== ""
+                             onClic: suivant({public: nPublic.texte, promesse: nPromesse.texte,
+                                              langues: nLangues.texte.split(",").map(x => x.trim().toLowerCase()).filter(x => x !== "").map(x => ({code: x, nom: ""}))}) }
+                    Bouton { objectName: "creer_session"; visible: !nouvelle.id; texte: "Créer la session"; actif: nNom.texte.trim() !== "" && nLangues.texte.trim() !== ""
                              onClic: pont.lire("nouvelle_session", {corps: {nom: nNom.texte, public: nPublic.texte, promesse: nPromesse.texte, modele: modeleChoisi,
                                                                             langues: nLangues.texte.split(",").map(x => x.trim().toLowerCase()).filter(x => x !== "").map(x => ({code: x, nom: ""}))}}) }
                 }
@@ -460,7 +491,7 @@ Window {
                 Panneau {
                     visible: nouvelle.etape === 3
                     titre: "3. Univers"
-                    Champ { etiquette: true; id: nStyle; nom: "nouvelle_style"; libelle: "Le style (images, couleurs, ton)"; texte: reglages.style }
+                    Champ { etiquette: true; id: nStyle; nom: "nouvelle_style"; libelle: "Le style (images, couleurs, ton)" }
                     T { text: univers.personnages.length ? "Personnages : " + univers.personnages.map(x => x.nom).join(", ") : "Aucun personnage pour l'instant."
                         width: parent.width; color: cSecond }
                     Row {
@@ -498,13 +529,11 @@ Window {
                     titre: "5. Règles"
                     T { text: "Ce qui rend chaque vidéo différente (histoire, personnages) : obligatoire. YouTube écarte le « contenu en série sur gabarit »."
                         color: cAttention; width: parent.width; font.pixelSize: 13 }
-                    Champ { etiquette: true; id: nDiff; nom: "nouvelle_difference"; libelle: "Ce qui rend chaque vidéo différente"; texte: reglages.difference }
+                    Champ { etiquette: true; id: nDiff; nom: "nouvelle_difference"; libelle: "Ce qui rend chaque vidéo différente" }
                     Row {
                         spacing: 8
-                        Champ { etiquette: true; id: nMin; width: 220; nom: "nouvelle_duree_min"; libelle: "Durée minimale (min)"
-                                texte: reglages.duree_min != null ? String(reglages.duree_min).replace(".", ",") : "" }
-                        Champ { etiquette: true; id: nMax; width: 220; nom: "nouvelle_duree_max"; libelle: "Durée maximale (min)"
-                                texte: reglages.duree_max != null ? String(reglages.duree_max).replace(".", ",") : "" }
+                        Champ { etiquette: true; id: nMin; width: 220; nom: "nouvelle_duree_min"; libelle: "Durée minimale (min)" }
+                        Champ { etiquette: true; id: nMax; width: 220; nom: "nouvelle_duree_max"; libelle: "Durée maximale (min)" }
                     }
                     Flow {
                         width: parent.width; spacing: 8
@@ -519,10 +548,9 @@ Window {
                 Panneau {
                     visible: nouvelle.etape === 6
                     titre: "6. Objectif, critère d'arrêt, plafond"
-                    Champ { etiquette: true; id: nObjectif; nom: "nouvelle_objectif"; libelle: "Objectif (ex. 1 000 abonnés en 6 mois)"; texte: reglages.objectif }
-                    Champ { etiquette: true; id: nArret; nom: "nouvelle_arret"; libelle: "Critère d'arrêt (ex. moins de 50 vues par vidéo après 20 vidéos)"; texte: reglages.arret }
-                    Champ { etiquette: true; id: nPlafond; nom: "nouvelle_plafond"; libelle: "Plafond des outils payants, en € par mois (0 : jamais)"
-                            texte: String(reglages.plafond_eur || 0).replace(".", ",") }
+                    Champ { etiquette: true; id: nObjectif; nom: "nouvelle_objectif"; libelle: "Objectif (ex. 1 000 abonnés en 6 mois)" }
+                    Champ { etiquette: true; id: nArret; nom: "nouvelle_arret"; libelle: "Critère d'arrêt (ex. moins de 50 vues par vidéo après 20 vidéos)" }
+                    Champ { etiquette: true; id: nPlafond; nom: "nouvelle_plafond"; libelle: "Plafond des outils payants, en € par mois (0 : jamais)" }
                     T { visible: reglages.manque.length > 0; text: "Il manque encore : " + reglages.manque.join(", ") + "."; color: cAttention; width: parent.width }
                     Bouton { objectName: "terminer_session"; texte: "Terminer"
                              onClic: suivant({objectif: nObjectif.texte, arret: nArret.texte, plafond_eur: nombre(nPlafond.texte) || 0}) }
@@ -539,9 +567,9 @@ Window {
                     }
                 }
                 Row {
-                    visible: nouvelle.etape > 1 && nouvelle.etape < 7
+                    visible: nouvelle.etape > 1 && nouvelle.etape < 7  // étape 1 d'une session créée : ses champs se corrigent, rien n'est recréé
                     spacing: 8
-                    Bouton { objectName: "etape_avant"; texte: "← Étape d'avant"; onClic: nouvelle = {etape: nouvelle.etape - 1} }
+                    Bouton { objectName: "etape_avant"; texte: "← Étape d'avant"; onClic: nouvelle = {etape: nouvelle.etape - 1, id: nouvelle.id} }
                     T { text: "La session reste en pause jusqu'à « Terminer » ; elle se reprend depuis sa carte de l'Accueil."; color: cSecond; font.pixelSize: 12
                         anchors.verticalCenter: parent.verticalCenter; wrapMode: Text.NoWrap }
                 }
@@ -577,15 +605,18 @@ Window {
                     border.width: 1; border.color: depotSession.containsDrag ? cSelection : cTrait
                     DropArea {
                         id: depotSession; anchors.fill: parent
-                        onDropped: (d) => { d.urls.forEach(u => pont.agir("importer_session", {corps: {fichier: decodeURIComponent(String(u).replace(/^file:\/\/\//, "")), nom: ""}})); d.acceptProposedAction() }
+                        onDropped: (d) => { d.urls.forEach(u => pont.agir("importer_session", {corps: {fichier: decodeURIComponent(String(u).replace(/^file:\/\/\//, "")),
+                                                                                                        nom: nomImport.texte.trim()}})); d.acceptProposedAction() }
                     }
                     Column {
                         id: colImport
                         x: 8; y: 8; width: parent.width - 16; spacing: 6
                         T { text: "Importer une session : glisser son fichier .fabrique ici, ou coller son chemin."; color: cSecond; font.pixelSize: 12; width: parent.width }
                         Champ { id: cheminImport; nom: "chemin_import"; libelle: "Chemin du fichier .fabrique" }
+                        Champ { id: nomImport; nom: "nom_import"; libelle: "Sous le nom (facultatif)" }
                         Bouton { objectName: "importer_session"; texte: "Importer"; actif: cheminImport.texte.trim() !== ""
-                                 onClic: { pont.agir("importer_session", {corps: {fichier: cheminImport.texte.trim().replace(/^"|"$/g, ""), nom: ""}}); cheminImport.texte = "" } }
+                                 onClic: { pont.agir("importer_session", {corps: {fichier: cheminImport.texte.trim().replace(/^"|"$/g, ""), nom: nomImport.texte.trim()}})
+                                           cheminImport.texte = ""; nomImport.texte = "" } }
                     }
                 }
             }
@@ -603,8 +634,8 @@ Window {
                             width: nomOnglet.implicitWidth + 32; height: 36; radius: 6
                             color: onglet === modelData.id ? cLeve : "transparent"; border.width: 1; border.color: onglet === modelData.id ? cSelection : cTrait
                             T { id: nomOnglet; text: modelData.nom; anchors.centerIn: parent; wrapMode: Text.NoWrap }
-                            Clic { onTapped: { onglet = modelData.id; defileSession.contentY = 0 } }
-                            Accessible.role: Accessible.PageTab; Accessible.name: modelData.nom; Accessible.onPressAction: { onglet = modelData.id; defileSession.contentY = 0 }
+                            Clic { onTapped: ouvrirOnglet(modelData.id) }
+                            Accessible.role: Accessible.PageTab; Accessible.name: modelData.nom; Accessible.onPressAction: ouvrirOnglet(modelData.id)
                         }
                     }
                 }
@@ -633,6 +664,15 @@ Window {
                         }
                     }
                     T { visible: onglet === "scripts" && !scripts.length; text: "Aucun script dans cette session."; color: cSecond }
+                    Row {
+                        visible: onglet === "scripts"
+                        spacing: 8
+                        Champ { id: titreScript; width: 380; nom: "titre_script"; libelle: "Titre d'un nouveau script" }
+                        Champ { id: dateScript; width: 200; nom: "date_script"; libelle: "Date (AAAA-MM-JJ, facultative)" }
+                        Bouton { objectName: "creer_script"; texte: "Créer le script"; actif: titreScript.texte.trim() !== ""
+                                 onClic: { pont.agir("creer_script", {id: session, corps: {titre: titreScript.texte, date: dateScript.texte.trim(), idee: 0}})
+                                           titreScript.texte = ""; dateScript.texte = "" } }
+                    }
                     Repeater {
                         model: onglet === "videos" ? videos : []
                         Rectangle {
@@ -651,7 +691,7 @@ Window {
                         visible: onglet === "univers"; titre: "Style"
                         Row {
                             spacing: 8; width: parent.width
-                            Champ { etiquette: true; id: champStyle; nom: "champ_style"; libelle: "Le style de l'univers (images, couleurs, ton)"; width: parent.width - 140; texte: univers.style || "" }
+                            Champ { etiquette: true; id: champStyle; nom: "champ_style"; libelle: "Le style de l'univers (images, couleurs, ton)"; width: parent.width - 140 }
                             Bouton { anchors.bottom: parent.bottom; objectName: "enregistrer_style"; texte: "Enregistrer"; onClic: pont.agir("ecrire_style", {id: session, valeur: champStyle.texte}) }
                         }
                     }
@@ -688,7 +728,7 @@ Window {
                                                 Image { anchors.fill: parent; anchors.margins: 4; source: "file:///" + modelData.chemin.replace(/\\/g, "/"); fillMode: Image.PreserveAspectFit
                                                         asynchronous: true; sourceSize.width: 160 }
                                                 Clic { onTapped: pont.agir("valider_reference", {id: session, pk: modelData.id, corps: {validee: !modelData.validee}}) }
-                                                Accessible.role: Accessible.CheckBox; Accessible.name: "Image " + (modelData.vue || index + 1) + " de " + fichePerso.p.nom + " (validée)"
+                                                Accessible.role: Accessible.CheckBox; Accessible.name: "Image " + (modelData.vue || index + 1) + " de " + fichePerso.p.nom + (modelData.validee ? " (validée)" : " (à valider)")
                                                 Accessible.checked: modelData.validee
                                                 Accessible.onPressAction: pont.agir("valider_reference", {id: session, pk: modelData.id, corps: {validee: !modelData.validee}})
                                             }
@@ -819,7 +859,7 @@ Window {
                         width: parent.width; spacing: 16
                         Repeater {
                             model: [["prete", "prête"], ["fabrication", "en fabrication, à vérifier"], ["approuvee", "approuvée, programmée"], ["publiee", "publiée, suivie"],
-                                    ["reportee", "reportée (ordre strict)"], ["idee", "idée"]]
+                                    ["reportee", "reportée (ordre strict), script à corriger (règles)"], ["idee", "idée, fiche du calendrier éditorial"]]
                             T { text: "■ " + modelData[1]; color: couleurStatut(modelData[0]); font.pixelSize: 12; wrapMode: Text.NoWrap }
                         }
                     }
@@ -843,8 +883,14 @@ Window {
                         T { visible: !idees.length; text: "Aucune idée pour l'instant ; Claude peut aussi en déposer."; color: cSecond; width: parent.width }
                         Repeater {
                             model: onglet === "calendrier" ? idees : []
-                            T { text: modelData.titre + (modelData.resume ? " — " + modelData.resume : "") + "  (" + modelData.source + ", " + modelData.creee + ")"; width: parent.width
-                                color: modelData.statut === "ecartee" ? cSecond : cTexte }
+                            Row {
+                                spacing: 8; width: parent.width
+                                Bouton { objectName: "idee_script_" + index; visible: modelData.statut !== "convertie"; texte: "En faire un script"
+                                         onClic: pont.agir("creer_script", {id: session, corps: {titre: "", date: "", idee: modelData.id}}) }
+                                T { text: modelData.titre + (modelData.resume ? " — " + modelData.resume : "") + "  (" + modelData.source + ", " + modelData.creee
+                                          + (modelData.statut === "convertie" ? ", devenue un script" : "") + ")"; width: parent.width - 180; anchors.verticalCenter: parent.verticalCenter
+                                    color: modelData.statut === "nouvelle" ? cTexte : cSecond }
+                            }
                         }
                     }
 
@@ -906,22 +952,22 @@ Window {
                         titre: "Règles"
                         T { text: "Ce qui rend chaque vidéo différente (histoire, personnages) : sans cela, « Fabriquer » est refusé — YouTube écarte le « contenu en série sur gabarit »."
                             color: reglages.difference ? cSecond : cAttention; width: parent.width; font.pixelSize: 12 }
-                        Champ { etiquette: true; id: rDiff; nom: "regle_difference"; libelle: "Ce qui rend chaque vidéo différente"; texte: reglages.difference }
+                        Champ { etiquette: true; id: rDiff; nom: "regle_difference"; libelle: "Ce qui rend chaque vidéo différente" }
                         Row {
                             spacing: 8; width: parent.width
-                            Champ { etiquette: true; id: rPublic; nom: "regle_public"; libelle: "Public"; width: (parent.width - 8) / 2; texte: reglages.public }
-                            Champ { etiquette: true; id: rPromesse; nom: "regle_promesse"; libelle: "Promesse"; width: (parent.width - 8) / 2; texte: reglages.promesse }
+                            Champ { etiquette: true; id: rPublic; nom: "regle_public"; libelle: "Public"; width: (parent.width - 8) / 2 }
+                            Champ { etiquette: true; id: rPromesse; nom: "regle_promesse"; libelle: "Promesse"; width: (parent.width - 8) / 2 }
                         }
                         Row {
                             spacing: 8; width: parent.width
-                            Champ { etiquette: true; id: rMin; nom: "regle_duree_min"; libelle: "Durée minimale (min)"; width: 200; texte: reglages.duree_min != null ? String(reglages.duree_min).replace(".", ",") : "" }
-                            Champ { etiquette: true; id: rMax; nom: "regle_duree_max"; libelle: "Durée maximale (min)"; width: 200; texte: reglages.duree_max != null ? String(reglages.duree_max).replace(".", ",") : "" }
-                            Champ { etiquette: true; id: rPlafond; nom: "regle_plafond"; libelle: "Plafond des outils payants (€ par mois)"; width: parent.width - 416; texte: String(reglages.plafond_eur || 0).replace(".", ",") }
+                            Champ { etiquette: true; id: rMin; nom: "regle_duree_min"; libelle: "Durée minimale (min)"; width: 200 }
+                            Champ { etiquette: true; id: rMax; nom: "regle_duree_max"; libelle: "Durée maximale (min)"; width: 200 }
+                            Champ { etiquette: true; id: rPlafond; nom: "regle_plafond"; libelle: "Plafond des outils payants (€ par mois)"; width: parent.width - 416 }
                         }
                         Row {
                             spacing: 8; width: parent.width
-                            Champ { etiquette: true; id: rObjectif; nom: "regle_objectif"; libelle: "Objectif"; width: (parent.width - 8) / 2; texte: reglages.objectif }
-                            Champ { etiquette: true; id: rArret; nom: "regle_arret"; libelle: "Critère d'arrêt"; width: (parent.width - 8) / 2; texte: reglages.arret }
+                            Champ { etiquette: true; id: rObjectif; nom: "regle_objectif"; libelle: "Objectif"; width: (parent.width - 8) / 2 }
+                            Champ { etiquette: true; id: rArret; nom: "regle_arret"; libelle: "Critère d'arrêt"; width: (parent.width - 8) / 2 }
                         }
                         Bouton { objectName: "enregistrer_regles"; texte: "Enregistrer les règles"
                                  onClic: pont.agir("ecrire_reglages", {id: session, corps: {difference: rDiff.texte, public: rPublic.texte, promesse: rPromesse.texte, objectif: rObjectif.texte,
@@ -942,7 +988,7 @@ Window {
                         titre: "Vie de la session"
                         Flow {
                             width: parent.width; spacing: 8
-                            Bouton { objectName: "session_pause"; texte: sessionChoisie().pause ? "Reprendre" : "Mettre en pause"
+                            Bouton { objectName: "session_pause"; visible: !sessionChoisie().archivee; texte: sessionChoisie().pause ? "Reprendre" : "Mettre en pause"
                                      onClic: pont.agir("agir_session", {id: session, action: sessionChoisie().pause ? "reprendre" : "pause", corps: {nom: ""}}) }
                             Bouton { objectName: "session_exporter"; texte: "Exporter"; onClic: pont.agir("agir_session", {id: session, action: "exporter", corps: {nom: "", videos: false}}) }
                             Bouton { objectName: "session_exporter_videos"; texte: "Exporter avec les vidéos"; onClic: pont.agir("agir_session", {id: session, action: "exporter", corps: {nom: "", videos: true}}) }
@@ -1317,6 +1363,12 @@ Window {
                     spacing: 12
                     Bouton { objectName: "retour_scripts"; texte: "← Session"; onClic: aller("sessions") }
                     T { text: script.titre; font.pixelSize: 28; font.weight: Font.DemiBold; wrapMode: Text.NoWrap }
+                }
+                Row {
+                    spacing: 8
+                    Champ { id: dateDuScript; width: 200; etiquette: true; nom: "date_du_script"; libelle: "Date prévue (AAAA-MM-JJ)"; texte: script.date_prevue }
+                    Bouton { anchors.bottom: parent.bottom; objectName: "dater_script"; texte: dateDuScript.texte.trim() ? "Dater" : "Retirer du calendrier"
+                             onClic: pont.agir("dater_script", {id: session, code: script.code, corps: {date: dateDuScript.texte.trim()}}) }
                 }
                 Mono { text: script.code + "  ·  " + (script.date_prevue || "pas encore au calendrier") + "  ·  version " + (script.versions.length ? script.versions[0].numero : "—")
                        + (script.versions.length ? " (" + script.versions[0].auteur + ")" : ""); color: cSecond }

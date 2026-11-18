@@ -38,7 +38,7 @@ class Journal(models.Model):
     """Qui a fait quoi : « RT » pour un clic de la fenêtre, « claude », « noyau » pour une tâche automatique."""
     date = models.DateTimeField(auto_now_add=True)
     acteur = models.CharField(max_length=20)
-    action = models.CharField(max_length=50)
+    action = models.CharField(max_length=50, db_index=True)  # l'ordre strict et l'historique d'une session y cherchent par action
     detail = models.JSONField(default=dict)
 
 

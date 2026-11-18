@@ -81,6 +81,21 @@ class NouvelleSession(BaseModel):
     modele: str = ""  # le nom de fichier d'un modèle de session ; vide : de zéro
 
 
+class NouveauScript(BaseModel):
+    titre: str = ""  # vide : celui de l'idée
+    date: str = ""  # AAAA-MM-JJ ; vide : pas daté
+    idee: int = 0  # l'idée dont il est tiré
+
+
+class ScriptCree(BaseModel):
+    message: str
+    code: str
+
+
+class Date(BaseModel):
+    date: str  # AAAA-MM-JJ ; vide : retiré du calendrier
+
+
 class SessionCreee(BaseModel):
     message: str
     id: str

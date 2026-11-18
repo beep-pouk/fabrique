@@ -38,13 +38,30 @@ def empreinte(f: Path) -> str:
     return h.hexdigest()
 
 
-def fichiers(s: Session, videos: bool) -> dict[str, Path]:
+def fichiers(s: Session, videos: bool, modele: bool = False) -> dict[str, Path]:
+    """Le dossier de la session, sans _old ni _corbeille ; ses vidéos seulement si demandé, et alors les finales (dossiers « final », sorties du
+    montage et de la miniature) et le script de chacune, jamais les pièces intermédiaires (refaites au besoin, plan § 4.2) ; un modèle : ni
+    calendrier ni scripts."""
+    from fabrique.moteur import execution
+    from fabrique.session.models import Morceau
+
     d = settings.SESSIONS / s.dossier
+    finales = set()
+    if videos:
+        with routeur.session(s):
+            finales = {execution.dossier(s, mo) for mo in Morceau.objects.filter(brique__in=("montage", "miniature"))}
+
+    def retenu(f: Path) -> bool:
+        parts = f.relative_to(d).parts
+        if parts[0] != "videos":
+            return not (modele and parts[0] in ("calendrier", "scripts"))
+        return videos and (len(parts) == 3 or "final" in parts or any(p in finales for p in f.parents))
+
     return {f.relative_to(d).as_posix(): f for f in sorted(d.rglob("*"))
-            if f.is_file() and not f.name.startswith(BASE) and not SAUTES & set(f.relative_to(d).parts) and (videos or f.relative_to(d).parts[0] != "videos")}
+            if f.is_file() and not f.name.startswith(BASE) and not SAUTES & set(f.relative_to(d).parts) and retenu(f)}
 
 
-def exporter(s: Session, videos: bool = False, acteur: str = "RT", modele: str = "") -> Path:
+def exporter(s: Session, videos: bool = False, acteur: str = "RT", modele: str = "", vider: tuple = ()) -> Path:
     if s.essais:
         raise Refus("la session « Essais » ne s'exporte pas")
     sortie = settings.RACINE / ("modeles" if modele else "exports")
@@ -57,11 +74,11 @@ def exporter(s: Session, videos: bool = False, acteur: str = "RT", modele: str =
         bases.copier(routeur.chemin(s), copie)
         with closing(sqlite3.connect(copie)) as c:
             c.execute("UPDATE session_destination SET jeton = '', reliee = NULL, refusee = NULL")
-            for table in CONTENUS if modele else ():
+            for table in CONTENUS if modele else vider:
                 c.execute(f"DELETE FROM session_{table}")
             c.commit()
             c.execute("VACUUM")
-        liste = fichiers(s, videos and not modele)
+        liste = fichiers(s, videos and not modele, modele=bool(modele))
         manifeste = {"format": FORMAT, "nom": modele or s.nom, "modele": bool(modele), "priorite": s.priorite, "version": settings.VERSION, "videos": videos, "ancien_id": s.id,
                      "empreintes": {BASE: empreinte(copie), **{rel: empreinte(f) for rel, f in liste.items()}}}
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as z:
@@ -78,7 +95,7 @@ def exporter(s: Session, videos: bool = False, acteur: str = "RT", modele: str =
 
 
 def dupliquer(s: Session, nom: str, acteur: str = "RT") -> Session:
-    z = exporter(s, videos=False, acteur=acteur)
+    z = exporter(s, videos=False, acteur=acteur, vider=("statistiquejour", "publication"))  # une copie n'a rien publié
     try:
         return importer(z, nom, acteur)
     finally:
@@ -89,8 +106,11 @@ def modeles() -> list[dict]:
     d = settings.RACINE / "modeles"
     lus = []
     for z in sorted(d.glob(f"*{EXT}")) if d.is_dir() else []:
-        with zipfile.ZipFile(z) as f:
-            lus.append({"nom": lire_manifeste(f)["nom"], "fichier": z.name})
+        try:
+            with zipfile.ZipFile(z) as f:
+                lus.append({"nom": lire_manifeste(f)["nom"], "fichier": z.name})
+        except (Refus, zipfile.BadZipFile, OSError):  # un modèle abîmé ne cache pas les autres
+            continue
     return lus
 
 

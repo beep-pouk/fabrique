@@ -4,6 +4,7 @@ de RT. Aucune règle dans la fenêtre : tout ce qu'elle montre et fait passe par
 import logging
 import os
 import shutil
+import threading
 from functools import wraps
 from pathlib import Path
 from typing import Literal
@@ -138,9 +139,40 @@ def calendrier_(request, debut: str = "", fin: str = "", session: str = ""):
         d, f = (date.fromisoformat(x) if x else None for x in (debut, fin))
     except ValueError:
         raise HttpError(400, "dates attendues en AAAA-MM-JJ") from None
-    prets = calendrier.prets_vers()
-    liste = [session_(session)] if session else Session.objects.filter(essais=False, archivee__isnull=True).order_by("cree")
-    return [x for s in liste for x in calendrier.lire(s, d, f, prets)]
+    prets, lus = calendrier.prets_vers(), []
+    for s in [session_(session)] if session else Session.objects.filter(essais=False, archivee__isnull=True).order_by("cree"):
+        try:  # une base illisible ne cache pas les autres sessions
+            lus += calendrier.lire(s, d, f, prets)
+        except Exception:  # noqa: BLE001
+            log.exception("calendrier de la session %s", s.nom)
+    return lus
+
+
+@api.post("/sessions/{id}/scripts", response=schemas.ScriptCree)
+@droit("importer")
+def creer_script(request, id: str, corps: schemas.NouveauScript):
+    """Un script neuf, tiré d'une idée ou non, daté ou non (fenêtre ; Claude, qui l'écrit ensuite)."""
+    from fabrique.session import calendrier
+
+    code = calendrier.creer_script(session_(id), corps.titre, jour_(corps.date), corps.idee, ACTEURS[request.auth])
+    return {"message": f"Script {code} créé : « Demander à Claude » l'écrit.", "code": code}
+
+
+@api.post("/sessions/{id}/scripts/{code}/dater", response=schemas.Message)
+@droit("sessions")
+def dater_script(request, id: str, code: str, corps: schemas.Date):
+    from fabrique.session import calendrier
+
+    return {"message": calendrier.dater_script(session_(id), code, jour_(corps.date), ACTEURS[request.auth])}
+
+
+def jour_(texte: str):
+    from datetime import date
+
+    try:
+        return date.fromisoformat(texte.strip()) if texte.strip() else None
+    except ValueError:
+        raise HttpError(400, f"date attendue en AAAA-MM-JJ : « {texte} »") from None
 
 
 @api.post("/sessions/importer", response=schemas.Message)
@@ -314,8 +346,11 @@ def ecrire_reglages(request, id: str, corps: schemas.ChangerReglages):
 
     s, champs = session_(id), corps.model_dump(exclude_unset=True)
     if (langues := champs.pop("langues", None)) is not None:
+        reglages.controler_langues(langues)  # avant d'écrire quoi que ce soit
+    message = reglages.ecrire(s, champs, ACTEURS[request.auth])
+    if langues is not None:
         reglages.poser_langues(s, langues)
-    return {"message": reglages.ecrire(s, champs, ACTEURS[request.auth])}
+    return {"message": message}
 
 
 @api.post("/sessions/{id}/finir", response=schemas.Message)
@@ -732,6 +767,20 @@ def arreter(request):
     return {"message": "le noyau s'arrête"}
 
 
+def exporter_en_fond(s: Session, videos: bool, qui: str):
+    """Un export (des Go avec les vidéos) ne tient pas dans une requête : il se fait à côté, la fenêtre est prévenue à la fin."""
+    try:
+        z = echange.exporter(s, videos, qui)
+        evenements.publier("info", titre="Session exportée", message=str(z))
+    except Exception as e:  # noqa: BLE001
+        log.exception("export de %s", s.nom)
+        evenements.publier("alerte", titre="Export raté", message=f"« {s.nom} » : {e}")
+    finally:
+        from django.db import connections
+
+        connections.close_all()
+
+
 # en dernier : « /sessions/{id}/{action} » prendrait sinon les chemins des routes plus précises (destinations…)
 @api.post("/sessions/{id}/{action}", response=schemas.Message)
 @droit("sessions")
@@ -744,9 +793,18 @@ def agir_session(request, id: str, action: Literal["pause", "reprendre", "archiv
         raise Refus("un nom est attendu")
     if action == "dupliquer":
         return {"message": f"Copie « {echange.dupliquer(s, corps.nom.strip(), qui).nom} » créée (sans ses comptes : relier ses chaînes)."}
-    if action in ("exporter", "modele"):
-        z = echange.exporter(s, corps.videos, qui, modele=corps.nom.strip() if action == "modele" else "")
-        return {"message": f"{'Modèle enregistré' if action == 'modele' else 'Session exportée'} : {z}"}
+    if action == "modele":
+        return {"message": f"Modèle enregistré : {echange.exporter(s, False, qui, modele=corps.nom.strip())}"}
+    if action == "exporter":
+        threading.Thread(target=exporter_en_fond, args=(s, corps.videos, qui), name="export", daemon=True).start()
+        return {"message": f"Export de « {s.nom} » lancé{' avec ses vidéos finales' if corps.videos else ''} : une notification dira où il est."}
+    if action == "reprendre" and s.archivee:
+        raise Refus(f"« {s.nom} » est archivée : la sortir des archives d'abord")
+    if action == "reprendre":
+        from fabrique.session import reglages
+
+        if reglages.lire(s)["assistant"] not in ("", "fini"):
+            raise Refus(f"« {s.nom} » est une nouvelle session pas finie : la finir (« Terminer ») d'abord")
     champs = {"pause": {"pause": True}, "reprendre": {"pause": False}, "archiver": {"pause": True, "archivee": timezone.now()},
               "desarchiver": {"archivee": None}}[action]
     Session.objects.filter(id=s.id).update(**champs)

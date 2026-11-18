@@ -62,6 +62,20 @@ def actives(s: Session) -> set[str]:
     return set(Tache.objects.filter(session_id=s.id, etat__in=ACTIVES).values_list("video_id", flat=True))
 
 
+def fiches(s: Session, debut: date | None, fin: date | None) -> list[dict]:
+    """Les fiches du calendrier éditorial (Bramble importé) pas encore devenues un script : au calendrier comme des idées datées, avec leur
+    saison et leur événement (événements de l'univers)."""
+    with routeur.session(s):
+        codes = set(m.Script.objects.values_list("code", flat=True))
+        q = m.Prevision.objects.exclude(statut="refusee").filter(date__isnull=False)
+        q = q.filter(date__gte=debut) if debut else q
+        q = q.filter(date__lte=fin) if fin else q
+        return [{"session": s.id, "session_nom": s.nom, "code": "", "date": str(p.date), "statut": "idee", "statut_nom": "fiche du calendrier éditorial", "pret_vers": "",
+                 "titre": " · ".join(x for x in (p.details.get("type"), p.details.get("heros"), p.details.get("lieu"), p.details.get("saison"), p.details.get("evenement")) if x)
+                          or "fiche"}
+                for p in q.order_by("date", "id") if p.details.get("episode", "") not in codes]
+
+
 def lire(s: Session, debut: date | None = None, fin: date | None = None, prets_vers: dict | None = None) -> list[dict]:
     """Les scripts de la session (datés entre debut et fin, s'ils sont donnés ; sinon tous, les non datés à la fin), leur statut, « reporté »
     (l'ordre strict les a décalés et ils ne sont pas prêts), et « prêt vers le … » s'ils sont dans la file."""
@@ -81,7 +95,7 @@ def lire(s: Session, debut: date | None = None, fin: date | None = None, prets_v
             items.append({"session": s.id, "session_nom": s.nom, "code": sc.code, "titre": sc.titre, "date": str(sc.date_prevue or ""),
                           "statut": "reportee" if report else st, "statut_nom": NOMS["reportee" if report else st],
                           "pret_vers": f"{prets_vers[(s.id, vid)]['fin']:%d/%m %H:%M}" if (s.id, vid) in prets_vers else ""})
-    return items
+    return items + fiches(s, debut, fin)
 
 
 def carte(s: Session) -> dict:
@@ -92,8 +106,10 @@ def carte(s: Session) -> dict:
     erreurs = Tache.objects.filter(session_id=s.id, etat="erreur").count()
     with routeur.session(s):
         derniere = m.Video.objects.order_by("-cree").first()
-        finies = [v for v in m.Video.objects.filter(publications__isnull=True) if v.id not in act and not v.morceaux.exclude(etat="fini").exists()]
-        a_faire = erreurs + len(finies) + m.Publication.objects.filter(statut="brouillon").count()
+        finies = [v for v in m.Video.objects.filter(publications__isnull=True).exclude(nom__endswith=f"-{reglages.PILOTE}")
+                  if v.id not in act and not v.morceaux.exclude(etat="fini").exists()]
+        a_publier = m.Publication.objects.filter(statut="brouillon").values("video").distinct().count()
+        a_faire = 0 if s.essais else erreurs + len(finies) + a_publier  # la session Essais ne publie jamais ; la vidéo pilote se regarde, ne se publie pas
         prochain = next((sc for sc in scripts_du_calendrier().filter(date_prevue__gte=aujourdhui).order_by("date_prevue", "code")
                          if ORDRE.index(statut(sc, act, timezone.now())) < ORDRE.index("publiee")), None)
         vues = m.StatistiqueJour.objects.filter(publication__isnull=True, date__gt=aujourdhui - timedelta(days=28)).aggregate(n=Sum("vues"))["n"]
@@ -118,11 +134,18 @@ def ajouter(depart: datetime, secondes: float) -> datetime:
         t = minuit
 
 
+_estimees: dict = {"quand": 0.0, "fin": {}}
+
+
 def prets_vers(maintenant: datetime | None = None) -> dict[tuple[str, str], dict]:
     """{(session, vidéo) : {fin (heure estimée où elle sera finie), secondes et cout_eur restants}}, pour chaque tâche active dans l'ordre
-    de la file (chronos : médianes)."""
+    de la file (chronos : médianes). Gardé 10 s : la fenêtre et la page iPhone le demandent à chaque rafraîchissement."""
+    import time as horloge
+
     from fabrique.moteur import execution, file
 
+    if maintenant is None and horloge.monotonic() - _estimees["quand"] < 10:
+        return _estimees["fin"]
     t, fin = maintenant or timezone.localtime(), {}
     sessions = {s.id: s for s in Session.objects.all()}
     for tache in file.ordre():
@@ -135,13 +158,17 @@ def prets_vers(maintenant: datetime | None = None) -> dict[tuple[str, str], dict
             continue
         t = ajouter(t, e["secondes"])
         fin[(s.id, tache.video_id)] = {"fin": t, "secondes": e["secondes"], "cout_eur": e["cout_eur"]}
+    if maintenant is None:
+        _estimees.update(quand=horloge.monotonic(), fin=fin)
     return fin
 
 
 # ---- ordre strict (core/ordre.py) ----
 
 def bloque(code: str) -> bool:
-    return m.Publication.objects.filter(video__in=videos_de(code), statut__in=CONFIEES).exists()
+    """Déjà confiée à YouTube (envoyée, même en erreur depuis) : sa date ne se change plus ici."""
+    pubs = m.Publication.objects.filter(video__in=videos_de(code))
+    return pubs.filter(statut__in=CONFIEES).exists() or pubs.exclude(identifiant_youtube="").exists()
 
 
 def dater(sc: m.Script, jour: date):
@@ -198,7 +225,10 @@ def une_fois_par_jour(aujourdhui: date | None = None) -> list[str]:
     for s in Session.objects.filter(essais=False, archivee__isnull=True):
         cle = f"ordre_strict_le.{s.id}"
         if Parametre.lire(cle) != aujourdhui.isoformat():
-            faits += recalculer(s, aujourdhui)
+            try:  # une session illisible n'arrête pas les autres ; retentée demain
+                faits += recalculer(s, aujourdhui)
+            except Exception:  # noqa: BLE001
+                log.exception("ordre strict de la session %s", s.nom)
             Parametre.ecrire(cle, aujourdhui.isoformat())
     return faits
 
@@ -209,6 +239,43 @@ def idees(s: Session) -> list[dict]:
     with routeur.session(s):
         return [{"id": i.id, "titre": i.titre, "resume": i.resume, "source": i.source, "statut": i.statut, "creee": f"{timezone.localtime(i.creee):%d/%m/%Y}"}
                 for i in m.Idee.objects.order_by("-creee", "-id")]
+
+
+def creer_script(s: Session, titre: str, jour: date | None, idee: int, acteur: str) -> str:
+    """Un script neuf (sans version : Claude l'écrit, ou « commande script »), daté ou non, tiré d'une idée ou non ; son code « eNN » est
+    le premier libre. Rend son code."""
+    with routeur.session(s):
+        i = m.Idee.objects.filter(id=idee).first() if idee else None
+        if idee and i is None:
+            raise Refus(f"idée inconnue : {idee}")
+        titre = (titre.strip() or (i.titre if i else ""))[:200]
+        if not titre:
+            raise Refus("un titre est attendu")
+        codes, n = set(m.Script.objects.values_list("code", flat=True)), 1
+        while f"e{n:02d}" in codes:
+            n += 1
+        langue = m.Langue.objects.order_by("ordre", "code").values_list("code", flat=True).first() or "en"
+        sc = m.Script.objects.create(code=f"e{n:02d}", titre=titre, langue=langue, statut="idee", date_prevue=jour,
+                                     details={"idee": i.id, "resume": i.resume} if i else {})
+        if i:
+            i.statut = "convertie"
+            i.save(update_fields=["statut"])
+    noter(acteur, "script_cree", session=s.id, code=sc.code, idee=idee)
+    return sc.code
+
+
+def dater_script(s: Session, code: str, jour: date | None, acteur: str) -> str:
+    """RT date (ou retire du calendrier) un script ; jamais une vidéo déjà confiée à YouTube ou publiée."""
+    with routeur.session(s):
+        sc = scripts_du_calendrier().filter(code=code).first()
+        if sc is None:
+            raise Refus(f"script inconnu : {code}")
+        if bloque(code):
+            raise Refus(f"« {sc.titre} » est déjà confiée à YouTube : sa date se change chez YouTube")
+        avant = sc.date_prevue
+        dater(sc, jour) if jour else m.Script.objects.filter(id=sc.id).update(date_prevue=None)
+    noter(acteur, "script_date", session=s.id, code=code, de=str(avant or ""), vers=str(jour or ""))
+    return f"« {sc.titre} » : {f'prévue le {jour:%d/%m/%Y}' if jour else 'retirée du calendrier'}."
 
 
 def ajouter_idee(s: Session, titre: str, resume: str, source: str, acteur: str) -> str:

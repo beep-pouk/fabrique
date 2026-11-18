@@ -24,6 +24,7 @@ from fabrique.fenetre.client import Client, ErreurApi
 log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
 GARDE_MS = 30_000
+CREATIONS = {"nouvelle_session", "relier", "code_telephone"}  # des lectures qui font quelque chose : leur refus est dit à RT
 VK_1, VK_2, VK_3, VK_4 = 0x31, 0x32, 0x33, 0x34  # touches 1 à 4 du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
 
 
@@ -58,9 +59,10 @@ class Pont(QObject):
         params = params or {}
         try:
             self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon, une nouvelle session
-        except ErreurApi as e:  # un refus (nouvelle session : nom pris…) est dit à RT
+        except ErreurApi as e:  # le refus d'une lecture qui crée (nouvelle session : nom pris…) est dit à RT ; les autres seulement journalisés
             log.warning("lecture %s : %s", nom, e)
-            self.fait.emit(nom, str(e)[:1].upper() + str(e)[1:] + ".", False)
+            if nom in CREATIONS:
+                self.fait.emit(nom, str(e)[:1].upper() + str(e)[1:] + ".", False)
         except OSError as e:
             log.warning("lecture %s : %s", nom, e)
 
@@ -89,6 +91,8 @@ class Pont(QObject):
             self.notifier("Le noyau de Fabrique ne démarre pas", d.get("message", ""), True)
         elif type_ == "alerte":
             self.notifier(d.get("titre", "Fabrique"), d.get("message", ""), True)
+        elif type_ == "info":
+            self.notifier(d.get("titre", "Fabrique"), d.get("message", ""))
 
     def eventFilter(self, _, e):
         if e.type() == QEvent.Type.KeyPress:

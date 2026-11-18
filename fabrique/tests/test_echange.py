@@ -52,9 +52,11 @@ def test_exporter_puis_importer_a_l_identique(remplie):
         assert list(m.Fiche.objects.values_list("id", "nom")) == [(s.id, s.nom)]
     with pytest.raises(Refus, match="s'appelle déjà"):
         echange.importer(z, nom=s.nom)
+    (settings.SESSIONS / remplie.dossier / "videos" / "v1" / "commun" / "images" / "s1").mkdir(parents=True)
+    (settings.SESSIONS / remplie.dossier / "videos" / "v1" / "commun" / "images" / "s1" / "plan.png").write_bytes(b"piece intermediaire")
     avec = echange.exporter(remplie, videos=True)
     with zipfile.ZipFile(avec) as f:
-        assert "videos/v1/final/v.mp4" in f.namelist()
+        assert "videos/v1/final/v.mp4" in f.namelist() and not [n for n in f.namelist() if "images" in n]  # les finales, jamais les pièces
 
 
 def test_un_fichier_trafique_n_importe_rien(remplie, tmp_path):
@@ -94,10 +96,14 @@ def test_la_session_essais_ne_s_exporte_pas():
 def test_les_comptes_ne_voyagent_pas_dupliquer_et_modele(remplie):
     with routeur.session(remplie):
         m.Destination.objects.create(langue="xx", reseau="youtube", jeton="jeton-chiffre-factice", chaine="Chaîne factice")
+        m.Publication.objects.create(video=m.Video.objects.get(), langue="xx", dossier="commun", statut="en_file")
+    (settings.SESSIONS / remplie.dossier / "calendrier").mkdir()
+    (settings.SESSIONS / remplie.dossier / "calendrier" / "plan.json").write_bytes(b"{}")
     copie = echange.dupliquer(remplie, f"Copie {remplie.nom}")
     with routeur.session(copie):
         d = m.Destination.objects.get()
         assert (d.jeton, d.reliee, d.chaine) == ("", None, "Chaîne factice") and m.Script.objects.count() == 1 and m.Video.objects.count() == 1
+        assert not m.Publication.objects.exists()  # une copie n'a rien publié (et n'enverra rien)
     assert not list((settings.RACINE / "exports").glob(f"{remplie.dossier}_*.fabrique.tmp"))
     z = echange.exporter(remplie, modele=f"Modèle {remplie.nom}")
     assert z.parent.name == "modeles" and {"nom": f"Modèle {remplie.nom}", "fichier": z.name} in echange.modeles()
@@ -106,7 +112,7 @@ def test_les_comptes_ne_voyagent_pas_dupliquer_et_modele(remplie):
     neuve = echange.importer(z, f"Neuve {remplie.nom}")
     with routeur.session(neuve):  # le cadre seulement : langues, univers ; ni scripts, ni vidéos, ni comptes
         assert m.Langue.objects.count() == 1 and not m.Script.objects.exists() and not m.Video.objects.exists() and not m.Destination.objects.exists()
-    assert (settings.SESSIONS / neuve.dossier / "univers" / "univers.json").is_file()
+    assert (settings.SESSIONS / neuve.dossier / "univers" / "univers.json").is_file() and not (settings.SESSIONS / neuve.dossier / "calendrier").exists()
 
 
 def test_vie_d_une_session_par_l_api(remplie, monkeypatch):
@@ -142,5 +148,12 @@ def test_vie_d_une_session_par_l_api(remplie, monkeypatch):
     nom = next(x["fichier"] for x in echange.modeles() if x["nom"] == f"Cadre {remplie.nom}")
     assert post("/api/sessions/importer", {"fichier": nom, "nom": f"Depuis le cadre {remplie.nom}"}).status_code == 200
     assert Session.objects.filter(nom=f"Depuis le cadre {remplie.nom}").exists()
-    r = post(f"/api/sessions/{remplie.id}/exporter", {"videos": True})
-    assert r.status_code == 200 and r.json()["message"].endswith(".fabrique")
+    r = post(f"/api/sessions/{remplie.id}/exporter", {"videos": True})  # des Go avec les vidéos : à côté de la requête, une notification à la fin
+    assert r.status_code == 200 and "lancé" in r.json()["message"]
+    import time
+
+    fin = time.monotonic() + 30
+    while time.monotonic() < fin and not list((settings.RACINE / "exports").glob(f"{remplie.dossier}_*.fabrique")):
+        time.sleep(0.2)
+    with zipfile.ZipFile(max((settings.RACINE / "exports").glob(f"{remplie.dossier}_*.fabrique"))) as z:
+        assert "videos/v1/final/v.mp4" in z.namelist()

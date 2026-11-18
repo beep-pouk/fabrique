@@ -145,11 +145,16 @@ def partager(s: Session, type_: str, pk: int, vers: Session, acteur: str) -> str
         if TYPES[type_].objects.filter(nom=o.nom).exists():
             raise Refus(f"« {vers.nom} » a déjà un {type_} « {o.nom} »")
     copies = []
-    for r in refs:  # fichiers d'abord : la base de l'autre session ne pointe jamais vers un fichier absent
-        src, dst = racine(s) / r.fichier, garde.verifier(racine(vers) / r.fichier)
-        if src.is_file() and not dst.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+    for r in refs:  # fichiers d'abord : la base de l'autre session ne pointe jamais vers un fichier absent ni vers l'image d'un autre
+        src, dst, n = racine(s) / r.fichier, garde.verifier(racine(vers) / r.fichier), 1
+        if not src.is_file():
+            continue
+        while dst.exists():
+            n += 1
+            dst = dst.with_name(f"{Path(r.fichier).stem}_{n}{Path(r.fichier).suffix}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        r.fichier = dst.relative_to(racine(vers)).as_posix()
         copies.append(r)
     with routeur.session(vers):
         if type_ == "lieu":

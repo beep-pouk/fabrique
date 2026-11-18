@@ -201,7 +201,9 @@ def test_parcours_j5(qtbot):
     assert f.property("ecran") == "nouvelle" and valeur(f, "nouvelle")["etape"] == 5 and f.property("session") == "s3"
     QTest.keyClick(f, Qt.Key.Key_1, Qt.KeyboardModifier.ControlModifier)
 
-    clic(f, "bouton_nouvelle_session")
+    bouton = element(f, "bouton_nouvelle_session")
+    bouton.forceActiveFocus()  # au clavier : Tab amène le focus, Entrée clique
+    QTest.keyClick(f, Qt.Key.Key_Return)
     assert f.property("ecran") == "nouvelle" and valeur(f, "nouvelle")["etape"] == 1
     assert not element(f, "creer_session").property("actif")
     taper(f, "nouvelle_nom", "Nouvelle factice")
@@ -209,6 +211,14 @@ def test_parcours_j5(qtbot):
     clic(f, "modele_0")
     clic(f, "creer_session")
     qtbot.waitUntil(lambda: valeur(f, "nouvelle")["etape"] == 2)
+    clic(f, "etape_avant")  # revenir à l'étape 1 d'une session créée : ses champs se corrigent, rien n'est recréé
+    assert not element(f, "creer_session").isVisible() and element(f, "suivant_1").isVisible()
+    qtbot.waitUntil(lambda: element(f, "nouvelle_public").property("text") == "enfants de 3 à 6 ans")  # remplis depuis les réglages
+    clic(f, "suivant_1")
+    qtbot.waitUntil(lambda: valeur(f, "nouvelle")["etape"] == 2)
+    assert ("/api/sessions/s1/reglages", {"assistant": "2", "public": "enfants de 3 à 6 ans", "promesse": "une histoire calme avant de dormir",
+                                          "langues": [{"code": "en", "nom": ""}, {"code": "xx", "nom": ""}]}) in t.actions
+    assert len([a for a in t.actions if a[0] == "/api/sessions"]) == 1
     assert ("/api/sessions", {"nom": "Nouvelle factice", "public": "", "promesse": "", "modele": "modele_factice.fabrique",
                               "langues": [{"code": "xx", "nom": ""}, {"code": "yy", "nom": ""}]}) in t.actions
     qtbot.waitUntil(lambda: valeur(f, "reglages")["formats"] == ["F1"])
@@ -226,6 +236,7 @@ def test_parcours_j5(qtbot):
     clic(f, "terminer_session")
     qtbot.waitUntil(lambda: valeur(f, "nouvelle")["etape"] == 7)
     assert ("/api/sessions/s1/finir", None) in t.actions
+    assert not any(c and c.get("assistant") == "7" for _, c in t.actions)  # « fini » : seulement par le noyau, après « Terminer »
     clic(f, "lancer_pilote")
     qtbot.waitUntil(lambda: ("/api/sessions/s1/pilote", None) in t.actions)
 
@@ -249,6 +260,20 @@ def test_parcours_j5(qtbot):
     taper(f, "champ_idee", "Un hibou")
     clic(f, "ajouter_idee")
     qtbot.waitUntil(lambda: ("/api/sessions/s1/idees", {"titre": "Un hibou", "resume": "", "source": ""}) in t.actions)
+    montrer(f, "defile_session", "idee_script_0")
+    clic(f, "idee_script_0")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts", {"titre": "", "date": "", "idee": 1}) in t.actions)
+    clic(f, "onglet_scripts")
+    taper(f, "titre_script", "Le pont")
+    taper(f, "date_script", "2026-12-20")
+    clic(f, "creer_script")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts", {"titre": "Le pont", "date": "2026-12-20", "idee": 0}) in t.actions)
+    clic(f, "script_0")
+    qtbot.waitUntil(lambda: element(f, "date_du_script").property("text") == "2026-12-01")
+    taper(f, "date_du_script", "2026-12-03")
+    clic(f, "dater_script")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/scripts/s1e01/dater", {"date": "2026-12-03"}) in t.actions)
+    clic(f, "retour_scripts")
 
     clic(f, "onglet_univers")
     qtbot.waitUntil(lambda: len(valeur(f, "univers")["personnages"]) == 2)
@@ -273,6 +298,10 @@ def test_parcours_j5(qtbot):
     clic(f, "onglet_regles")
     clic(f, "enregistrer_regles")
     qtbot.waitUntil(lambda: any(c and c.get("plafond_eur") == 0 and c.get("duree_max") == 18 for _, c in t.actions))
+    taper(f, "regle_objectif", "Autre objectif")
+    pont.recu.emit("reglages", valeur(f, "reglages"))  # un rafraîchissement pendant la frappe : ce que RT tape reste
+    pont.evenement.emit("file", {})
+    assert element(f, "regle_objectif").property("text") == "Autre objectif"
     clic(f, "regle_ordre")
     qtbot.waitUntil(lambda: ("/api/sessions/s1/reglages", {"ordre_strict": False}) in t.actions)
     montrer(f, "defile_session", "session_pause")
@@ -289,6 +318,21 @@ def test_parcours_j5(qtbot):
     clic(f, "onglet_video_suivi")
     qtbot.waitUntil(lambda: len(valeur(f, "suivi")) == 1 and valeur(f, "suivi")[0]["vues"] == 1234)
     f.close()
+
+
+def test_seul_le_refus_d_une_lecture_qui_cree_est_dit(qtbot):
+    """Un refus d'une lecture ordinaire (un modèle abîmé…) n'est pas dit : sinon chaque « fait » relance toutes les lectures, sans fin."""
+    from fabrique.fenetre.client import ErreurApi
+
+    class Refuse:
+        def appeler(self, nom, corps=None, **p):
+            raise ErreurApi("refusé factice")
+
+    pont, dits = main.Pont(Refuse()), []
+    pont.fait.connect(lambda *a: dits.append(a))
+    pont._lire("modeles")
+    pont._lire("nouvelle_session", {"corps": {}})
+    assert dits == [("nouvelle_session", "Refusé factice.", False)]
 
 
 def test_notifications_de_la_sauvegarde(qtbot):
