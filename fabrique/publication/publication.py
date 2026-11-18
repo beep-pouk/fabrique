@@ -196,7 +196,7 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                     continue
                 pub = m.Publication(video=v, langue=langue, dossier="commun" if langue == base else langue)
                 d = final(s, pub)
-                if v.recette.get("script") != "scenario-bramble":
+                if v.recette.get("script", "scenario-bramble") != "scenario-bramble":
                     preparer_final(s, v, langue, d)
                 if (mp4 := max(d.glob("*.mp4"), key=lambda p: p.stat().st_mtime, default=None)) is None:
                     raise Refus(f"« {v.titre} » ({langue}) : aucune vidéo finale dans {d}")

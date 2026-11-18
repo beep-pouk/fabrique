@@ -19,7 +19,7 @@
  "dernier_banc": null,
  "etat": "en_service",
  "faux": false,
- "module": "fabrique.moteur.plans",
+ "module": "fabrique.moteur.par_plan",
  "reglages": {
   "secondes": 45
  }

@@ -2,6 +2,7 @@
 chapitres, sous-titres décalés), un extrait vertical (1080 × 1920, sous-titres incrustés) et une courte verticale créée seule ; chacune passée
 au contrôle technique sans défaut bloquant. Les outils de F2 et F3 sont réels (ffmpeg, sans carte) et servent tels quels en simulation."""
 import json
+from pathlib import Path
 
 import pytest
 
@@ -10,9 +11,9 @@ from fabrique.moteur import execution, file, montages, recettes
 from fabrique.tests.test_moteur import SCRIPT, essais, recette  # noqa: F401 — fixtures
 
 
-def fabriquer(s, r: dict, script: dict) -> str:
+def fabriquer(s, r: dict, script: dict, acteur: str = "claude") -> str:
     v = execution.preparer(s, r, script)
-    t = file.mettre(s, v.id, v.titre, "claude")
+    t = file.mettre(s, v.id, v.titre, acteur)
     assert file.executer(str(t.id)) == 0, t
     return v.id
 
@@ -151,7 +152,7 @@ def test_f4_par_defaut_les_outils_reels_par_plan(essais):
 
 
 def test_camera_ampleur_et_mouvements():
-    from fabrique.moteur import plans
+    from fabrique.moteur import par_plan as plans
 
     assert plans.camera("fixe", 10)[0] == "1" and plans.camera("avancee", 15)[0] == "1+0.15*on/375" and plans.camera("recul", 100)[0] == "1+0.4-0.4*on/2500"
     assert plans.camera("droite", 2)[1] == "(iw-iw/zoom)*on/50" and plans.camera("gauche", 2)[0] == "1+0.08"
@@ -212,3 +213,56 @@ def test_format_propre_a_un_script(essais):
     finally:
         with routeur.session(essais):
             Reglage.objects.filter(cle__in=("formats", "format")).delete()
+
+
+def test_publication_de_f2_f3_et_f4(request, monkeypatch):
+    """« Approuver » une vidéo F4 (deux langues), une compilation et un extrait : le dossier final de chaque langue rempli comme celui de F1
+    (vidéo finale, miniature, sous-titres, youtube.txt tiré du script : titre, description, chapitres de la compilation, tags)."""
+    from fabrique.noyau import bases
+    from fabrique.noyau.models import Tache
+    from fabrique.publication import publication
+
+    monkeypatch.setattr(execution, "PAUSE_S", 0)
+    s = bases.creer(f"Session {request.node.name}")
+    try:
+        v = execution.preparer(s, f4(langues=["en", "xx"]), VOIX_OFF, traductions={"xx": VOIX_OFF_XX})
+        t = file.mettre(s, v.id, v.titre, "RT")
+        assert file.executer(str(t.id)) == 0
+        assert "brouillon(s) en, xx" in publication.approuver(s, v.id, "RT")
+        en, xx = publication.apercu(s, v.id)
+        assert (en["titre"], en["description"], en["tags"]) == ("La forêt en hiver", "Un documentaire factice.", ["forêt", "hiver"])
+        assert (xx["titre"], xx["description"]) == ("Titre factice", "Description factice.")
+        for a in (en, xx):
+            assert Path(a["video"]).is_file() and montages.mesure(Path(a["video"]))["largeur"] == 1920 and a["miniature"].endswith("miniature.jpg") and a["fautes"] == []
+            assert not any("sans sous-titres" in x for x in a["avis"])
+        assert "Phrase factice deux." in (Path(xx["video"]).parent / "sous_titres.srt").read_text(encoding="utf-8")
+        assert "brouillons déjà prêts" in publication.approuver(s, v.id, "RT")  # rien de refait
+        histoires = [fabriquer(s, recette(reglages={**recettes.lire("essai")["reglages"], "langues": ["en"]}), {**SCRIPT, "titre": f"Vidéo {i}"}, "RT") for i in range(3)]
+        comp = fabriquer(s, recettes.lire("F2"), {"titre": "Trois histoires", "intro": histoires[0], "videos": histoires[1:], "tags": ["compilation"]}, "RT")
+        publication.approuver(s, comp, "RT")
+        (c,) = publication.apercu(s, comp)
+        assert c["chapitres"] == ["00:00 Introduction", "00:04 Vidéo 1", "00:08 Vidéo 2"] and c["tags"] == ["compilation"] and c["titre"] == "Trois histoires"
+        extrait = fabriquer(s, recettes.lire("F3"), {"titre": "Un extrait", "source": histoires[1], "debut_s": 1, "fin_s": 3}, "RT")
+        publication.approuver(s, extrait, "RT")
+        (e,) = publication.apercu(s, extrait)
+        assert montages.mesure(Path(e["video"]))["hauteur"] == 1920 and e["miniature"].endswith("miniature.jpg") and e["description"] == ""
+    finally:
+        Tache.objects.filter(session_id=s.id).delete()
+
+
+def test_video_pilote_au_format_voix_off(request):
+    from fabrique.noyau.models import Tache
+    from fabrique.session import reglages
+
+    s = reglages.creer(f"Session {request.node.name}", [{"code": "xx", "nom": "Langue factice"}])
+    try:
+        reglages.ecrire(s, {"formats": ["F4"], "difference": "un lieu différent chaque fois", "style": "aquarelle douce"}, "RT")
+        reglages.finir(s, "RT")
+        s.refresh_from_db()
+        assert "dans la file" in reglages.pilote(s, "RT")
+        with execution.routeur.session(s):
+            v = execution.Video.objects.get(id=Tache.objects.get(session_id=s.id).video_id)
+            assert v.recette["id"] == "F4" and all(p["image"] and p["mouvement"] for sc in v.script["scenes"] for p in sc["plans"])
+            assert {m.outil for m in v.morceaux.all()} <= {f"faux_{b}" for b in ("voix", "images", "animation", "musique", "montage", "miniature", "controle")}
+    finally:
+        Tache.objects.filter(session_id=s.id).delete()

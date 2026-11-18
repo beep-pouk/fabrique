@@ -20,7 +20,7 @@
  "etat": "en_service",
  "faux": false,
  "simulable": true,
- "module": "fabrique.moteur.plans",
+ "module": "fabrique.moteur.par_plan",
  "reglages": {
   "secondes": 4
  }
