@@ -15,6 +15,8 @@ Outils, Banc, Statistiques et Assistant (parcours et captures de la suite) ; la 
 J6 : un outil local candidat installé, passé au banc à l'aveugle contre l'outil en place, adopté : rien d'autre n'a bougé (code, tables) et la
 vidéo suivante le prend ; un outil en ligne (faux service payant) refusé à 0 €, joué sous plafond, refusé au-delà ; la veille versée par
 Claude ; l'outil en ligne réel si RT a donné sa clé ; la construction et l'installation.
+J7 : F2 (compilation), F3 tirée d'une vidéo longue et F3 seule, en vrais processus et en simulation, contrôlées sans défaut bloquant ; les
+mêmes en vrai, lus dans la racine des essais réels ; la construction et l'installation.
 Outil de développement : jamais livré."""
 import argparse
 import fnmatch
@@ -881,7 +883,138 @@ def j6(dire, publier: bool = False) -> list[tuple[bool, str]]:
     return outils_j6(dire) + cle_en_ligne_j6() + construction(dire, publier) + bramble_points(avant)
 
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6}
+def formats_j7(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire, par les commandes de Claude (session Essais) : trois vidéos d'essai, puis
+    une compilation (F2), un extrait vertical (F3) et une courte verticale créée seule (F3s), chacune passée au contrôle technique."""
+    import os
+    import socket
+    import tempfile
+
+    from fabrique.fenetre.client import Client, ErreurApi
+
+    class montages:  # mesure sans Django (le noyau tourne à part)
+        @staticmethod
+        def mesure(v: Path) -> dict:
+            r = json.loads(subprocess.run([ffprobe(), "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", str(v)],
+                                          capture_output=True, text=True, encoding="utf-8").stdout)
+            im = next(x for x in r["streams"] if x["codec_type"] == "video")
+            return {"largeur": im["width"], "hauteur": im["height"], "duree_s": float(r["format"]["duration"])}
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j7_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+
+    def lancer(*args) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, "-m", "fabrique", *map(str, args)], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    f = Client("fenetre", port=port, donnees=racine / "donnees")
+
+    def fabriquer(recette: str, script: dict) -> dict:
+        (fs := tmp / f"{len(list(tmp.glob('*.json')))}.json").write_text(json.dumps(script), encoding="utf-8")
+        r = lancer("moteur", recette, fs)
+        assert r.returncode == 0, r.stdout + r.stderr
+        return banc.attendre(lambda: (t := [x for x in f.appeler("file") if x["titre"] == script["titre"]]) and t[0]["etat"] in ("finie", "erreur") and t[0], 240,
+                             f"« {script['titre']} » finie")
+
+    def video(essais: str, titre: str) -> dict:
+        return next(x for x in f.appeler("videos", id=essais) if x["titre"] == titre)
+
+    def resultats(essais_dossier: Path, vid: str, etape: str) -> tuple[Path, dict, dict]:
+        d = essais_dossier / "videos" / vid / "en"
+        r = json.loads((d / etape / "video" / "resultat.json").read_text(encoding="utf-8"))
+        return d / etape / "video" / r["fichiers"][0], r, json.loads((d / "revue" / "video" / "rapport.json").read_text(encoding="utf-8"))
+
+    try:
+        banc.attendre(f.repond, 60, "le noyau répond")
+        essais = next(x for x in f.appeler("sessions") if x["essais"])
+        dossier = racine / "sessions" / essais["dossier"]
+        dire("trois vidéos d'essai…")
+        for i in range(3):
+            assert fabriquer("essai", {**SCRIPT, "titre": f"Vidéo d'essai {i + 1}"})["etat"] == "finie"
+        ids = [video(essais["id"], f"Vidéo d'essai {i + 1}")["id"] for i in range(3)]
+        dire("F2 : compilation…")
+        t = fabriquer("F2", {"titre": "Compilation de la recette J7", "intro": ids[0], "videos": ids[1:]})
+        vf, r, rap = resultats(dossier, video(essais["id"], "Compilation de la recette J7")["id"], "assemblage")
+        m = montages.mesure(vf)
+        parts = [montages.mesure(next((dossier / "videos" / x / "en" / "montage" / "video").glob("*.mp4")))["duree_s"] for x in ids]
+        points.append((t["etat"] == "finie" and abs(m["duree_s"] - sum(parts)) < 0.5 and [c["titre"] for c in r["infos"]["chapitres"]][1:] == ["Vidéo d'essai 2", "Vidéo d'essai 3"]
+                       and (vf.parent / "video.srt").is_file() and not [d for d in rap["defauts"] if d["gravite"] == "forte"],
+                       f"F2 en simulation (commande « moteur F2 » de Claude, session Essais) : introduction puis deux vidéos bout à bout, {m['duree_s']:.1f} s "
+                       f"(somme des parties {sum(parts):.1f} s), chapitres {', '.join(c['titre'] for c in r['infos']['chapitres'])}, sous-titres décalés, miniature ; "
+                       f"contrôle technique sans défaut bloquant ({len(rap['defauts'])} défaut(s))"))
+        dire("F3 : extrait vertical…")
+        t = fabriquer("F3", {"titre": "Extrait de la recette J7", "source": ids[1], "debut_s": 1, "fin_s": 3})
+        vf, r, rap = resultats(dossier, video(essais["id"], "Extrait de la recette J7")["id"], "verticale")
+        m = montages.mesure(vf)
+        points.append((t["etat"] == "finie" and (m["largeur"], m["hauteur"]) == (1080, 1920) and abs(m["duree_s"] - 2) < 0.3 and r["infos"]["incrustes"] >= 1
+                       and not [d for d in rap["defauts"] if d["gravite"] == "forte"],
+                       f"F3 tirée d'une vidéo longue en simulation : {m['largeur']} × {m['hauteur']}, {m['duree_s']:.1f} s (de 1 à 3 s de la source), "
+                       f"{r['infos']['incrustes']} sous-titre(s) incrusté(s), contrôle technique sans défaut bloquant"))
+        dire("F3 créée seule…")
+        t = fabriquer("F3s", {**SCRIPT, "titre": "Courte verticale de la recette J7"})
+        vf, r, rap = resultats(dossier, video(essais["id"], "Courte verticale de la recette J7")["id"], "verticale")
+        m = montages.mesure(vf)
+        points.append((t["etat"] == "finie" and (m["largeur"], m["hauteur"]) == (1080, 1920) and r["infos"]["incrustes"] >= 1 and not [d for d in rap["defauts"] if d["gravite"] == "forte"],
+                       f"F3 créée seule en simulation (par plan, faux outils) : {m['largeur']} × {m['hauteur']}, {m['duree_s']:.1f} s, {r['infos']['incrustes']} sous-titre(s) "
+                       f"incrusté(s), contrôle technique sans défaut bloquant"))
+        (tmp / "absente.json").write_text(json.dumps({"titre": "x", "intro": "inconnue", "videos": ids[:2]}), encoding="utf-8")
+        r = lancer("moteur", "F2", tmp / "absente.json")
+        points.append((r.returncode == 1 and "vidéo inconnue" in r.stdout, f"une compilation qui cite une vidéo absente est refusée tout de suite : {r.stdout.strip()}"))
+    except (AssertionError, ErreurApi, OSError, ValueError, KeyError, StopIteration) as e:
+        points.append((False, f"recette J7 interrompue : {type(e).__name__} : {e}"))
+    finally:
+        try:
+            f.appeler("arreter")
+        except (OSError, ErreurApi):
+            pass
+        try:
+            noyau.wait(30)
+        except subprocess.TimeoutExpired:
+            noyau.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_formats.py", "fabrique/tests/test_moteur.py", "fabrique/tests/test_fenetre.py"],
+                       cwd=DEPOT, capture_output=True, text=True, encoding="utf-8", env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests des formats F2 et F3 (refus sans vidéo finale ou hors langue, extrait de plus de 3 min, contrôle bloquant d'une durée hors "
+                                      f"bornes, format propre à un script), du moteur et de la fenêtre — {dernier(r)}"))
+    return points
+
+
+def en_vrai_j7() -> list[tuple[bool, str]]:
+    """Les essais en vrai (session Essais, jamais publiés) : lus dans la racine de travail des essais réels (OUTILS\\fabrique_construction\\egalite),
+    sans rien y écrire ; rouges tant qu'ils ne sont pas faits (QUESTIONS.md)."""
+    racine = SORTIE / "egalite" / "FABRIQUE" / "sessions" / "essais"
+    faits = {}
+    for r in racine.glob("videos/*/*/*/video/resultat.json"):
+        try:
+            demande = json.loads((r.parent / "demande.json").read_text(encoding="utf-8"))
+            if demande["brique"] not in ("assemblage", "verticale"):
+                continue
+            recette = "F2" if demande["brique"] == "assemblage" else "F3" if "source" in json.loads(Path(demande["script"]).read_text(encoding="utf-8")) else "F3s"
+            rapport = json.loads((r.parent.parent.parent / "revue" / "video" / "rapport.json").read_text(encoding="utf-8"))
+            if not [x for x in rapport["defauts"] if x["gravite"] == "forte"]:
+                faits.setdefault(recette, r.parent.parent.parent.parent.name)
+        except (OSError, ValueError, KeyError):
+            pass
+    return [(recette in faits, f"{recette} en vrai (session Essais, outils réels) : " + (f"fait (vidéo {faits[recette]}), contrôle sans défaut bloquant" if recette in faits
+                                                                                         else "PAS ENCORE — " + attente))
+            for recette, attente in (("F2", "il faut l'essai long de J3 (cette nuit) et une introduction inédite faite par F1 de nuit (QUESTIONS)"),
+                                     ("F3", "il faut l'essai long de J3 (cette nuit), puis quelques minutes sans carte"),
+                                     ("F3s", "il faut des outils réels par plan : J8 (QUESTIONS)"))]
+
+
+def j7(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J7 (plan § 7.1) : une vidéo de chaque format (F2, F3 tirée d'une vidéo longue, F3 seule) en simulation puis en vrai, contrôlée sans défaut
+    bloquant ; puis la construction et l'installation, Bramble Studio intact."""
+    avant = bramble_avant(dire)
+    return formats_j7(dire) + en_vrai_j7() + construction(dire, publier) + bramble_points(avant)
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7}
 
 
 def main(argv=None) -> int:
