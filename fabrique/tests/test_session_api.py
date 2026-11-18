@@ -43,7 +43,7 @@ def entete(qui: str) -> dict:
 def test_scripts_univers_videos(session):
     n = Navigateur()
     assert n.get(f"/api/sessions/{session.id}/scripts", **entete("claude")).json() == [
-        {"code": "s1e01", "titre": "Une histoire factice", "statut": "scenario", "date_prevue": "2026-12-01", "versions": 2, "validee": False}]
+        {"code": "s1e01", "titre": "Une histoire factice", "statut": "scenario", "date_prevue": "2026-12-01", "versions": 2, "validee": False, "format": ""}]
     d = n.get(f"/api/sessions/{session.id}/scripts/s1e01", **entete("fenetre")).json()
     assert [v["numero"] for v in d["versions"]] == [2, 1] and d["contenu"] == SCENARIO and d["regles"] == {"erreurs": []}
     assert d["plans"] == [{"n": 1, "image": "a quiet glade", "scenes": [1], "bramble": False}]  # la planche, avant « Fabriquer »

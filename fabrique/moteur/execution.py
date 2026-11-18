@@ -38,6 +38,9 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
     traductions (<nom>.<langue>.json : celles qui ont servi, gardées avec la vidéo)."""
     R = recettes.recette(recette)
     S = recettes.script(script, R.script)
+    for vid in ([S.intro, *S.videos] if R.script == "compilation" else [S.source] if R.script == "extrait" else []):
+        for langue in R.reglages.langues:
+            finale(s, vid, langue)  # chaque vidéo citée a sa vidéo finale dans chaque langue du format, sinon refus tout de suite
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
@@ -108,6 +111,21 @@ def demande(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: in
                           sources={e.id: e.brique for e in R.etapes[:i]}, reglages=R.reglages.model_dump(), graine=graine,
                           session=str(settings.SESSIONS / s.dossier), script=str(fichier_script(s, v)),
                           atelier=str(settings.SESSIONS / s.dossier / "videos" / v.id / (m.langue or "commun") / "atelier" / (v.nom or "video")))
+
+
+def finale(s: Session, video_id: str, langue: str = "") -> Path:
+    """La vidéo finale d'une vidéo de la session dans `langue` (vide : celle du script) : le fichier .mp4 principal du dernier morceau fini de la
+    brique montage pour cette langue, ou du montage commun quand c'est la langue du script ; sinon un refus en clair."""
+    with routeur.session(s):
+        v = Video.objects.filter(id=video_id).first()
+        if v is None:
+            raise Refus(f"vidéo inconnue dans « {s.nom} » : {video_id}")
+        base = v.script.get("language") or (v.recette.get("reglages") or {}).get("langues", [""])[0]
+        for m in v.morceaux.filter(brique__in=("montage", "assemblage", "verticale"), etat="fini").order_by("-ordre"):
+            if m.langue == langue or (not m.langue and langue in ("", base)):
+                if (r := resultat(s, m)) and r.fichiers[0].lower().endswith(".mp4"):
+                    return dossier(s, m) / r.fichiers[0]
+    raise Refus(f"« {v.titre} » n'a pas de vidéo finale{f' en {langue}' if langue else ''} : la fabriquer d'abord")
 
 
 def depense_du_mois(**filtre) -> float:
@@ -200,7 +218,7 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
     if depense:
         depense.reel_eur = r.infos.get("cout_eur")
         depense.save(update_fields=["reel_eur"])
-    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes / (len(S.scenes) if not m.unite else 1))  # vidéo entière : par scène
+    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes / (max(1, len(getattr(S, "scenes", []))) if not m.unite else 1))  # vidéo entière : par scène
     m.etat, m.secondes, m.message = "fini", secondes, ""
     m.save(update_fields=["etat", "secondes", "message"])
 

@@ -29,8 +29,8 @@ FENETRE_SILENCE_S = 20  # une coupe cherche un silence à ± 20 s de sa place
 AUDIO_KBPS = 128
 
 
-def outil(*args, delai: int = 3 * 3600) -> str:
-    r = subprocess.run([str(a) for a in args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=delai,
+def outil(*args, delai: int = 3 * 3600, cwd: Path | None = None) -> str:
+    r = subprocess.run([str(a) for a in args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=delai,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode:
         raise RuntimeError(f"{Path(str(args[0])).stem} : {(r.stderr or r.stdout).strip()[-300:]}")

@@ -42,7 +42,7 @@ def test_recette_f1():
 def test_f1_en_simulation_de_bout_en_bout(essais):
     v = execution.preparer(essais, recettes.lire("F1"), SCENARIO, nom="2026-01-01-s1e01")
     with routeur.session(essais):
-        assert {m.outil for m in Morceau.objects.filter(video=v)} == {b["simulation"] for b in outils.BRIQUES.values()}  # simulation : jamais un vrai outil
+        assert {m.outil for m in Morceau.objects.filter(video=v)} == {outils.BRIQUES[m.brique]["simulation"] for m in Morceau.objects.filter(video=v)}  # simulation : jamais un vrai outil
     execution.jouer(essais, v.id)
     with routeur.session(essais):
         assert {m.etat for m in Morceau.objects.filter(video=v)} == {"fini"}

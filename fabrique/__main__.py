@@ -41,7 +41,7 @@ def commande(args: list[str]) -> int:
         return 0
     envois = {"idee": ("ajouter_idee", lambda a: {"titre": a[1], "resume": " ".join(a[2:]), "source": "claude"}, 2),  # « idee <session> <titre> [résumé] »
               "reference": ("importer_reference", lambda a: {"fichier": a[2]}, 3),  # « reference <session> <personnage> <image> » : à valider par RT
-              "nouveau-script": ("creer_script", lambda a: {"titre": a[1], "date": a[2] if len(a) > 2 else ""}, 2)}  # « nouveau-script <session> <titre> [date] »
+              "nouveau-script": ("creer_script", lambda a: {"titre": a[1], "date": a[2] if len(a) > 2 else "", "format": a[3] if len(a) > 3 else ""}, 2)}  # « nouveau-script <session> <titre> [date] [format] »
     if args[:1] == ["banc"] and len(args) in (5, 6):  # « banc <session Essais> <vidéo> <brique> <outil> [juge] » : préparé de nuit, RT vote
         try:
             print(Client("claude").appeler("nouveau_banc", {"session": args[1], "video": args[2], "brique": args[3], "outil": args[4],
@@ -59,7 +59,7 @@ def commande(args: list[str]) -> int:
             return 1
         return 0
     if not args or args[0] not in COMMANDES_CLAUDE:
-        print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, idee <session> <titre> [résumé], nouveau-script <session> <titre> [AAAA-MM-JJ], "
+        print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, idee <session> <titre> [résumé], nouveau-script <session> <titre> [AAAA-MM-JJ] [format], "
               "reference <session> <personnage> <image>, veille <fichier.json> (candidats du mois), banc <session Essais> <vidéo> <brique> <outil> [juge], "
               "importer-bramble [--pour-de-vrai], "
               "copier-essai <vidéo> <suffixe>")

@@ -154,7 +154,7 @@ def creer_script(request, id: str, corps: schemas.NouveauScript):
     """Un script neuf, tiré d'une idée ou non, daté ou non (fenêtre ; Claude, qui l'écrit ensuite)."""
     from fabrique.session import calendrier
 
-    code = calendrier.creer_script(session_(id), corps.titre, jour_(corps.date), corps.idee, ACTEURS[request.auth])
+    code = calendrier.creer_script(session_(id), corps.titre, jour_(corps.date), corps.idee, ACTEURS[request.auth], corps.format)
     return {"message": f"Script {code} créé : « Demander à Claude » l'écrit.", "code": code}
 
 
@@ -206,7 +206,8 @@ def session_(id: str) -> Session:
 def scripts(request, id: str):
     with routeur.session(session_(id)):
         return [{"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""), "versions": sc.versions.count(),
-                 "validee": bool((v := sc.versions.order_by("-numero").first()) and v.validee)} for sc in m.Script.objects.order_by("date_prevue", "code")]
+                 "validee": bool((v := sc.versions.order_by("-numero").first()) and v.validee), "format": sc.details.get("format", "")}
+                for sc in m.Script.objects.order_by("date_prevue", "code")]
 
 
 @api.get("/sessions/{id}/scripts/{code}", response=schemas.ScriptDetail)
@@ -216,6 +217,7 @@ def script_(request, id: str, code: str):
     fabrication au format de la session (durée, coût), à relire avant « Fabriquer »."""
     from fabrique.moteur import execution, recettes
     from fabrique.moteur.f1 import refaire as f1
+    from fabrique.session import calendrier
 
     s = session_(id)
     with routeur.session(s):
@@ -223,9 +225,9 @@ def script_(request, id: str, code: str):
         if sc is None:
             raise HttpError(404, f"script inconnu : {code}")
         versions = list(sc.versions.order_by("-numero"))
-        forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
         traductions = sorted(t.code.split(".", 1)[1] for t in m.Script.objects.filter(code__startswith=f"{code}.") if t.versions.exists())
     contenu = versions[0].contenu if versions else {}
+    forme = calendrier.format_du_script(s, code)
     try:
         recette = recettes.lire(forme)
         estimation = execution.estimer_script(s, recette, contenu)
@@ -425,7 +427,6 @@ def fabriquer(request, id: str, code: str):
             raise Refus(f"le script {code} n'a aucune version à fabriquer")
         if demande.version is not None and demande.version != v.numero:
             raise Refus(f"une version {v.numero} du script {code} est arrivée depuis la {demande.version} relue : la relire avant de fabriquer")
-        forme = (m.Reglage.objects.filter(cle="format").first() or m.Reglage(valeur="F1")).valeur
         date = (sc.date_prevue or v.date.date()).isoformat()
         traductions = {}
         for langue in choisies:
@@ -433,6 +434,9 @@ def fabriquer(request, id: str, code: str):
             if t is None or not (tv := t.versions.order_by("-numero").first()):
                 raise Refus(f"pas de traduction en « {langue} » pour {code} : la demander à Claude d'abord")
             traductions[langue] = tv.contenu
+    from fabrique.session import calendrier
+
+    forme = calendrier.format_du_script(s, code)
     if erreurs := regles.controler(s, v.contenu, code)["erreurs"]:
         raise Refus(f"le script {code} a {len(erreurs)} erreur(s) des règles de l'univers (version {v.numero}) : à corriger avant de fabriquer")
     nom = f"{date}-{sc.code}"

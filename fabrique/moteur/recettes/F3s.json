@@ -1,0 +1,20 @@
+{
+ "schema": 1,
+ "id": "F3s",
+ "nom": "Courte verticale créée seule",
+ "version": 1,
+ "reglages": {"duree_s": [1, 180], "cadre": "9:16", "langues": ["en"], "sous_titres": "incrustes", "enfants": true, "declaration_ia": true, "plan_fixe_max_s": null},
+ "script": "scenes-plans-narrateur",
+ "etapes": [
+  {"id": "voix", "brique": "voix", "par": "plan", "langue": true},
+  {"id": "images", "brique": "images", "par": "plan"},
+  {"id": "animation", "brique": "animation", "par": "plan"},
+  {"id": "musique", "brique": "musique", "par": "scene", "langue": true},
+  {"id": "montage", "brique": "montage", "par": "video", "langue": true},
+  {"id": "verticale", "brique": "verticale", "par": "video", "langue": true},
+  {"id": "miniature", "brique": "miniature", "par": "video", "langue": true},
+  {"id": "revue", "brique": "controle", "par": "video", "langue": true}
+ ],
+ "controles": "technique",
+ "outils": {"miniature": "miniature_image", "revue": "controle_technique"}
+}

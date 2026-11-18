@@ -242,9 +242,13 @@ def idees(s: Session) -> list[dict]:
                 for i in m.Idee.objects.order_by("-creee", "-id")]
 
 
-def creer_script(s: Session, titre: str, jour: date | None, idee: int, acteur: str) -> str:
-    """Un script neuf (sans version : Claude l'écrit, ou « commande script »), daté ou non, tiré d'une idée ou non ; son code « eNN » est
-    le premier libre. Rend son code."""
+def creer_script(s: Session, titre: str, jour: date | None, idee: int, acteur: str, format_: str = "") -> str:
+    """Un script neuf (sans version : Claude l'écrit, ou « commande script »), daté ou non, tiré d'une idée ou non, d'un des formats de la
+    session (vide : le sien) ; son code « eNN » est le premier libre. Rend son code."""
+    from fabrique.session import reglages
+
+    if format_ and format_ not in (formats := reglages.lire(s)["formats"]):
+        raise Refus(f"le format {format_} n'est pas parmi ceux de la session ({', '.join(formats)}) : l'ajouter dans l'onglet Formats d'abord")
     with routeur.session(s):
         i = m.Idee.objects.filter(id=idee).first() if idee else None
         if idee and i is None:
@@ -257,12 +261,21 @@ def creer_script(s: Session, titre: str, jour: date | None, idee: int, acteur: s
             n += 1
         langue = m.Langue.objects.order_by("ordre", "code").values_list("code", flat=True).first() or "en"
         sc = m.Script.objects.create(code=f"e{n:02d}", titre=titre, langue=langue, statut="idee", date_prevue=jour,
-                                     details={"idee": i.id, "resume": i.resume} if i else {})
+                                     details={**({"idee": i.id, "resume": i.resume} if i else {}), **({"format": format_} if format_ else {})})
         if i:
             i.statut = "convertie"
             i.save(update_fields=["statut"])
     noter(acteur, "script_cree", session=s.id, code=sc.code, idee=idee)
     return sc.code
+
+
+def format_du_script(s: Session, code: str) -> str:
+    """Le format d'un script : le sien (F2, F3…), sinon celui de la session (F1 par défaut)."""
+    from fabrique.session import reglages
+
+    with routeur.session(s):
+        sc = m.Script.objects.filter(code=code).first() if code else None
+    return (sc and sc.details.get("format")) or reglages.lire(s)["format"] or "F1"
 
 
 def dater_script(s: Session, code: str, jour: date | None, acteur: str) -> str:

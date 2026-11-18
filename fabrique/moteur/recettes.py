@@ -51,7 +51,7 @@ class Recette(Strict):
     nom: str
     version: int = Field(ge=1)
     reglages: Reglages
-    script: Literal["scenes-plans-narrateur", "scenario-bramble"]
+    script: Literal["scenes-plans-narrateur", "scenario-bramble", "compilation", "extrait"]
     etapes: list[Etape] = Field(min_length=1)
     controles: str = ""
     outils: dict[str, str] = {}  # défaut du format : étape → outil
@@ -65,8 +65,8 @@ class Recette(Strict):
             raise ValueError(f"brique inconnue : {', '.join(inconnues)}")
         if etrangeres := set(self.outils) - set(ids):
             raise ValueError(f"outils pour des étapes absentes : {', '.join(sorted(etrangeres))}")
-        if self.script == "scenario-bramble" and any(e.par != "video" for e in self.etapes):
-            raise ValueError("un scénario de Bramble Studio se fabrique par vidéo entière (par: video) : ses étapes font tous les plans d'un coup")
+        if self.script != "scenes-plans-narrateur" and any(e.par != "video" for e in self.etapes):
+            raise ValueError(f"un script « {self.script} » se fabrique par vidéo entière (par: video) : ses étapes font toute la vidéo d'un coup")
         return self
 
 
@@ -102,7 +102,28 @@ class ScenarioBramble(BaseModel):
         return self.title
 
 
-FORMES = {"scenes-plans-narrateur": Script, "scenario-bramble": ScenarioBramble}
+class Compilation(Strict):
+    """F2 : l'introduction inédite (une vidéo finie de la session, faite par son propre format) puis les vidéos finies, dans l'ordre."""
+    titre: str
+    intro: str = Field(min_length=1)
+    videos: list[str] = Field(min_length=2)
+
+
+class Extrait(Strict):
+    """F3 tirée d'une vidéo longue : un passage d'une vidéo finie de la session, 3 min au plus."""
+    titre: str
+    source: str = Field(min_length=1)
+    debut_s: float = Field(ge=0)
+    fin_s: float
+
+    @model_validator(mode="after")
+    def court(self):
+        if not 1 <= self.fin_s - self.debut_s <= 180:
+            raise ValueError("un extrait dure de 1 s à 3 min")
+        return self
+
+
+FORMES = {"scenes-plans-narrateur": Script, "scenario-bramble": ScenarioBramble, "compilation": Compilation, "extrait": Extrait}
 
 
 def recette(donnees: dict) -> Recette:

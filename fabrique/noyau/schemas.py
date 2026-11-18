@@ -85,6 +85,7 @@ class NouveauScript(BaseModel):
     titre: str = ""  # vide : celui de l'idée
     date: str = ""  # AAAA-MM-JJ ; vide : pas daté
     idee: int = 0  # l'idée dont il est tiré
+    format: str = ""  # vide : celui de la session ; sinon un de ses formats (F2 compilation, F3 courte verticale…)
 
 
 class ScriptCree(BaseModel):
@@ -224,6 +225,7 @@ class Script(BaseModel):
     date_prevue: str  # AAAA-MM-JJ, vide : pas encore au calendrier
     versions: int
     validee: bool  # la dernière version est validée
+    format: str = ""  # le sien ; vide : celui de la session
 
 
 class VersionScript(BaseModel):

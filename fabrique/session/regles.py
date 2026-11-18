@@ -54,9 +54,9 @@ def controler(s: Session, contenu: dict, code: str = "") -> dict:
     """{erreurs, avis, mesures} du script `contenu` (le script `code` de la session, ou un nouveau), face à l'univers et aux autres scripts.
     Un format dont le script n'est pas un scénario de Bramble : sa forme seulement (schéma de la recette ; cahier F, forme propre au format)."""
     from fabrique.moteur import recettes
-    from fabrique.session import reglages
+    from fabrique.session import calendrier
 
-    forme = recettes.lire(reglages.lire(s)["format"])["script"]
+    forme = recettes.lire(calendrier.format_du_script(s, code))["script"]
     if forme != "scenario-bramble":
         try:
             recettes.script(contenu, forme)

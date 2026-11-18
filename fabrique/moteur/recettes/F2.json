@@ -1,0 +1,15 @@
+{
+ "schema": 1,
+ "id": "F2",
+ "nom": "Compilation (introduction inédite puis vidéos finies, bout à bout)",
+ "version": 1,
+ "reglages": {"duree_s": [10, 7200], "cadre": "16:9", "langues": ["en"], "sous_titres": "fichier", "enfants": true, "declaration_ia": true, "plan_fixe_max_s": null},
+ "script": "compilation",
+ "etapes": [
+  {"id": "assemblage", "brique": "assemblage", "par": "video", "langue": true},
+  {"id": "miniature", "brique": "miniature", "par": "video", "langue": true},
+  {"id": "revue", "brique": "controle", "par": "video", "langue": true}
+ ],
+ "controles": "technique",
+ "outils": {"miniature": "miniature_image", "revue": "controle_technique"}
+}

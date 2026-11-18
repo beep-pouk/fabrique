@@ -32,6 +32,14 @@ def lancer(*args) -> str:
     return r.stdout
 
 
+def _mots(voix: str) -> list[dict]:
+    """Les mots horodatés rendus avec une voix (resultat.json de son morceau)."""
+    try:
+        return json.loads((Path(voix).parent / "resultat.json").read_text(encoding="utf-8"))["infos"].get("mots", [])
+    except (OSError, ValueError, KeyError):
+        return []
+
+
 def estimer(fiche: Fiche, demande: Demande) -> Estimation:
     return Estimation(secondes=SECONDES, cout_eur=fiche.prix_unite_eur, carte_go=fiche.besoins.carte_go)
 
@@ -52,7 +60,7 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
         return Resultat(fichiers=[sortie.name], duree_s=duree, infos={**infos, "defauts": []})
     duree = float(max([1, *map(len, demande.entrees.values())])) if demande.brique == "montage" else 1.0  # le montage : une seconde par plan
     couleur, hz = r.get("couleur", "5c8048"), r.get("hauteur_hz", 440)
-    image = f"color=c=0x{couleur}:s=64x36"
+    image = f"color=c=0x{couleur}:s={'36x64' if demande.reglages.get('cadre') == '9:16' else '64x36'}"
     son = f"sine=frequency={hz}:duration={duree}:sample_rate=24000"
     if sortie.suffix == ".wav":
         args = ["-f", "lavfi", "-i", son]
@@ -61,6 +69,13 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     else:
         args = ["-f", "lavfi", "-i", f"{image}:d={duree}:r=12", "-f", "lavfi", "-i", son, "-shortest", "-pix_fmt", "yuv420p", "-c:a", "aac"]
     lancer(programme("ffmpeg"), "-nostdin", "-v", "error", "-y", *args, sortie)
+    if demande.brique == "montage":  # une transcription comme celle de l'analyse : les mots de chaque plan dans sa seconde
+        voix, mots = next((e for e, b in demande.sources.items() if b == "voix"), ""), []
+        for i, f in enumerate(demande.entrees.get(voix, [])):
+            ms = [x["mot"] for x in _mots(f)]
+            mots += [{"t": i + j / len(ms), "fin": i + (j + 1) / len(ms), "mot": w} for j, w in enumerate(ms)]
+        if mots:
+            sortie.with_name(sortie.stem + ".transcription.json").write_text(json.dumps({"mots": mots}, ensure_ascii=False), encoding="utf-8")
     if demande.brique == "voix":
         mots = demande.texte.split() or ["…"]
         infos["mots"] = [{"mot": m, "debut": round(i * duree / len(mots), 3), "fin": round((i + 1) * duree / len(mots), 3)} for i, m in enumerate(mots)]

@@ -292,7 +292,7 @@ def test_recettes_et_scripts_controles():
         with pytest.raises(Refus, match="script"):
             recettes.script({"titre": "x", "scenes": [{"id": mauvais, "plans": [{"id": "p1"}]}]})
     assert {f.id for f in outils.fiches().values() if f.etat == "en_service"} >= {b["defaut"] for b in outils.BRIQUES.values()}
-    assert all(outils.fiches()[b["simulation"]].faux for b in outils.BRIQUES.values())
+    assert all(outils.fiches()[b["simulation"]].faux or outils.fiches()[b["simulation"]].simulable for b in outils.BRIQUES.values())
 
 
 def test_estimation_par_mediane(essais):

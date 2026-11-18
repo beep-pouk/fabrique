@@ -1,0 +1,15 @@
+{
+ "schema": 1,
+ "id": "F3",
+ "nom": "Courte verticale tirée d'une vidéo longue",
+ "version": 1,
+ "reglages": {"duree_s": [1, 180], "cadre": "9:16", "langues": ["en"], "sous_titres": "incrustes", "enfants": true, "declaration_ia": true, "plan_fixe_max_s": null},
+ "script": "extrait",
+ "etapes": [
+  {"id": "verticale", "brique": "verticale", "par": "video", "langue": true},
+  {"id": "miniature", "brique": "miniature", "par": "video", "langue": true},
+  {"id": "revue", "brique": "controle", "par": "video", "langue": true}
+ ],
+ "controles": "technique",
+ "outils": {"miniature": "miniature_image", "revue": "controle_technique"}
+}

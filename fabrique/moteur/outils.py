@@ -53,6 +53,7 @@ class Fiche(Strict):
     dernier_banc: str | None = None
     etat: Literal["en_service", "candidat", "retire"]
     faux: bool = False  # outil de simulation : sans carte, quelques secondes
+    simulable: bool = False  # un vrai outil sans carte ni réseau (ffmpeg) : il sert tel quel en simulation
     module: str
     reglages: dict = {}
     installation: Installation | None = None  # absente : rien à installer (faux outil, service en ligne, outil partagé de Bramble Studio)
@@ -142,7 +143,7 @@ def choisir(brique: str, etape: str, langue: str, du_plan: dict, du_format: dict
     from fabrique.noyau import etat
 
     f = fiche(du_plan.get(etape) or du_format.get(etape) or defauts(brique, de_la_session)[0], brique, langue)
-    if etat.simulation() and not f.faux:
+    if etat.simulation() and not (f.faux or f.simulable):
         f = fiche(BRIQUES[brique]["simulation"], brique, langue)  # simulation : jamais un vrai outil
     return f.id
 
