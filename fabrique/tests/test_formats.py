@@ -313,7 +313,7 @@ def test_f4_en_mode_reel_outils_de_la_carte_simules(essais, monkeypatch):
             assert {m.outil for m in v.morceaux.all()} >= {"plan_voix", "plan_images", "plan_musique", "plan_camera", "plan_montage"}
         execution.jouer(essais, v.id)
         assert appels["voix"] == [3, 3, 3] and appels["langue"] == [("xx", "ref.wav")] * 3  # un lot par morceau, chacun ne refait que ce qui manque
-        assert [x[1] for x in appels["image"]] == [1001, 1002, 1003] and appels["start"] == appels["stop"] == 1  # un seul démarrage de ComfyUI
+        assert [x[1] for x in appels["image"]] == [1001, 1002, 1003] and appels["start"] == 1 and appels["stop"] == 1 + 2  # un démarrage ; arrêté après les images et après chaque musique
         assert appels["image"][1][0] == "sleeping trees. Style: style factice" and appels["image"][0][2:] == (64, 32)
         assert appels["musique"] == [pytest.approx(1.1 + 1.2 + 1.3 + 3 * 0.6, abs=0.05)] * 2  # la durée de la voix montée, par langue
         for langue_ in ("en", "xx"):

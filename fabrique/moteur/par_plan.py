@@ -141,7 +141,10 @@ def musique(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     if not voix_:
         raise RuntimeError("la musique demande une étape de voix avant elle dans la recette")
     total = sum(duree(v) + PAUSE_S for v in voix_)
-    lier(f1.faire(o, Path(d.atelier), {}, total, cfg), dossier / "musique.wav")
+    try:
+        lier(f1.faire(o, Path(d.atelier), {}, total, cfg), dossier / "musique.wav")
+    finally:
+        o.module("kit", "comfy").stop()  # la carte libérée (F1 l'arrête à la fin de chaque étape) ; sans effet s'il ne tourne pas
     return Resultat(fichiers=["musique.wav"], duree_s=round(total, 3))
 
 
