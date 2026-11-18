@@ -57,21 +57,25 @@ def en_attente() -> bool:
     return any(_attend(routeur.ouvrir(s)) for s in Session.objects.all())
 
 
-def _preparer(s: Session):
+def preparer(s: Session):
     (settings.SESSIONS / s.dossier).mkdir(parents=True, exist_ok=True)
     call_command("migrate", database=routeur.ouvrir(s), verbosity=0)
     with routeur.session(s):
         Fiche.objects.get_or_create(id=s.id, defaults={"nom": s.nom})
 
 
-def creer(nom: str, essais: bool = False) -> Session:
+def dossier_libre(nom: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "_", unicodedata.normalize("NFKD", nom).encode("ascii", "ignore").decode().lower()).strip("_") or "session"
     dossier, n = base, 1
     while Session.objects.filter(dossier=dossier).exists() or (settings.SESSIONS / dossier).exists():
         n += 1
         dossier = f"{base}_{n}"
-    s = Session.objects.create(nom=nom, dossier=dossier, essais=essais)
-    _preparer(s)
+    return dossier
+
+
+def creer(nom: str, essais: bool = False) -> Session:
+    s = Session.objects.create(nom=nom, dossier=dossier_libre(nom), essais=essais)
+    preparer(s)
     return s
 
 
@@ -83,5 +87,5 @@ def migrer(quand: datetime | None = None) -> Path | None:
     if not Session.objects.exists():
         creer(ESSAIS, essais=True)
     for s in Session.objects.all():
-        _preparer(s)
+        preparer(s)
     return copie
