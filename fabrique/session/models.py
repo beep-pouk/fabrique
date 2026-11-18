@@ -140,3 +140,31 @@ class Destination(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["langue", "reseau", "simulation"], name="destination_unique")]
+
+
+class Publication(models.Model):
+    """Une vidéo × une langue (celle du script : ses fichiers sous « commun », puis chaque version de langue), envoyée sur la destination de
+    sa langue (une langue sans chaîne reliée : brouillon possible, envoi refusé). Repris de Bramble Studio (core/models.Publication) : textes
+    retouchés en versions (jamais écrasées), envoi reprenable suivi dans « envoi » (session d'envoi le temps de l'envoi, octets confirmés,
+    étapes faites)."""
+    video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="publications")
+    langue = models.CharField(max_length=10)
+    dossier = models.CharField(max_length=10)  # « commun » (langue du script) ou la langue : videos\<id>\<dossier>\atelier\<nom>\final
+    fichier = models.CharField(max_length=200, default="")  # la vidéo, dans final
+    miniature = models.CharField(max_length=200, default="")  # dans final ; vide : aucune
+    titre = models.CharField(max_length=100, default="")
+    description = models.TextField(default="")
+    tags = models.JSONField(default=list)
+    playlist = models.CharField(max_length=100, default="")
+    enfants = models.BooleanField(default=True)  # « conçue pour les enfants »
+    ia = models.BooleanField(default=True)  # déclaration IA (containsSyntheticMedia)
+    planifiee_le = models.DateTimeField(null=True)  # le créneau (publishAt)
+    non_repertorie = models.BooleanField(default=False)  # première publication de sa destination : non répertoriée, sans publishAt
+    simulation = models.BooleanField(default=False)  # envoyée au faux YouTube (posé au clic « Publier »)
+    statut = models.CharField(max_length=20, default="brouillon")  # brouillon, en_file, envoi, erreur, planifiee, non_repertoriee
+    identifiant_youtube = models.CharField(max_length=50, default="")
+    envoi = models.JSONField(default=dict)
+    versions = models.JSONField(default=list)  # [{numero, titre, description, auteur, date}]
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["video", "langue"], name="publication_unique")]
