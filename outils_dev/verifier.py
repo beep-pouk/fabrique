@@ -1254,8 +1254,9 @@ def formats_j9(dire) -> list[tuple[bool, str]]:
 
 def en_vrai_j9() -> list[tuple[bool, str]]:
     """F5 en vrai (session Essais, jamais publiée), lue dans la racine des essais réels sans rien y écrire : recette livrée, aucun faux outil,
-    finie, paroles calées par Whisper (au moins la moitié retrouvée), aucun défaut bloquant ; le banc du chant tranché par RT (QUESTIONS)."""
+    finie, paroles calées par Whisper (au moins la moitié retrouvée), aucun défaut bloquant ; le banc du chant reporté (réponse C) : ACE-Step par défaut."""
     racine = SORTIE / "egalite" / "FABRIQUE" / "sessions" / "essais"
+    defaut = json.loads((DEPOT / "fabrique" / "moteur" / "briques.json").read_text(encoding="utf-8"))["chant"]["defaut"]
     livree, fait = json.loads((DEPOT / "fabrique" / "moteur" / "recettes" / "F5.json").read_text(encoding="utf-8")), None
     try:
         with closing(sqlite3.connect(f"file:{racine / 'session.sqlite3'}?mode=ro", uri=True)) as c:
@@ -1274,7 +1275,8 @@ def en_vrai_j9() -> list[tuple[bool, str]]:
     return [(bool(fait), "F5 chanson en vrai (session Essais, recette livrée, ACE-Step 1.5, paroles calées par Whisper) : "
              + (f"faite (vidéo {fait[0]}), {fait[2].get('duree_s', 0):.0f} s, {fait[1]['compris']:.0%} des paroles retrouvées, {len(fait[2]['defauts'])} défaut(s), aucun bloquant"
                 if fait else "PAS ENCORE — essai de nuit après celui de J8 (egalite\\de_nuit_j9.py)")),
-            (False, "banc du chant tranché par RT : PAS ENCORE — candidat à choisir (QUESTIONS 18/11 16 h 55), puis banc préparé de nuit, RT vote")]
+            (defaut == "chant_acestep", f"banc du chant : reporté à la veille du mois (réponse C de la supervision, 18/11 18 h) ; défaut de la brique chant = {defaut} "
+             "(ACE-Step 1.5 XL, déjà en service pour Bramble)")]
 
 
 def j9(dire, publier: bool = False) -> list[tuple[bool, str]]:
