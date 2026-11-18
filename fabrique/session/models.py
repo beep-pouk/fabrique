@@ -62,12 +62,13 @@ class Personnage(models.Model):
     nom = models.CharField(max_length=100)
     role = models.CharField(max_length=50, default="")
     statut = models.CharField(max_length=20, default="actif")
-    details = models.JSONField(default=dict)  # espèce, description, vêtements, yeux, date du statut, plafond de références
+    details = models.JSONField(default=dict)  # espèce, description, vêtements, yeux, date du statut, plafond de références, licence, credit
 
 
 class Lieu(models.Model):
     nom = models.CharField(max_length=100)
     description = models.TextField(default="")
+    details = models.JSONField(default=dict)  # licence, credit (droits de l'élément, crédits à citer)
 
 
 class Reference(models.Model):
@@ -79,6 +80,18 @@ class Reference(models.Model):
     validee = models.BooleanField(default=False)
     verifiee = models.BooleanField(default=False)
     date = models.DateTimeField()
+    details = models.JSONField(default=dict)  # licence, credit
+
+
+class Ressource(models.Model):
+    """Une musique ou une voix de l'univers et ses droits (repris de Bramble Studio : core/models._Ressource)."""
+    type = models.CharField(max_length=10)  # musique, voix
+    nom = models.CharField(max_length=100)
+    consigne = models.TextField(default="")  # consigne (musique) ou réglages (voix)
+    outil = models.CharField(max_length=100, default="")
+    licence = models.CharField(max_length=200, default="")
+    credit = models.CharField(max_length=200, default="")
+    verrouillee = models.BooleanField(default=False)
 
 
 class Langue(models.Model):

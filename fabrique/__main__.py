@@ -35,8 +35,19 @@ def commande(args: list[str]) -> int:
             print(f"refusé : {e}")
             return 1
         return 0
+    envois = {"idee": ("ajouter_idee", lambda a: {"titre": a[1], "resume": " ".join(a[2:]), "source": "claude"}, 2),  # « idee <session> <titre> [résumé] »
+              "reference": ("importer_reference", lambda a: {"fichier": a[2]}, 3)}  # « reference <session> <personnage> <image> » : à valider par RT
+    if args[:1] and args[0] in envois and len(args) > envois[args[0]][2]:
+        appel, corps, _ = envois[args[0]]
+        try:
+            print(Client("claude").appeler(appel, corps(args[1:]), id=args[1], **({"pk": args[2]} if args[0] == "reference" else {}))["message"])
+        except (OSError, ErreurApi) as e:
+            print(f"refusé : {e}")
+            return 1
+        return 0
     if not args or args[0] not in COMMANDES_CLAUDE:
-        print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, importer-bramble [--pour-de-vrai], "
+        print(f"commande attendue : {', '.join(COMMANDES_CLAUDE)}, script <session> <code> <fichier.json>, idee <session> <titre> [résumé], "
+              "reference <session> <personnage> <image>, importer-bramble [--pour-de-vrai], "
               "copier-essai <vidéo> <suffixe>")
         return 2
     try:

@@ -27,6 +27,7 @@ def session(request):
         m.Reference.objects.create(personnage=p, fichier="univers/personnages/ami_un/reference.png", date=quand)
         m.Lieu.objects.create(nom="Clairière", description="calme")
         m.Langue.objects.create(code="xx", nom="Langue factice", outil_voix="outil_factice", voix_validee=True)
+        m.Reglage.objects.create(cle="difference", valeur="une histoire neuve à chaque fois")
     d = settings.SESSIONS / s.dossier / "reglages"
     d.mkdir(parents=True, exist_ok=True)
     (d / "config.json").write_text("{}", encoding="utf-8")
@@ -49,7 +50,9 @@ def test_scripts_univers_videos(session):
     assert d["estimation"]["secondes"] > 0 and d["estimation"]["cout_eur"] == 0  # en simulation : les faux outils de F1
     assert n.get(f"/api/sessions/{session.id}/scripts/s9e99", **entete("fenetre")).status_code == 404
     u = n.get(f"/api/sessions/{session.id}/univers", **entete("fenetre")).json()
-    assert u["personnages"] == [{"nom": "Ami Un", "role": "ami", "statut": "actif", "references": 1}] and u["langues"][0]["code"] == "xx"
+    p = u["personnages"][0]
+    assert (p["nom"], p["role"], p["statut"], len(p["references"])) == ("Ami Un", "ami", "actif", 1) and u["langues"][0]["code"] == "xx"
+    assert p["references"][0]["chemin"].endswith(str(Path("univers/personnages/ami_un/reference.png")))
     assert n.get(f"/api/sessions/{session.id}/videos", **entete("fenetre")).json() == []
 
 
@@ -61,6 +64,12 @@ def test_fabriquer_est_un_geste_de_rt(session, monkeypatch):
     n = Navigateur()
     chemin = f"/api/sessions/{session.id}/scripts/s1e01/fabriquer"
     assert n.post(chemin, **entete("claude")).status_code == 403
+    with routeur.session(session):
+        m.Reglage.objects.filter(cle="difference").update(valeur="")
+    r = n.post(chemin, **entete("fenetre"))  # garde-fou YouTube : la session doit dire ce qui rend chaque vidéo différente
+    assert r.status_code == 409 and "différente" in r.json()["detail"]
+    with routeur.session(session):
+        m.Reglage.objects.filter(cle="difference").update(valeur="une histoire neuve à chaque fois")
     assert n.post(f"/api/sessions/{session.id}/scripts/s9e99/fabriquer", **entete("fenetre")).status_code == 404
     erreurs.append(["R-01", "une règle enfreinte"])  # rejouées au clic, quoi qu'ait dit la version enregistrée
     r = n.post(chemin, **entete("fenetre"))

@@ -37,6 +37,8 @@ FICHIERS = (  # sous le studio de Bramble → sous la session ; un dossier est c
 REGLES = "OUTILS/production/regles"  # REGLES_<OUTIL>.md → regles\
 PARAMETRES = ("depart_chaine", "ordre_strict_le")  # et « composant_* » : où sont les outils sur ce PC ; jamais les clés ni YouTube
 PERSONNAGES = "PROJET/personnages/"
+DIFFERENCE = ("Chaque épisode a son propre scénario, écrit pour lui, et le héros, l'ami et le lieu de sa fiche du calendrier éditorial "
+              "(repris de Bramble Studio ; à préciser dans Règles).")  # le garde-fou de « Fabriquer » (session/reglages.py)
 
 
 def studio() -> Path:
@@ -128,6 +130,8 @@ def lire(c: sqlite3.Connection) -> dict:
         "lieux": list(lieux.values()),
         "references": lignes(c, "select * from core_reference order by id"),
         "langues": lignes(c, "select * from core_langue order by ordre, code"),
+        "ressources": [{**r, "type": "musique"} for r in lignes(c, "select * from core_musique order by id")]
+                      + [{**r, "type": "voix"} for r in lignes(c, "select * from core_voix order by id")],
         "parametres": {p["cle"]: p["valeur"] for p in lignes(c, "select cle, valeur from core_parametre")
                        if p["cle"] in PARAMETRES or p["cle"].startswith("composant_")},
     }
@@ -179,7 +183,11 @@ def ecrire(s: Session, d: dict, studio_: Path) -> list[str]:
                 reglages["ref"] = f"univers/voix_langues/{l['code']}/{Path(ref).name}"
             m.Langue.objects.create(code=l["code"], nom=l["nom"], ordre=l["ordre"], rtl=bool(l["rtl"]), police=l["police"], voix_validee=bool(l["voix_validee"]),
                                     outil_voix=l["outil_voix"], reglages_voix=reglages, raison=l["raison"], note=l["note"] or "", preselectionnee=bool(l["preselectionnee"]))
-        m.Reglage.objects.update_or_create(cle="origine", defaults={"valeur": "bramble"})
+        for r in d["ressources"]:
+            m.Ressource.objects.create(type=r["type"], nom=r["nom"], consigne=r["consigne"] or "", outil=r["outil"] or "", licence=r["licence"] or "",
+                                       credit=r["credit"] or "", verrouillee=bool(r["verrouillee"]))
+        for cle, valeur in (("origine", "bramble"), ("formats", '["F1"]'), ("format", "F1"), ("assistant", "fini"), ("difference", DIFFERENCE)):
+            m.Reglage.objects.update_or_create(cle=cle, defaults={"valeur": valeur})
     return remarques
 
 
@@ -191,7 +199,7 @@ def importer(pour_de_vrai: bool = False, acteur: str = "claude", studio_: Path |
     fichiers = sources(s0, d["langues"])
     avant = empreinte(fichiers)
     rapport = {"a_blanc": not pour_de_vrai, "session": d["nom"], "date": datetime.now().isoformat(timespec="seconds"),
-               "base": {k: len(d[k]) for k in ("episodes", "versions", "fiches", "idees", "personnages", "lieux", "references", "langues")},
+               "base": {k: len(d[k]) for k in ("episodes", "versions", "fiches", "idees", "personnages", "lieux", "references", "langues", "ressources")},
                "fichiers": {"nombre": len(fichiers), "mo": round(sum(f.stat().st_size for f in fichiers.values()) / 1e6, 1)},
                "empreinte_source": avant, "remarques": []}
     if pour_de_vrai:

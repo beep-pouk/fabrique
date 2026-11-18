@@ -22,6 +22,117 @@ class Session(BaseModel):
     essais: bool
     pause: bool = False
     archivee: str = ""  # JJ/MM/AAAA ; vide : en service
+    assistant: str = ""  # où en est la nouvelle session (« 2 » à « 6 »), « fini », ou vide (session d'avant J5)
+    videos: int = 0
+    derniere: str = ""  # la dernière vidéo fabriquée
+    a_faire: int = 0  # à approuver, à publier, en erreur
+    prochain: str = ""  # « JJ/MM titre » : le prochain script daté pas encore publié
+    rendement: str = ""  # vues des 28 derniers jours (relevé quotidien), vide sans relevé
+
+
+class ReglagesSession(BaseModel):
+    """Ce que la session dit d'elle-même (session/reglages.py)."""
+    nom: str
+    pause: bool
+    public: str
+    promesse: str
+    style: str
+    difference: str  # garde-fou YouTube : ce qui rend chaque vidéo différente (vide : « Fabriquer » refusé)
+    objectif: str
+    arret: str  # critère d'arrêt
+    format: str  # celui de « Fabriquer »
+    formats: list[str]
+    assistant: str
+    plafond_eur: float
+    duree_min: float | None
+    duree_max: float | None
+    enfants: bool
+    declaration_ia: bool
+    ordre_strict: bool
+    langues: list[dict]  # [{code, nom}]
+    manque: list[str]  # ce qui manque pour finir la nouvelle session
+
+
+class ChangerReglages(BaseModel):
+    """Seuls les champs envoyés changent."""
+    public: str | None = None
+    promesse: str | None = None
+    style: str | None = None
+    difference: str | None = None
+    objectif: str | None = None
+    arret: str | None = None
+    format: str | None = None
+    formats: list[str] | None = None
+    plafond_eur: float | None = None
+    duree_min: float | None = None
+    duree_max: float | None = None
+    enfants: bool | None = None
+    declaration_ia: bool | None = None
+    ordre_strict: bool | None = None
+    langues: list[dict] | None = None
+
+
+class NouvelleSession(BaseModel):
+    nom: str
+    langues: list[dict]  # [{code, nom}]
+    public: str = ""
+    promesse: str = ""
+    modele: str = ""  # le nom de fichier d'un modèle de session ; vide : de zéro
+
+
+class SessionCreee(BaseModel):
+    message: str
+    id: str
+
+
+class Format(BaseModel):
+    id: str
+    nom: str
+    version: int
+    script: str
+    etapes: list[dict]  # [{id, brique, par}]
+
+
+class Modele(BaseModel):
+    nom: str
+    fichier: str
+
+
+class ElementCalendrier(BaseModel):
+    session: str
+    session_nom: str
+    code: str
+    titre: str
+    date: str  # AAAA-MM-JJ, vide : pas daté
+    statut: str  # idee, script, prete, fabrication, a_verifier, approuvee, programmee, publiee, suivie, reportee
+    statut_nom: str
+    pret_vers: str  # « JJ/MM HH:MM » estimé, s'il est dans la file
+
+
+class Idee(BaseModel):
+    id: int
+    titre: str
+    resume: str
+    source: str
+    statut: str
+    creee: str
+
+
+class NouvelleIdee(BaseModel):
+    titre: str
+    resume: str = ""
+    source: str = ""
+
+
+class SuiviPublication(BaseModel):
+    langue: str
+    statut: str
+    titre: str
+    lien: str  # vide tant que la vidéo n'est pas chez YouTube
+    vues: int
+    heures: float
+    abonnes: int
+    jours: list[dict]  # [{date, vues}] des 28 derniers jours relevés
 
 
 class ActionSession(BaseModel):
@@ -119,16 +230,42 @@ class ScriptDetail(BaseModel):
     traductions: list[str]  # les langues où il est traduit : à choisir avant « Fabriquer »
 
 
+class Reference(BaseModel):
+    id: int
+    chemin: str  # le fichier, chemin complet sur ce PC
+    vue: str
+    source: str
+    validee: bool
+    licence: str
+    credit: str
+
+
 class Personnage(BaseModel):
+    id: int
     nom: str
     role: str
     statut: str
-    references: int
+    description: str
+    licence: str
+    credit: str
+    references: list[Reference]  # les validées d'abord
 
 
 class Lieu(BaseModel):
+    id: int
     nom: str
     description: str
+    licence: str
+    credit: str
+
+
+class Ressource(BaseModel):
+    id: int
+    type: str  # musique, voix
+    nom: str
+    outil: str
+    licence: str
+    credit: str
 
 
 class Langue(BaseModel):
@@ -141,7 +278,40 @@ class Langue(BaseModel):
 class Univers(BaseModel):
     personnages: list[Personnage]
     lieux: list[Lieu]
+    ressources: list[Ressource]
     langues: list[Langue]
+    style: str
+
+
+class Changement(BaseModel):
+    date: str
+    acteur: str
+    quoi: str
+
+
+class Element(BaseModel):
+    type: str  # personnage, lieu, musique, voix
+    nom: str
+    description: str = ""
+    role: str = ""
+
+
+class Droits(BaseModel):
+    licence: str
+    credit: str
+
+
+class ImportReference(BaseModel):
+    fichier: str  # chemin complet d'une image sur ce PC (glisser-déposer) : copiée, jamais déplacée
+    vue: str = ""
+
+
+class Validation(BaseModel):
+    validee: bool
+
+
+class Partage(BaseModel):
+    vers: str  # l'identifiant de l'autre session
 
 
 class VideoListe(BaseModel):
@@ -236,6 +406,9 @@ class TacheFile(BaseModel):
     alertes: list[str]
     acteur: str
     progression: str  # morceaux finis / tous
+    reste_s: float | None = None  # durée estimée de ce qui reste (chronos : médianes), pour l'écran File
+    cout_eur: float | None = None
+    pret_vers: str = ""  # « JJ/MM HH:MM »
 
 
 class Playlist(BaseModel):

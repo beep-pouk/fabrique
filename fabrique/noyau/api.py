@@ -1,6 +1,7 @@
 """L'API locale du noyau (django-ninja ; contrat OpenAPI tiré des schémas : /api/openapi.json). Quatre appelants, quatre droits (plan § 3.3) :
 chaque route déclare son droit (@droit) ; les trois gestes (fabriquer, approuver, publier) n'existent que pour la fenêtre et l'iPhone, au clic
 de RT. Aucune règle dans la fenêtre : tout ce qu'elle montre et fait passe par ici."""
+import logging
 import os
 import shutil
 from functools import wraps
@@ -22,10 +23,11 @@ from fabrique.noyau.models import Session, noter
 from fabrique.session import models as m
 from fabrique.session.models import Fiche
 
+log = logging.getLogger(__name__)
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", "sessions", "mode", *GESTES},
+                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer"},  # « Fabrique.exe commande … »
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -85,8 +87,60 @@ def lire_etat(request):
 @api.get("/sessions", response=list[schemas.Session])
 @droit("voir")
 def sessions(request):
-    return [{"id": s.id, "nom": s.nom, "dossier": s.dossier, "essais": s.essais, "pause": s.pause,
-             "archivee": f"{timezone.localtime(s.archivee):%d/%m/%Y}" if s.archivee else ""} for s in Session.objects.order_by("cree")]
+    """Les sessions et, pour le mur de l'Accueil, la carte de chacune (une base illisible ne cache pas les autres)."""
+    from fabrique.session import calendrier
+
+    liste = []
+    for s in Session.objects.order_by("cree"):
+        d = {"id": s.id, "nom": s.nom, "dossier": s.dossier, "essais": s.essais, "pause": s.pause,
+             "archivee": f"{timezone.localtime(s.archivee):%d/%m/%Y}" if s.archivee else ""}
+        try:
+            d |= calendrier.carte(s)
+        except Exception:  # noqa: BLE001
+            log.exception("carte de la session %s", s.nom)
+        liste.append(d)
+    return liste
+
+
+@api.post("/sessions", response=schemas.SessionCreee)
+@droit("sessions")
+def nouvelle_session(request, corps: schemas.NouvelleSession):
+    """Nouvelle session pas à pas, étape 1 : la session (de zéro ou d'un modèle), en pause jusqu'à la fin de l'assistant."""
+    from fabrique.session import reglages
+
+    s = reglages.creer(corps.nom, corps.langues, corps.public, corps.promesse, corps.modele, ACTEURS[request.auth])
+    return {"message": f"Session « {s.nom} » créée (en pause jusqu'à la fin de l'assistant).", "id": s.id}
+
+
+@api.get("/formats", response=list[schemas.Format])
+@droit("voir")
+def formats(request):
+    from fabrique.session import reglages
+
+    return reglages.catalogue()
+
+
+@api.get("/modeles", response=list[schemas.Modele])
+@droit("voir")
+def modeles(request):
+    return echange.modeles()
+
+
+@api.get("/calendrier", response=list[schemas.ElementCalendrier])
+@droit("voir")
+def calendrier_(request, debut: str = "", fin: str = "", session: str = ""):
+    """Le calendrier d'une session, ou de toutes (vue d'ensemble : sessions en service, sans « Essais »), entre deux dates (AAAA-MM-JJ)."""
+    from datetime import date
+
+    from fabrique.session import calendrier
+
+    try:
+        d, f = (date.fromisoformat(x) if x else None for x in (debut, fin))
+    except ValueError:
+        raise HttpError(400, "dates attendues en AAAA-MM-JJ") from None
+    prets = calendrier.prets_vers()
+    liste = [session_(session)] if session else Session.objects.filter(essais=False, archivee__isnull=True).order_by("cree")
+    return [x for s in liste for x in calendrier.lire(s, d, f, prets)]
 
 
 @api.post("/sessions/importer", response=schemas.Message)
@@ -181,10 +235,121 @@ def demander(request, id: str, code: str, corps: schemas.Demande):
 @api.get("/sessions/{id}/univers", response=schemas.Univers)
 @droit("voir")
 def univers(request, id: str):
-    with routeur.session(session_(id)):
-        return {"personnages": [{"nom": p.nom, "role": p.role, "statut": p.statut, "references": p.references.count()} for p in m.Personnage.objects.order_by("nom", "id")],
-                "lieux": [{"nom": l.nom, "description": l.description} for l in m.Lieu.objects.order_by("nom")],
-                "langues": [{"code": l.code, "nom": l.nom, "outil_voix": l.outil_voix, "voix_validee": l.voix_validee} for l in m.Langue.objects.order_by("ordre", "code")]}
+    from fabrique.session import univers as u
+
+    return u.lire(session_(id))
+
+
+@api.get("/sessions/{id}/historique", response=list[schemas.Changement])
+@droit("voir")
+def historique(request, id: str):
+    from fabrique.session import univers as u
+
+    return u.historique(session_(id))
+
+
+@api.post("/sessions/{id}/univers/ajouter", response=schemas.Message)
+@droit("univers")
+def ajouter_element(request, id: str, corps: schemas.Element):
+    from fabrique.session import univers as u
+
+    return {"message": u.ajouter(session_(id), corps.type, corps.nom, corps.description, ACTEURS[request.auth], corps.role)}
+
+
+@api.post("/sessions/{id}/univers/style", response=schemas.Message)
+@droit("univers")
+def ecrire_style(request, id: str, corps: schemas.Valeur):
+    from fabrique.session import univers as u
+
+    return {"message": u.ecrire_style(session_(id), corps.valeur, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/univers/{type}/{pk}/droits", response=schemas.Message)
+@droit("univers")
+def ecrire_droits(request, id: str, type: str, pk: int, corps: schemas.Droits):
+    from fabrique.session import univers as u
+
+    return {"message": u.ecrire_droits(session_(id), type, pk, corps.licence, corps.credit, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/univers/{type}/{pk}/partager", response=schemas.Message)
+@droit("univers")
+def partager(request, id: str, type: str, pk: int, corps: schemas.Partage):
+    """Au clic de RT seulement : rien ne passe d'une session à l'autre sans qu'il le demande."""
+    from fabrique.session import univers as u
+
+    return {"message": u.partager(session_(id), type, pk, session_(corps.vers), ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/references/{pk}/valider", response=schemas.Message)
+@droit("univers")
+def valider_reference(request, id: str, pk: int, corps: schemas.Validation):
+    from fabrique.session import univers as u
+
+    return {"message": u.valider(session_(id), pk, corps.validee, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/personnages/{pk}/references", response=schemas.Message)
+@droit("importer")
+def importer_reference(request, id: str, pk: int, corps: schemas.ImportReference):
+    """Glisser-déposer dans la fenêtre, ou Claude : une image copiée dans l'univers, à valider par RT."""
+    from fabrique.session import univers as u
+
+    return {"message": u.importer_reference(session_(id), pk, corps.fichier, ACTEURS[request.auth], corps.vue)}
+
+
+@api.get("/sessions/{id}/reglages", response=schemas.ReglagesSession)
+@droit("voir")
+def lire_reglages(request, id: str):
+    from fabrique.session import reglages
+
+    s = session_(id)
+    return reglages.lire(s) | {"manque": reglages.manque(s)}
+
+
+@api.post("/sessions/{id}/reglages", response=schemas.Message)
+@droit("sessions")
+def ecrire_reglages(request, id: str, corps: schemas.ChangerReglages):
+    from fabrique.session import reglages
+
+    s, champs = session_(id), corps.model_dump(exclude_unset=True)
+    if (langues := champs.pop("langues", None)) is not None:
+        reglages.poser_langues(s, langues)
+    return {"message": reglages.ecrire(s, champs, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/finir", response=schemas.Message)
+@droit("sessions")
+def finir_session(request, id: str):
+    from fabrique.session import reglages
+
+    return {"message": reglages.finir(session_(id), ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/pilote", response=schemas.Message)
+@droit("sessions")
+def pilote(request, id: str):
+    """Étape 7 de la nouvelle session : la vidéo pilote en simulation (faux outils, rien ne sort du PC)."""
+    from fabrique.session import reglages
+
+    return {"message": reglages.pilote(session_(id), ACTEURS[request.auth])}
+
+
+@api.get("/sessions/{id}/idees", response=list[schemas.Idee])
+@droit("voir")
+def idees(request, id: str):
+    from fabrique.session import calendrier
+
+    return calendrier.idees(session_(id))
+
+
+@api.post("/sessions/{id}/idees", response=schemas.Message)
+@droit("importer")
+def ajouter_idee(request, id: str, corps: schemas.NouvelleIdee):
+    """Ajout rapide (fenêtre) ou import par Claude."""
+    from fabrique.session import calendrier
+
+    return {"message": calendrier.ajouter_idee(session_(id), corps.titre, corps.resume, corps.source, ACTEURS[request.auth])}
 
 
 @api.get("/sessions/{id}/videos", response=list[schemas.VideoListe])
@@ -207,7 +372,10 @@ def fabriquer(request, id: str, code: str):
     from fabrique.noyau.models import Tache
     from fabrique.session import regles
 
+    from fabrique.session import reglages
+
     s = session_(id)
+    reglages.garde_fou(s)
     try:  # corps facultatif {"langues": [...]} : sans corps, la langue du script seule
         corps = request.body if request.content_type == "application/json" and request.body else b"{}"
         demande = schemas.Langues.model_validate_json(corps)
@@ -346,6 +514,26 @@ def publications(request, id: str, video: str):
     from fabrique.publication import publication
 
     return publication.apercu(session_(id), video)
+
+
+@api.get("/sessions/{id}/videos/{video}/suivi", response=list[schemas.SuiviPublication])
+@droit("voir")
+def suivi(request, id: str, video: str):
+    """Vidéo → Suivi : chaque langue publiée, ses chiffres cumulés et ses 28 derniers jours relevés (relevé quotidien de J4)."""
+    from django.db.models import Sum
+
+    with routeur.session(session_(id)):
+        v = m.Video.objects.filter(id=video).first()
+        if v is None:
+            raise HttpError(404, f"vidéo inconnue : {video}")
+        liste = []
+        for p in v.publications.order_by("langue"):
+            st = p.statistiques.all()
+            total = st.aggregate(vues=Sum("vues"), heures=Sum("heures"), abonnes=Sum("abonnes"))
+            liste.append({"langue": p.langue, "statut": p.statut, "titre": p.titre, "lien": f"https://youtu.be/{p.identifiant_youtube}" if p.identifiant_youtube else "",
+                          "vues": total["vues"] or 0, "heures": round(total["heures"] or 0, 1), "abonnes": total["abonnes"] or 0,
+                          "jours": [{"date": f"{x.date:%d/%m}", "vues": x.vues} for x in st.order_by("-date")[:28]][::-1]})
+        return liste
 
 
 @api.get("/sessions/{id}/videos/{video}/paquets", response=list[schemas.Paquet])
@@ -517,7 +705,16 @@ def enregistrer_cle(request, nom: str, corps: schemas.Valeur):
 @api.get("/file", response=list[schemas.TacheFile])
 @droit("voir")
 def lire_file(request):
-    return file.lister()
+    """La file, avec pour chaque tâche active ce qui reste (durée, coût) et l'heure où elle sera finie (écran File)."""
+    from fabrique.noyau.models import Tache
+    from fabrique.session import calendrier
+
+    prets, liste = calendrier.prets_vers(), file.lister()
+    for t in liste:
+        tache = Tache.objects.get(id=t["id"])
+        if e := prets.get((tache.session_id, tache.video_id)):
+            t |= {"reste_s": e["secondes"], "cout_eur": e["cout_eur"], "pret_vers": f"{e['fin']:%d/%m %H:%M}"}
+    return liste
 
 
 @api.post("/file/{id}/{action}", response=schemas.Message)

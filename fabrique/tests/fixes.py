@@ -1,4 +1,7 @@
 """Données fixes de la fenêtre (captures de référence, parcours) : les réponses du noyau, noms factices."""
+from pathlib import Path
+
+REFERENCE = str(Path(__file__).with_name("reference_factice.png"))  # une image dessinée par Qt (tests/test_fenetre.py), jamais une vraie
 REPONSES = {
     ("GET", "/api/sante"): {"nom": "Fabrique (développement)", "version": "0.1.0", "mode": "simulation", "appelant": "fenetre", "pid": 1},
     ("GET", "/api/sauvegardes"): {
@@ -41,10 +44,16 @@ REPONSES = {
         "regles": {"erreurs": [], "avis": [["S-12", "une phrase un peu longue en scène 1"]], "mesures": {}},
         "plans": [{"n": 1, "image": "A small fox sleeps under a fern.", "scenes": [1], "bramble": False}, {"n": 2, "image": "", "scenes": [2], "bramble": True}],
         "estimation": {"secondes": 41400.0, "cout_eur": 0.0, "carte_go": 16}, "traductions": ["xx"]},
-    ("GET", "/api/sessions/s1/univers"): {"personnages": [{"nom": "Ami Un", "role": "ami", "statut": "actif", "references": 12}],
-                                          "lieux": [{"nom": "La clairière", "description": "calme"}],
-                                          "langues": [{"code": "en", "nom": "Anglais", "outil_voix": "", "voix_validee": True},
-                                                      {"code": "xx", "nom": "Langue factice", "outil_voix": "outil_factice", "voix_validee": False}]},
+    ("GET", "/api/sessions/s1/univers"): {
+        "personnages": [{"id": 1, "nom": "Ami Un", "role": "ami", "statut": "actif", "description": "un petit renard roux", "licence": "image générée", "credit": "",
+                         "references": [{"id": 1, "chemin": REFERENCE, "vue": "face", "source": "gemini", "validee": True, "licence": "", "credit": ""},
+                                        {"id": 2, "chemin": REFERENCE, "vue": "profil", "source": "RT", "validee": False, "licence": "", "credit": ""}]},
+                        {"id": 2, "nom": "Ami Deux", "role": "ami", "statut": "absent", "description": "", "licence": "", "credit": "", "references": []}],
+        "lieux": [{"id": 1, "nom": "La clairière", "description": "calme", "licence": "", "credit": ""}],
+        "ressources": [{"id": 1, "type": "musique", "nom": "Berceuse factice", "outil": "outil_musique", "licence": "licence factice", "credit": "Compositeur Factice"}],
+        "langues": [{"code": "en", "nom": "Anglais", "outil_voix": "", "voix_validee": True},
+                    {"code": "xx", "nom": "Langue factice", "outil_voix": "outil_factice", "voix_validee": False}],
+        "style": "aquarelle douce, couleurs de fin de journée"},
     ("GET", "/api/cles"): [{"nom": "anthropic", "titre": "Assistant en ligne (Anthropic)", "ou": "absente", "ok": False},
                            {"nom": "gemini", "titre": "Gemini", "ou": "enregistrée", "ok": True},
                            {"nom": "ntfy", "titre": "Alertes sur le téléphone (ntfy)", "ou": "absente", "ok": False}],

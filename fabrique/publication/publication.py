@@ -27,6 +27,7 @@ from fabrique import dossiers, programme
 from fabrique.garde import Refus
 from fabrique.noyau import etat, routeur, taches
 from fabrique.noyau.models import Session, Tache, noter
+from fabrique.session import reglages
 from fabrique.publication import youtube
 from fabrique.publication.faux_youtube import longueur_tags
 from fabrique.session import models as m
@@ -180,10 +181,12 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
         langues = v.recette["reglages"]["langues"]
         base = v.script.get("language") or langues[0]
         playlists = {d.langue: d.playlists for d in youtube._destinations()}
+        sc = m.Script.objects.filter(code=v.nom[11:]).first()  # « <date prévue>-<code> » : la date du calendrier, que l'ordre strict a pu décaler
         try:
-            jour = datetime.strptime(v.nom[:10], "%Y-%m-%d").date()  # « <date prévue>-<code> »
+            jour = sc.date_prevue if sc and sc.date_prevue else datetime.strptime(v.nom[:10], "%Y-%m-%d").date()
         except ValueError:
             jour = None
+        regles = reglages.lire(s)
         faites = []
         with transaction.atomic(using=routeur.ouvrir(s)):
             for langue in dict.fromkeys([base, *langues]):
@@ -199,6 +202,7 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                 if v.essai and "essai" not in pub.titre.lower():
                     pub.titre = f"ESSAI — {pub.titre}"[:100]
                 pub.playlist, pub.planifiee_le = playlist_proposee(v.script, playlists.get(langue, [])), creneau(jour)
+                pub.enfants, pub.ia = regles["enfants"], regles["declaration_ia"]  # les règles de la session (Session → Règles)
                 pub.versions = [{"numero": 1, "titre": pub.titre, "description": pub.description, "auteur": "noyau", "date": _maintenant()}]
                 pub.save()
                 faites.append(langue)
