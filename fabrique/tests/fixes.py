@@ -159,6 +159,20 @@ REPONSES.update({
          "notes": None, "qui": {"gauche": "Images B", "droite": "Images A"}},
         {"n": 1, "texte": "The moon rises over a quiet pond.", "langue": "", "gauche": [REFERENCE], "droite": [REFERENCE], "vote": "droite",
          "notes": None, "qui": {"gauche": "Images A", "droite": "Images B"}}]},
+    ("GET", "/api/statistiques"): {  # J11
+        "sessions": [{"id": "s1", "nom": "Histoires factices", "videos": 4, "publiees": 3, "vues": 1834, "heures": 52.5, "carte_h": 6.0, "rt_min": 95.0,
+                      "depenses_eur": 1.5, "revenu_eur": None, "par_heure_carte": 8.75, "par_minute_rt": 0.553}],
+        "ensuite": [{"session": "Histoires factices", "session_id": "s1", "format": "F1", "langue": "en", "videos": 3, "recentes": 1, "heures": 52.5, "carte_h": 6.0,
+                     "rt_min": 95.0, "revenu_eur": None, "par_heure_carte": 8.75, "par_minute_rt": 0.553, "assez": True},
+                    {"session": "Histoires factices", "session_id": "s1", "format": "F1", "langue": "xx", "videos": 1, "recentes": 0, "heures": 2.0, "carte_h": 1.0,
+                     "rt_min": 0.0, "revenu_eur": None, "par_heure_carte": 2.0, "par_minute_rt": None, "assez": False}]},
+    ("GET", "/api/sessions/s1/statistiques"): {
+        "videos": [{"id": "v1", "titre": "Le petit renard", "format": "F1", "langues": ["en"], "publiee_le": "01/11/2026", "vues": 1234, "heures": 40.5, "abonnes": 12,
+                    "retention": 41.0, "impressions": 20000, "ctr": 5.2, "carte_h": 2.0, "rt_min": 35.0, "depenses_eur": 0.0, "revenu_eur": None,
+                    "par_heure_carte": 20.25, "par_minute_rt": 1.157, "publications": [{"id": 7, "langue": "en", "revenu_eur": None}]}],
+        "destinations": [{"langue": "en", "reseau": "youtube", "chaine": "Chaîne factice", "vues": 1834, "heures": 52.5, "abonnes": 20, "retention": 40.0,
+                          "impressions": 30000, "ctr": 5.0, "vues_28j": 900, "heures_28j": 20.0,
+                          "jours": [{"date": f"{j:02d}/11", "vues": v} for j, v in zip(range(1, 8), (5, 40, 120, 160, 140, 110, 90))]}]},
 })
 
 
