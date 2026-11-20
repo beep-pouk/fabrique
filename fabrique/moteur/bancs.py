@@ -164,7 +164,7 @@ def jouer(banc_id: int, alerter=lambda texte: None, progres=lambda: None):
                     cout = outils.adaptateur(f).estimer(f, d).cout_eur
                     if raison := execution.refus_payant(s, f, cout, reglages):
                         raise execution.Echec(f"banc arrêté avant l'appel de trop : {raison}")
-                    depense = Depense.objects.create(session_id=s.id, outil=f.id, estime_eur=cout)
+                    depense = Depense.objects.create(session_id=s.id, video_id=b.video_id, outil=f.id, estime_eur=cout)
                 try:
                     r = execution.produire(f, d, final)
                 except Exception as x:  # noqa: BLE001 — l'outil peut tout lever : essai suivant, ou arrêt avec la cause

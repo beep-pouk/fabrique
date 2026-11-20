@@ -250,7 +250,7 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
         depense = None
         try:
             if not f.local:
-                depense = Depense.objects.create(session_id=s.id, outil=f.id, estime_eur=outils.adaptateur(f).estimer(f, d).cout_eur)
+                depense = Depense.objects.create(session_id=s.id, video_id=v.id, outil=f.id, estime_eur=outils.adaptateur(f).estimer(f, d).cout_eur)
             debut = time.monotonic()
             r = produire(f, d, final)
             break
