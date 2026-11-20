@@ -28,6 +28,14 @@ LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280
          ("banc_2560", "banc:1", "2560x1440", "1")]
 
 
+def deplacer(a: Path, b: Path) -> bool:
+    try:
+        a.rename(b)
+        return True
+    except PermissionError:  # encore ouvert
+        return False
+
+
 def valeur(f, nom):
     v = f.property(nom)
     return v.toVariant() if hasattr(v, "toVariant") else v
@@ -510,5 +518,6 @@ def test_le_lecteur_va_au_moment_d_un_defaut(qtbot, tmp_path):
     clic(f, "refaire_coches")  # le lecteur lâche la vidéo avant l'envoi (Windows refuse de déplacer un fichier ouvert)
     assert lecteur.property("source").isEmpty() and not [a for a in t.actions if a[0].endswith("/refaire")]
     qtbot.waitUntil(lambda: any(chemin.endswith("/videos/v1/refaire") and c == {"plans": [2]} for chemin, c in t.actions))
-    film.rename(film.with_name("range.mp4"))  # Windows le laisse déplacer : le lecteur l'a bien lâché
+    # Windows le laisse déplacer dans les 4 s que le noyau lui donne (execution.ESSAIS_OUVERT, ATTENTE_OUVERT) : le lecteur l'a bien lâché
+    qtbot.waitUntil(lambda: deplacer(film, film.with_name("range.mp4")), timeout=4000)
     f.close()

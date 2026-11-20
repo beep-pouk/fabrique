@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 ESSAIS, ESSAIS_PAYANT = 3, 2  # un appel payant n'est retenté qu'une fois
 PAUSE_S = 2.0  # entre deux essais : une panne passagère ne les brûle pas d'un coup
 RESULTAT = "resultat.json"
+ESSAIS_OUVERT, ATTENTE_OUVERT = 3, 2.0  # refaire : un fichier encore ouvert (le lecteur de la fenêtre le lâche avec retard) attend jusqu'à 4 s
 
 
 class Echec(Exception):
@@ -313,22 +314,29 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
         a_refaire += ["langue"]  # chaque version de langue reprend les visuels de la langue du script : refaite avec eux
         langues = [a for d in sorted(base.iterdir()) if d.name not in ("commun", "_refaits") and (a := d / "atelier" / (v.nom or "video")).is_dir()]
         quand = datetime.now()
-        morceaux, horodatage, ranges, rangees = list(v.morceaux.filter(etape__in=a_refaire)), f"{quand:%Y%m%d_%H%M%S_%f}", [], []
-        try:  # les morceaux d'abord, puis les pièces des ateliers ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
-            for m in morceaux:
-                if (d := dossier(s, m)).exists():
-                    (cible := base / "_refaits" / horodatage / f"{m.etape}{'.' + m.langue if m.langue else ''}").parent.mkdir(parents=True, exist_ok=True)
-                    d.rename(cible)
-                    ranges.append((cible, d))
-            for a in langues:
-                rangees.append((a, f1.ranger_langue(a, v.script, plans, horodatage)))
-            r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans, quand=quand)
-        except (OSError, Refus) as e:
-            for a, rels in reversed(rangees):
-                f1.remettre(a, rels, horodatage)
-            for cible, d in reversed(ranges):
-                cible.rename(d)
-            raise e if isinstance(e, Refus) else Refus(f"un fichier de la vidéo est ouvert ailleurs ({e.__class__.__name__}) : rien n'a bougé, réessayer") from e
+        morceaux, horodatage = list(v.morceaux.filter(etape__in=a_refaire)), f"{quand:%Y%m%d_%H%M%S_%f}"
+        for essai in range(ESSAIS_OUVERT):  # Windows lâche un fichier ouvert avec retard (lecteur de la fenêtre, antivirus) : on attend un peu
+            ranges, rangees = [], []
+            try:  # les morceaux d'abord, puis les pièces des ateliers ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
+                for m in morceaux:
+                    if (d := dossier(s, m)).exists():
+                        (cible := base / "_refaits" / horodatage / f"{m.etape}{'.' + m.langue if m.langue else ''}").parent.mkdir(parents=True, exist_ok=True)
+                        d.rename(cible)
+                        ranges.append((cible, d))
+                for a in langues:
+                    rangees.append((a, f1.ranger_langue(a, v.script, plans, horodatage)))
+                r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans, quand=quand)
+                break
+            except (OSError, Refus) as e:
+                for a, rels in reversed(rangees):
+                    f1.remettre(a, rels, horodatage)
+                for cible, d in reversed(ranges):
+                    cible.rename(d)
+                if isinstance(e, Refus):
+                    raise
+                if essai == ESSAIS_OUVERT - 1:
+                    raise Refus(f"un fichier de la vidéo est ouvert ailleurs ({e.__class__.__name__}) : rien n'a bougé, réessayer") from e
+                time.sleep(ATTENTE_OUVERT)
         for m in morceaux:
             m.etat, m.essais, m.message = "attente", 0, ""
             m.save(update_fields=["etat", "essais", "message"])
