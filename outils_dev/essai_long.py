@@ -161,18 +161,18 @@ def main(argv=None) -> int:
             if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause") and t is not suivie:
                 dire(f"tâche {t['id']} d'un essai d'avant : {fenetre.appeler('agir_file', id=t['id'], action='annuler')['message']}")
         if suivie:
-            etat = lu
+            essai = lu
             dire(f"reprise de l'essai interrompu : tâche {suivie['id']} ({suivie['etat']} {suivie['progression']}), ses morceaux finis jamais refaits")
         else:
             r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "F1", a.histoire], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
             dire(f"moteur : {r.stdout.strip() or r.stderr.strip()}")
             m = re.search(r"tâche (\d+), vidéo (\w+)", r.stdout)
             assert r.returncode == 0 and m, "l'essai n'est pas entré dans la file"
-            etat = {"histoire": str(a.histoire), "tache": int(m.group(1)), "video": m.group(2)}
-        etat.setdefault("lancements", []).append({"date": rapport["debut"], "commit": rapport["commit"]})
-        ETAT.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
-        tid, video, t0 = etat["tache"], etat["video"], time.monotonic()
-        rapport |= {"video": video, "lancements": etat["lancements"]}
+            essai = {"histoire": str(a.histoire), "tache": int(m.group(1)), "video": m.group(2)}
+        essai.setdefault("lancements", []).append({"date": rapport["debut"], "commit": rapport["commit"]})
+        ETAT.write_text(json.dumps(essai, ensure_ascii=False, indent=1), encoding="utf-8")
+        tid, video, t0 = essai["tache"], essai["video"], time.monotonic()
+        rapport |= {"video": video, "lancements": essai["lancements"]}
 
         def suivre(jusqu_a, delai: float, quoi: str) -> dict:
             vu = ""
@@ -191,7 +191,7 @@ def main(argv=None) -> int:
         images = base / "commun" / "atelier"
         etat_fab = RACINE / "donnees" / "taches" / "fabrication.json"
         executeur = lambda: json.loads(etat_fab.read_text(encoding="utf-8")).get("pid")  # noqa: E731
-        if "coupure" not in etat:  # une fois par essai, même repris
+        if "coupure" not in essai:  # une fois par essai, même repris
             dire("coupure : attente de 3 images faites…")
             # l'exécuteur vivant : après une extinction, fabrication.json garde le pid mort de la veille (jamais tuer un pid réutilisé)
             suivre(lambda t: (len([f for f in images.glob("*/images/plan_*.png") if lisible(f)]) >= 3 and executeur() in banc.processus())
@@ -208,10 +208,10 @@ def main(argv=None) -> int:
             time.sleep(60)
             seul = executeur() == nouveau and nouveau in banc.processus()
             dire(f"noyau tué puis relancé : l'exécuteur {nouveau} {'continue seul' if seul else 'A ÉTÉ DOUBLÉ OU PERDU'}")
-            etat["coupure"] = {"avant": {str(f): m for f, m in avant.items()}, "noyau_relance": {"executeur": nouveau, "seul": seul}}
-            ETAT.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
-        avant = {Path(f): m for f, m in etat["coupure"]["avant"].items()}
-        rapport["noyau_relance"] = etat["coupure"]["noyau_relance"]
+            essai["coupure"] = {"avant": {str(f): m for f, m in avant.items()}, "noyau_relance": {"executeur": nouveau, "seul": seul}}
+            ETAT.write_text(json.dumps(essai, ensure_ascii=False, indent=1), encoding="utf-8")
+        avant = {Path(f): m for f, m in essai["coupure"]["avant"].items()}
+        rapport["noyau_relance"] = essai["coupure"]["noyau_relance"]
         t = suivre(lambda t: t["etat"] in ("finie", "erreur") and t, 20 * 3600, "la fin de l'essai")
         rapport["duree_h"] = round((time.monotonic() - t0) / 3600, 2)  # horloge de ce lancement (attente de la carte et coupure comprises) ; calcul_h : l'essai entier
         rapport["coupure"] = {"images_avant": len(avant), "jamais_refaites": all(f.exists() and f.stat().st_mtime_ns == m for f, m in avant.items())}
