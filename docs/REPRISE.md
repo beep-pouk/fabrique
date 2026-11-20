@@ -3,7 +3,7 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
-## J10 (F6 présentateur virtuel) — plan (branche `j10` partie de `j9`, copie `OUTILSabrique_j10`) ; écrit le 18/11 à 18 h 20
+## J10 (F6 présentateur virtuel) — plan (branche `j10` partie de `j9`, copie `OUTILS\fabrique_j10`) ; écrit le 18/11 à 18 h 20
 
 1. **Forme de script « présentateur »** : `presentateur` (un personnage de l'univers de la session), `decor` (où il se tient), plans : texte dit, `vue` « face » (face caméra) ou « insert » (une image et un mouvement de caméra, sa voix continue) ; au moins un plan face caméra.
 2. **Préparation** : la première image de référence validée du personnage est copiée avec la vidéo (`presentateur.<ext>` à côté du script : la vidéo garde ce qui l'a faite) ; refus en clair sans elle.

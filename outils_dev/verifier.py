@@ -1413,7 +1413,7 @@ def en_vrai_j10() -> list[tuple[bool, str]]:
         pass
     return [(bool(fait), "F6 présentateur en vrai (session Essais, recette livrée, Qwen-Image-Edit pour le cadrage, LongCat-Video-Avatar 1.5) : "
              + (f"fait (vidéo {fait[0]}), {fait[2].get('duree_s', 0):.0f} s, {len(fait[1])} plan(s) face caméra (mouvement {min(i['mouvement'] for i in fait[1]):.2f} "
-                f"au moins), {len(fait[2]['defauts'])} défaut(s), aucun bloquant" if fait else "PAS ENCORE — essai de nuit après ceux de J8 et J9 (egalite\\de_nuit_j10.py)")),
+                f"au moins), {len(fait[2]['defauts'])} défaut(s), aucun bloquant" if fait else "PAS ENCORE — essai de nuit après ceux de J8 et J9 (egalite\\de_nuit_chaine.py)")),
             (False, "banc du présentateur : PAS ENCORE — réponse de la supervision attendue (QUESTIONS 18/11 18 h 20)")]
 
 
