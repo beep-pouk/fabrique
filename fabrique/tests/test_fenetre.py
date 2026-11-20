@@ -81,6 +81,25 @@ def test_script_voix_off_lu_et_ecrit_plan_par_plan(qtbot):
     assert contenu["scenes"][0]["plans"][1] == {"id": "p2", "texte": "Le hibou ouvre les yeux. Chut", "image": "an owl on a branch", "mouvement": "fixe"}
 
 
+def test_script_presentateur_lu_et_ecrit(qtbot):
+    """F6 : présentateur et décor lus dans l'écran Script ; un plan sans vue est dit face caméra ; sa vue (et sa consigne d'insert) s'écrit."""
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: valeur(f, "sante")["version"] == "0.1.0")
+    f.setProperty("session", "s1")
+    f.setProperty("ecran", "script")
+    f.setProperty("script", {"code": "s1e09", "titre": "T", "date_prevue": "", "versions": [{"numero": 1}], "regles": {}, "plans": [], "traductions": [],
+                             "estimation": {"secondes": 0, "cout_eur": 0}, "contenu": {"titre": "T", "presentateur": "Persona", "decor": "un salon factice",
+                             "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Bonjour."}, {"id": "p2", "texte": "Voici.", "vue": "insert", "image": "une forêt"}]}]}})
+    assert element(f, "presentateur_lu").property("text") == "Présentateur : Persona  ·  décor : un salon factice"
+    textes = [x.property("text") for x in element(f, "plan_lu_s1_p1").parent().childItems() if x.property("visible")]
+    assert textes == ["Bonjour.", "face caméra"]
+    clic(f, "modifier_script")
+    assert element(f, "champ_vue_0_0").property("text") == "" and element(f, "champ_image_0_0") is not None
+    assert element(f, "champ_vue_0_1").property("text") == "insert"
+
+
 def test_parcours(qtbot):
     t = Transport()
     moteur, pont, f = main.ouvrir(Client(transport=t))

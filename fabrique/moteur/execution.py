@@ -55,6 +55,8 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
                 raise Refus(f"la traduction en « {langue} » n'a pas les mêmes scènes et plans que le script")
             if contenu.get("musique", script.get("musique")) != script.get("musique"):  # une chanson traduite garde son style, son tempo, sa tonalité
                 raise Refus(f"la traduction en « {langue} » change la musique de la chanson : seules les paroles se traduisent")
+            if [c.get("vue") for *_, c in recettes.unites(recettes.script(contenu, R.script), "plan")] != [c.get("vue") for *_, c in recettes.unites(S, "plan")]:
+                raise Refus(f"la traduction en « {langue} » change la vue d'un plan (face caméra ou insert) : seul le texte se traduit")
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
@@ -80,12 +82,12 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
 def presentateur(s: Session, nom: str) -> Path:
     """La première image de référence validée du personnage qui présente (F6), quelle que soit sa casse (l'import de Bramble Studio a deux
     fiches pour un même ami, une seule avec ses références) ; refus en clair sans elle."""
-    with routeur.session(s):
-        connu = Personnage.objects.filter(nom__iexact=nom.strip()).exists()
-        ref = Reference.objects.filter(personnage__nom__iexact=nom.strip(), validee=True).order_by("id").first()
-    if not connu:
+    with routeur.session(s):  # casse comparée en Python : celle de SQLite ignore les accents (« É » ≠ « é »)
+        fiches = [p for p in Personnage.objects.all() if p.nom.strip().casefold() == nom.strip().casefold()]
+        refs = [settings.SESSIONS / s.dossier / r.fichier for r in Reference.objects.filter(personnage__in=fiches, validee=True).order_by("id")]
+    if not fiches:
         raise Refus(f"« {nom} » n'est pas un personnage de l'univers de « {s.nom} » (Session → Univers)")
-    if ref is None or not (f := settings.SESSIONS / s.dossier / ref.fichier).is_file():
+    if (f := next((x for x in refs if x.is_file()), None)) is None:
         raise Refus(f"« {nom} » n'a pas d'image de référence validée (Session → Univers) : le présentateur garde l'apparence qu'elle lui donne")
     return f
 

@@ -89,4 +89,6 @@ def fabriquer(fiche: Fiche, demande: Demande, dossier: Path) -> Resultat:
     if demande.brique == "voix":
         mots = demande.texte.split() or ["…"]
         infos["mots"] = [{"mot": m, "debut": round(i * duree / len(mots), 3), "fin": round((i + 1) * duree / len(mots), 3)} for i, m in enumerate(mots)]
+    if demande.brique == "levres" and demande.consigne.get("vue") == "face":  # comme un vrai clip de LongCat : il bouge, à la durée de sa voix
+        infos.update(vue="face", mouvement=0.5, voix_s=duree)
     return Resultat(fichiers=[sortie.name], duree_s=None if sortie.suffix == ".png" else duree, infos=infos)

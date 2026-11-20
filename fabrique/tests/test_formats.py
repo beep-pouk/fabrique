@@ -651,6 +651,10 @@ def test_f6_refus_de_la_forme_et_du_presentateur(essais, presentatrice):
         execution.preparer(essais, f6(), {**PRESENTATEUR, "scenes": [{"id": "s1", "plans": [PRESENTATEUR["scenes"][0]["plans"][1]]}]})
     with pytest.raises(Refus, match="consigne d'image"):
         execution.preparer(essais, f6(), {**PRESENTATEUR, "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Regardez.", "vue": "insert"}]}]})
+    inverse = json.loads(json.dumps(PRESENTATEUR))
+    inverse["scenes"][0]["plans"][1]["vue"] = "face"  # l'insert devenu face caméra dans la traduction
+    with pytest.raises(Refus, match="change la vue d'un plan"):
+        execution.preparer(essais, f6(langues=["en", "xx"]), PRESENTATEUR, traductions={"xx": inverse})
     univers.valider(essais, presentatrice, False, "RT")
     with pytest.raises(Refus, match="pas d'image de référence validée"):
         execution.preparer(essais, f6(), PRESENTATEUR)
@@ -667,18 +671,22 @@ def test_f6_presentateur_fige_bloquant(essais, presentatrice, monkeypatch):
         r = vrai(fiche, d, dossier)
         if d.brique == "levres" and d.consigne.get("vue") == "face":
             r.infos.update(vue="face", mouvement=0.05 if d.unite == "s2/p1" else 0.6)
+            if d.unite == "s1/p1":  # il bouge, mais son clip s'arrête avant la fin de sa phrase
+                r.infos["voix_s"] = r.duree_s + 0.5
         return r
 
     monkeypatch.setattr(faux, "fabriquer", fige)
     v = fabriquer(essais, f6(), PRESENTATEUR)
-    (x,) = [x for x in rapport(essais, v)["defauts"] if x.get("code") == "presentateur"]
+    court, x = sorted((x for x in rapport(essais, v)["defauts"] if x.get("code") == "presentateur"), key=lambda x: x["debut"])
     assert x["gravite"] == "forte" and x["debut"] == pytest.approx(3.2, abs=0.05) and "s2/p1" in x["texte"]
+    assert court["gravite"] == "forte" and court["debut"] == 0 and "s1/p1" in court["texte"] and "phrase" in court["texte"]
 
 
 def test_f6_en_mode_reel_qwen_edit_et_longcat_simules(essais, presentatrice, monkeypatch):
     """F6 en mode réel, les modèles simulés au plus près (Chatterbox et Whisper, Qwen-Image et Qwen-Image-Edit, ComfyUI, LongCat dans Linux) :
     une image cadrée face caméra d'après la référence copiée avec la vidéo, pour tous les plans face ; un lot LongCat par langue ; l'insert
     filmé par la caméra ; le mouvement des lèvres mesuré ; une coupure ne refait que le plan perdu."""
+    import os
     import shlex
     import shutil
     import subprocess
@@ -693,7 +701,7 @@ def test_f6_en_mode_reel_qwen_edit_et_longcat_simules(essais, presentatrice, mon
     reglages.mkdir(exist_ok=True)
     (reglages / "config.json").write_text(json.dumps({"style": "style factice", "negatif_image": "x", "voix": {"ref_audio": "ref.wav", "ref_text": "x"},
                                                       "images": {"largeur": 64, "hauteur": 32, "pas": 1, "cfg": 1, "shift": 1}}), encoding="utf-8")
-    appels = {"image": [], "edit": [], "longcat": [], "stop": 0}
+    appels = {"image": [], "edit": [], "longcat": [], "stop": 0, "ordre": []}
 
     def dire(o, dossier, scenes, cfg, *a, **k):
         for s in scenes:
@@ -718,6 +726,7 @@ def test_f6_en_mode_reel_qwen_edit_et_longcat_simules(essais, presentatrice, mon
             return vrai_run(cmd, *a, **k)
         jobs = json.loads(windows(shlex.split(cmd[-1].split("--jobs ")[1])[0]).read_text(encoding="utf-8"))
         appels["longcat"].append(jobs)
+        appels["ordre"].append("longcat")
         for j in jobs:
             lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"testsrc=s=64x36:r=25:d={par_plan.duree(windows(j['audio'])):.2f}",
                    "-pix_fmt", "yuv420p", windows(j["out"] + ".mp4"))
@@ -726,8 +735,8 @@ def test_f6_en_mode_reel_qwen_edit_et_longcat_simules(essais, presentatrice, mon
     monkeypatch.setattr(voix, "faire", dire)
     monkeypatch.setattr(images.Images, "qwen_image", qwen)
     monkeypatch.setattr(images.Images, "qwen_edit", edit)
-    monkeypatch.setattr(comfy, "start", lambda *a, **k: None)
-    monkeypatch.setattr(comfy, "stop", lambda *a, **k: appels.__setitem__("stop", appels["stop"] + 1))
+    monkeypatch.setattr(comfy, "start", lambda *a, **k: appels["ordre"].append("start"))
+    monkeypatch.setattr(comfy, "stop", lambda *a, **k: appels.__setitem__("stop", appels["stop"] + 1) or appels["ordre"].append("stop"))
     monkeypatch.setattr(par_plan.subprocess, "run", longcat)
     try:
         v = execution.preparer(essais, f6(), PRESENTATEUR)
@@ -740,20 +749,26 @@ def test_f6_en_mode_reel_qwen_edit_et_longcat_simules(essais, presentatrice, mon
         assert [g for _, g in appels["image"]] == [1002]  # l'insert seul
         (lot,) = appels["longcat"]  # un lot pour la langue : les deux plans face
         assert [Path(j["out"]).name for j in lot] == ["s001", "s003"] and all(j["image"].endswith("/image.png") and "pia factice talks" in j["prompt"] for j in lot)
-        assert lot[1]["audio"].endswith("/voix/s2/p1/voix.wav") and appels["stop"] >= 2  # ComfyUI arrêté après les images et avant LongCat
+        assert lot[1]["audio"].endswith("/voix/s2/p1/voix.wav") and appels["ordre"][:appels["ordre"].index("longcat")][-3:] == ["start", "stop", "stop"]  # images, puis les lèvres arrêtent ComfyUI avant LongCat
         assert morceau(essais, v.id, "levres", "s1/p1", "en")["resultat"]["infos"]["lot"] == 2 and morceau(essais, v.id, "levres", "s2/p1", "en")["resultat"]["infos"]["lot"] == 0
         assert morceau(essais, v.id, "levres", "s2/p1", "en")["resultat"]["infos"]["mouvement"] > 0.2  # mesuré : il bouge
         assert morceau(essais, v.id, "levres", "s1/p2", "en")["resultat"]["infos"]["mouvement"] == "gauche"  # l'insert : la caméra
         m = montages.mesure(execution.finale(essais, v.id, "en"))
         assert m["duree_s"] == pytest.approx(1.7 + 1.8 + 1.9, abs=0.1) and m["son"] and rapport(essais, v.id)["defauts"] == []
-        # coupure : le clip du dernier plan perdu, refait seul
+        # coupure pendant l'écriture du dernier clip du lot (s001 fini, s003 à moitié écrit) : rangé à côté et refait seul, s001 gardé
         base = execution.settings.SESSIONS / essais.dossier / "videos" / v.id / "en"
-        shutil.rmtree(base / "levres" / "s2" / "p1")
-        (base / "atelier" / "video" / "levres" / "s003.mp4").unlink()
+        dl = base / "atelier" / "video" / "levres"
+        for u in ("s1/p1", "s2/p1"):
+            shutil.rmtree(base / "levres" / u)
+        (dl / "_lot_en_cours").write_text("coupé", encoding="utf-8")
+        os.utime(dl / "_lot_en_cours", (time.time() - 60,) * 2)
+        (dl / "s003.mp4").write_bytes(b"clip tronque")
         with execution.routeur.session(essais):
-            execution.Morceau.objects.filter(video_id=v.id, etape="levres", unite="s2/p1").update(etat="attente")
+            execution.Morceau.objects.filter(video_id=v.id, etape="levres", unite__in=["s1/p1", "s2/p1"]).update(etat="attente")
         execution.jouer(essais, v.id)
         assert [Path(j["out"]).name for j in appels["longcat"][1]] == ["s003"] and len(appels["edit"]) == 1
+        assert [f.read_bytes() for f in (dl / "_coupes").rglob("s003.mp4")] == [b"clip tronque"]
+        assert morceau(essais, v.id, "levres", "s2/p1", "en")["resultat"]["infos"]["mouvement"] > 0.2
     finally:
         (reglages / "config.json").unlink()
 

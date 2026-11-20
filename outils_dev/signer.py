@@ -23,7 +23,7 @@ if (-not $v.SignerCertificate -or $v.SignerCertificate.Thumbprint -ne $c.Thumbpr
 
 def signer(fichier) -> str:
     """Signe le fichier ; rend « <empreinte du certificat> horodatée | sans horodatage ». Lève RuntimeError si la signature n'a pas pu être posée."""
-    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", SCRIPT], capture_output=True, text=True,
+    r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", SCRIPT], capture_output=True, text=True, encoding="oem", errors="replace",  # PowerShell écrit dans la page OEM de la console
                        env={**os.environ, "SIGNER_SUJET": SUJET, "SIGNER_FICHIER": str(fichier)}, creationflags=subprocess.CREATE_NO_WINDOW)
     if r.returncode or not r.stdout.strip():
         raise RuntimeError(f"signature de {fichier} : {r.stderr.strip()[-600:] or r.stdout.strip()}")

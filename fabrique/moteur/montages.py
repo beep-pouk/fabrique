@@ -229,7 +229,8 @@ def moments(d: Demande) -> dict:
 
 def presentateur_fige(d: Demande) -> list[dict]:
     """F6 : un plan face caméra dont le clip ne bouge presque pas (mouvement mesuré par l'outil des lèvres sous le seuil de la revue de F1 ; de
-    vrais clips de LongCat bougent de 0,42 à 0,82) : le présentateur parle sans remuer les lèvres. Bloquant."""
+    vrais clips de LongCat bougent de 0,42 à 0,82) : le présentateur parle sans remuer les lèvres ; ou dont le clip est plus court que sa
+    phrase (plan § 7.1, J10). Bloquant."""
     from fabrique.moteur.f1 import mouvement
 
     quand, defauts = moments(d), []
@@ -238,14 +239,17 @@ def presentateur_fige(d: Demande) -> list[dict]:
             continue
         for morceau in dict.fromkeys(Path(f).parent for f in fs):
             try:
-                i = json.loads((morceau / "resultat.json").read_text(encoding="utf-8"))["infos"]
-                unite = json.loads((morceau / "demande.json").read_text(encoding="utf-8"))["unite"]
+                r = json.loads((morceau / "resultat.json").read_text(encoding="utf-8"))
+                i, unite = r["infos"], json.loads((morceau / "demande.json").read_text(encoding="utf-8"))["unite"]
             except (OSError, ValueError, KeyError):
                 continue
+            p = quand.get(unite, {})
             if i.get("vue") == "face" and i.get("mouvement") is not None and i["mouvement"] < mouvement.SEUIL:
-                p = quand.get(unite, {})
                 defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "presentateur", "gravite": "forte",
                                 "texte": f"présentateur figé ({unite} : mouvement {i['mouvement']} sous {mouvement.SEUIL}) : ses lèvres ne suivent pas sa voix"})
+            elif i.get("vue") == "face" and i.get("voix_s") and (r.get("duree_s") or 0) < i["voix_s"] - 0.1:  # le montage tiendrait sa dernière image
+                defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "presentateur", "gravite": "forte",
+                                "texte": f"présentateur figé ({unite} : son clip dure {r.get('duree_s') or 0:.1f} s pour une phrase de {i['voix_s']:.1f} s) : la fin est muette à l'image"})
     return defauts
 
 

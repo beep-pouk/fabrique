@@ -275,7 +275,9 @@ def levres(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     if image is None or voix_ is None:
         raise RuntimeError("les lèvres demandent une étape de voix et une étape d'images avant elles dans la recette")
     if d.consigne.get("vue") != "face":  # un insert : sa voix continue sur son image
-        return filmer(image, d.consigne.get("mouvement", "avancee"), duree(voix_) + pause(d), d, dossier)
+        r = filmer(image, d.consigne.get("mouvement", "avancee"), duree(voix_) + pause(d), d, dossier)
+        r.infos["lot"] = 0  # shortcut: aucun chrono pour un insert (il fausserait la médiane des plans face), estimé comme un plan face ; à séparer si l'estimation de F6 gêne
+        return r
     from fabrique.moteur.f1 import copies, mouvement
     from fabrique.moteur.f1.outils import Outils, composant, dans_wsl, wsl
     from fabrique.moteur.f1.voix import wslp, wslq
@@ -284,14 +286,14 @@ def levres(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     L = lieux(d)
     cfg, o, atelier = config(d, L), Outils(L), Path(d.atelier)
     tous, dl = plans(d), atelier / "levres"
-    sortie, faits = dl / f"s{rang(d, tous):03d}.mp4", 0
-    if not sortie.is_file():
-        prompt = (f"{json.loads(Path(d.script).read_text(encoding='utf-8'))['presentateur']} talks to the viewer, natural lip movements matching "
-                  f"the speech, gentle head motion, blinking. {cfg.get('lipsync_prompt_plus', '')}").strip()
-        with lot(dl, ["s*.mp4"]):
-            jobs = [{"image": wslp(du_plan(image, d, p["unite"])), "audio": wslp(du_plan(voix_, d, p["unite"])), "out": wslp(dl / f"s{k:03d}"),
-                     "prompt": prompt, "resolution": cfg.get("lipsync_resolution", "480p")}
-                    for k, p in enumerate(tous, 1) if p.get("vue") == "face" and not (dl / f"s{k:03d}.mp4").is_file()]
+    sortie = dl / f"s{rang(d, tous):03d}.mp4"
+    prompt = (f"{json.loads(Path(d.script).read_text(encoding='utf-8'))['presentateur']} talks to the viewer, natural lip movements matching "
+              f"the speech, gentle head motion, blinking. {cfg.get('lipsync_prompt_plus', '')}").strip()
+    with lot(dl, ["s*.mp4"]):  # toujours : un lot coupé range d'abord son dernier clip (peut-être à moitié écrit), même si celui-ci est fait
+        jobs = [{"image": wslp(du_plan(image, d, p["unite"])), "audio": wslp(du_plan(voix_, d, p["unite"])), "out": wslp(dl / f"s{k:03d}"),
+                 "prompt": prompt, "resolution": cfg.get("lipsync_resolution", "480p")}
+                for k, p in enumerate(tous, 1) if p.get("vue") == "face" and not (dl / f"s{k:03d}.mp4").is_file()]
+        if jobs:
             o.module("kit", "comfy").stop()  # la carte libérée pour LongCat
             (jf := dl / "_jobs.json").write_text(json.dumps(jobs, ensure_ascii=False, indent=1), encoding="utf-8")
             prod = wslq(copies.DOSSIER)
@@ -302,12 +304,14 @@ def levres(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
                 r = subprocess.run(wsl(cmd), stdout=journal, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if r.returncode or not sortie.is_file():
                 raise RuntimeError("LongCat a échoué : voir levres\\lipsync.log dans l'atelier")
-            faits = len(jobs)
     lier(sortie, dossier / "clip.mp4")
-    s = duree(dossier / "clip.mp4")
-    morceaux = mouvement.plans(programme("ffmpeg"), dossier / "clip.mp4", s)
-    bouge = sum(p["mouvement"] * (p["fin"] - p["debut"]) for p in morceaux) / max(s, 0.001)
-    return Resultat(fichiers=["clip.mp4"], duree_s=round(s, 3), infos={"vue": "face", "lot": faits, "mouvement": round(bouge, 3)})
+    s, dv = duree(dossier / "clip.mp4"), duree(voix_)
+    parle = dossier / "_parle.mp4"  # le mouvement mesuré pendant la phrase seulement (LongCat complète son dernier segment en silence)
+    lancer("ffmpeg", "-nostdin", "-y", "-v", "error", "-i", dossier / "clip.mp4", "-t", f"{min(s, dv):.3f}", "-an", "-c:v", "libx264", "-preset", "ultrafast", parle)
+    morceaux = mouvement.plans(programme("ffmpeg"), parle, min(s, dv))
+    parle.unlink()
+    bouge = sum(p["mouvement"] * (p["fin"] - p["debut"]) for p in morceaux) / max(min(s, dv), 0.001)
+    return Resultat(fichiers=["clip.mp4"], duree_s=round(s, 3), infos={"vue": "face", "lot": len(jobs), "mouvement": round(bouge, 3), "voix_s": round(dv, 3)})
 
 
 def montage(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:

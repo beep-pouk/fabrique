@@ -204,8 +204,9 @@ def pilote(s: Session, acteur: str) -> str:
     recette["reglages"]["langues"] = [l["code"] for l in d["langues"]]
     recette["outils"] = {e["id"]: outils.BRIQUES[e["brique"]]["simulation"] for e in recette["etapes"]}
     if recette["script"] == "presentateur":  # le premier personnage qui a une référence validée présente
-        with routeur.session(s):
-            d["presentateur"] = m.Reference.objects.filter(validee=True).order_by("id").values_list("personnage__nom", flat=True).first()
+        with routeur.session(s):  # sa référence encore sur le disque : sinon la préparation la refuserait
+            d["presentateur"] = next((r.personnage.nom for r in m.Reference.objects.filter(validee=True).select_related("personnage").order_by("id")
+                                      if (settings.SESSIONS / s.dossier / r.fichier).is_file()), None)
         if not d["presentateur"]:
             raise Refus(f"le format {d['format']} demande un présentateur : un personnage de l'univers avec une image de référence validée (Session → Univers)")
     contenu = script_pilote(d, recette["script"])

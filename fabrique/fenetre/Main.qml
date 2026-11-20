@@ -294,14 +294,15 @@ Window {
     component PlansLus: Column {  // les plans d'une scène d'une forme par plan (voix-off : texte dit, consigne d'image, mouvement ; présentateur : vue)
         property var plans: []
         property string scene: ""
+        property bool presentateur: false  // F6 : un plan sans vue est face caméra (recettes.PlanPresentateur)
         width: parent.width; spacing: 4
         Repeater {
             model: plans
             Column {
                 width: parent.width; spacing: 0
                 T { objectName: "plan_lu_" + scene + "_" + modelData.id; text: modelData.texte || ""; width: parent.width }
-                T { visible: modelData.vue === "face"; width: parent.width; color: cSecond; font.pixelSize: 12; text: "face caméra" }
-                T { visible: !!modelData.image && modelData.vue !== "face"; width: parent.width; color: cSecond; font.pixelSize: 12
+                T { visible: modelData.vue === "face" || (presentateur && !modelData.vue); width: parent.width; color: cSecond; font.pixelSize: 12; text: "face caméra" }
+                T { visible: !!modelData.image && (modelData.vue || (presentateur ? "face" : "")) !== "face"; width: parent.width; color: cSecond; font.pixelSize: 12
                     text: (modelData.vue ? "insert, " : "") + "image : " + (modelData.image || "") + (modelData.mouvement ? "  ·  caméra : " + modelData.mouvement : "") }
             }
         }
@@ -1403,7 +1404,7 @@ Window {
                                 x: 12; y: 8; width: parent.width - 24; spacing: 2
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
                                 T { visible: !modelData.plans; text: modelData.narration || ""; width: parent.width }
-                                PlansLus { plans: modelData.plans || []; scene: modelData.id }
+                                PlansLus { plans: modelData.plans || []; scene: modelData.id; presentateur: !!video.script.presentateur }
                             }
                         }
                     }
@@ -1575,10 +1576,10 @@ Window {
                                         property string planId: modelData.id
                                         Mono { text: "plan " + modelData.id; color: cSecond; font.pixelSize: 12 }
                                         Repeater {
-                                            model: ["texte", "vue", "image", "mouvement"].filter(c => c === "texte" || modelData[c] !== undefined)
+                                            model: ["texte", "vue", "image", "mouvement"].filter(c => c === "texte" || modelData[c] !== undefined || !!brouillon.presentateur)  // F6 : un plan face peut devenir un insert
                                             Column {
                                               width: parent.width; spacing: 2
-                                              property string nomChamp: ({texte: "Texte dit", vue: "Vue (face, insert)", image: "Image (consigne)", mouvement: "Caméra (fixe, avancee, recul, gauche, droite)"})[modelData]
+                                              property string nomChamp: ({texte: "Texte dit", vue: "Vue (face, insert ; vide : face)", image: "Image (consigne)", mouvement: "Caméra (fixe, avancee, recul, gauche, droite)"})[modelData]
                                               T { text: parent.nomChamp; color: cSecond; font.pixelSize: 12 }
                                               Rectangle {
                                                 width: parent.width; height: Math.max(36, champPlan.implicitHeight + 12); radius: 6; color: cLeve
@@ -1612,13 +1613,15 @@ Window {
                             objectName: "contenu_brut"; visible: !script.contenu.scenes && script.versions.length > 0; width: parent.width; wrapMode: Text.Wrap
                             text: JSON.stringify(script.contenu, null, 2); font.pixelSize: 12
                         }
+                        T { objectName: "presentateur_lu"; visible: !!script.contenu.presentateur; width: parent.width; color: cSecond
+                            text: "Présentateur : " + (script.contenu.presentateur || "") + "  ·  décor : " + (script.contenu.decor || "") }
                         Repeater {
                             model: script.contenu.scenes || []
                             Column {
                                 width: parent.width; spacing: 2
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
                                 T { visible: !modelData.plans; text: modelData.narration || ""; width: parent.width }
-                                PlansLus { plans: modelData.plans || []; scene: modelData.id }
+                                PlansLus { plans: modelData.plans || []; scene: modelData.id; presentateur: !!script.contenu.presentateur }
                             }
                         }
                     }

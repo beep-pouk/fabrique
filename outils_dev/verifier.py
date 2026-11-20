@@ -1407,7 +1407,9 @@ def en_vrai_j10() -> list[tuple[bool, str]]:
                 faces = [i for f in (racine / "videos" / vid).glob("*/levres/*/*/resultat.json")
                          if (i := json.loads(f.read_text(encoding="utf-8"))["infos"]).get("vue") == "face"]
                 rapports = [json.loads(f.read_text(encoding="utf-8")) for f in (racine / "videos" / vid).glob("*/revue/video/rapport.json")]
-                if faces and all(i.get("mouvement", 0) >= mouvement.SEUIL for i in faces) and rapports and not [x for rap in rapports for x in rap["defauts"] if x["gravite"] == "forte"]:
+                voix = [json.loads(f.read_text(encoding="utf-8"))["infos"].get("controle") for f in (racine / "videos" / vid).glob("*/voix/*/*/resultat.json")]
+                if (faces and all(i.get("mouvement", 0) >= mouvement.SEUIL for i in faces) and voix and all(voix)  # chaque voix réécoutée par Whisper (comme J8)
+                        and rapports and not [x for rap in rapports for x in rap["defauts"] if x["gravite"] == "forte"]):
                     fait = (vid, faces, rapports[0])
     except (sqlite3.Error, OSError, ValueError):
         pass

@@ -128,10 +128,10 @@ def preparer() -> Path:
     with routeur.session(essais):
         for l in langues:
             Langue.objects.update_or_create(code=l["code"], defaults=l)
-        if not Personnage.objects.exists():  # une fois : les fichiers des références sont déjà copiés (univers)
-            for p, refs in persos:
-                nouveau = Personnage.objects.create(**p)
-                Reference.objects.bulk_create([Reference(personnage=nouveau, **r) for r in refs])
+        for p, refs in persos:  # à chaque essai (une référence validée depuis dans Bramble Studio est prise) ; fichiers déjà copiés (univers)
+            nouveau, _ = Personnage.objects.update_or_create(nom=p["nom"], defaults=p)
+            for r in refs:
+                Reference.objects.update_or_create(personnage=nouveau, fichier=r["fichier"], defaults=r)
     Parametre.ecrire("simulation", "non")
     return vers
 
