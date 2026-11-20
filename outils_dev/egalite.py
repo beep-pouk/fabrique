@@ -63,6 +63,23 @@ def md5(f: Path) -> str:
 TEXTES = {".json", ".txt", ".csv", ".md"}
 
 
+def ecart_son(a: Path, b: Path) -> float | None:
+    """Le plus grand écart d'échantillon entre deux .wav de même format (PCM 16 bits ou flottant 32 bits), None s'ils ne se comparent pas :
+    dit si un son différent l'est au bruit de calcul de la carte près (quelques 1e-5) ou pour de bon."""
+    import array
+
+    def lire(f: Path):
+        o = f.read_bytes()
+        i, j = o.find(b"fmt "), o.find(b"data")
+        n = int.from_bytes(o[j + 4:j + 8], "little")
+        return {1: "h", 3: "f"}.get(int.from_bytes(o[i + 8:i + 10], "little")), o[j + 8:j + 8 + n]
+    (ta, da), (tb, db) = lire(a), lire(b)
+    if ta is None or ta != tb or len(da) != len(db):
+        return None
+    xa, xb = array.array(ta, da), array.array(ta, db)
+    return max((abs(x - y) for x, y in zip(xa, xb)), default=0.0) / (32768 if ta == "h" else 1)
+
+
 def formes(p: Path) -> list[str]:
     """Un chemin tel qu'un fichier du moteur peut l'écrire : en JSON (antislashs doublés), tel quel, vu de Linux (/mnt/d/…)."""
     w = str(p)
@@ -158,7 +175,8 @@ def comparer(etape: str, b: Path, f: Path, avant: set[str], dossiers: list[tuple
     # deux fichiers identiques octet pour octet sont égaux (une entrée copiée porte le chemin de Bramble : il n'est remplacé que d'un côté)
     diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k) and not (k in pb and k in pf and md5(b / k) == md5(f / k)))
     return {"egal": bool(pb.keys() - avant) and not diff and journal(b) == journal(f), "fichiers": len(pb.keys() - avant), "differents": diff[:20],
-            "journal_identique": journal(b) == journal(f)}
+            "journal_identique": journal(b) == journal(f),
+            "ecarts_son": {k: ecart_son(b / k, f / k) for k in diff if k.endswith(".wav") and k in pb and k in pf}}
 
 
 def main(argv=None) -> int:

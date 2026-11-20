@@ -9,6 +9,8 @@ publiée. En vrais processus (noyau, file, exécuteur détaché), FABRIQUE_REEL=
   4. contrôle lu comme Vérification le montre : note, défauts minutés ; plans quasi fixes au-delà de plan_fixe_max_s mesurés sur chaque langue ;
   5. « refaire » du plan d'image qui couvre le premier défaut grave (sinon le premier défaut, sinon le premier plan d'image), refait et recontrôlé.
 Rapport : OUTILS\\fabrique_construction\\egalite\\ESSAI_LONG.json (et .log), toujours écrit (erreur comprise), avec le commit du code essayé.
+Un essai coupé (PC éteint) est repris au lancement suivant sur la même histoire (ESSAI_LONG_ETAT.json : sa tâche, sa coupure déjà faite) ;
+arrêté par trop de coupures, il est repris comme RT le fait (« Reprendre »).
 Outil de développement : jamais livré.
 python outils_dev\\essai_long.py <histoire.json> [--sans-refaire]"""
 import argparse
@@ -37,7 +39,8 @@ from fabrique.moteur import faux  # noqa: E402
 
 JOURNAL = SORTIE / "ESSAI_LONG.log"
 RAPPORT = SORTIE / "ESSAI_LONG.json"
-GIT = DEPOT.parent / "git" / "cmd" / "git.exe"
+ETAT = SORTIE / "ESSAI_LONG_ETAT.json"  # l'essai en cours : repris après une extinction du PC, jamais recommencé de zéro
+GIT =DEPOT.parent / "git" / "cmd" / "git.exe"
 COPIES = ("univers", "regles", "reglages", "moteur")  # ce que F1 lit dans une session (Lieux)
 
 
@@ -149,15 +152,27 @@ def main(argv=None) -> int:
     try:
         banc.attendre(claude.repond, 60, "le noyau répond")
         assert claude.appeler("sante")["mode"] == "réel", "la racine de travail est restée en simulation"
-        for t in claude.appeler("file"):  # une tâche restée d'un essai interrompu : annulée, jamais suivie à la place de celle-ci
-            if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause"):
+        file = claude.appeler("file")
+        lu = json.loads(ETAT.read_text(encoding="utf-8")) if ETAT.is_file() else {}
+        suivie = next((t for t in file if lu.get("histoire") == str(a.histoire) and t["id"] == lu.get("tache") and t["etat"] != "annulee"), None)
+        if suivie and suivie["etat"] == "erreur" and suivie["raison"].startswith("l'exécuteur s'est arrêté"):  # des extinctions du PC : RT clique « Reprendre »
+            dire(f"tâche {suivie['id']} arrêtée par les coupures : {fenetre.appeler('agir_file', id=suivie['id'], action='reprendre')['message']}")
+        for t in file:  # une autre tâche restée d'un essai interrompu : annulée, jamais suivie à la place de celle-ci
+            if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause") and t is not suivie:
                 dire(f"tâche {t['id']} d'un essai d'avant : {fenetre.appeler('agir_file', id=t['id'], action='annuler')['message']}")
-        r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "F1", a.histoire], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
-        dire(f"moteur : {r.stdout.strip() or r.stderr.strip()}")
-        m = re.search(r"tâche (\d+), vidéo (\w+)", r.stdout)
-        assert r.returncode == 0 and m, "l'essai n'est pas entré dans la file"
-        tid, video, t0 = int(m.group(1)), m.group(2), time.monotonic()
-        rapport["video"] = video
+        if suivie:
+            etat = lu
+            dire(f"reprise de l'essai interrompu : tâche {suivie['id']} ({suivie['etat']} {suivie['progression']}), ses morceaux finis jamais refaits")
+        else:
+            r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", "F1", a.histoire], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
+            dire(f"moteur : {r.stdout.strip() or r.stderr.strip()}")
+            m = re.search(r"tâche (\d+), vidéo (\w+)", r.stdout)
+            assert r.returncode == 0 and m, "l'essai n'est pas entré dans la file"
+            etat = {"histoire": str(a.histoire), "tache": int(m.group(1)), "video": m.group(2)}
+        etat.setdefault("lancements", []).append({"date": rapport["debut"], "commit": rapport["commit"]})
+        ETAT.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+        tid, video, t0 = etat["tache"], etat["video"], time.monotonic()
+        rapport |= {"video": video, "lancements": etat["lancements"]}
 
         def suivre(jusqu_a, delai: float, quoi: str) -> dict:
             vu = ""
@@ -174,23 +189,31 @@ def main(argv=None) -> int:
 
         base = essais / "videos" / video
         images = base / "commun" / "atelier"
-        dire("coupure : attente de 3 images faites…")
-        suivre(lambda t: len([f for f in images.glob("*/images/plan_*.png") if lisible(f)]) >= 3 or t["etat"] in ("finie", "erreur"), 6 * 3600, "3 images")
         etat_fab = RACINE / "donnees" / "taches" / "fabrication.json"
-        pid = json.loads(etat_fab.read_text(encoding="utf-8")).get("pid")
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
-        avant = {f: f.stat().st_mtime_ns for f in images.glob("*/images/plan_*.png") if lisible(f)}  # relevé après l'arrêt : plus rien ne s'écrit
-        dire(f"exécuteur {pid} tué avec {len(avant)} image(s) faites")
-        nouveau = banc.attendre(lambda: (p := json.loads(etat_fab.read_text(encoding="utf-8")).get("pid")) not in (None, pid) and p, 600, "l'exécuteur relancé", pas=2)
-        noyau.kill()  # « Quitter puis relancer » : le noyau s'arrête net, l'exécuteur détaché continue ; relancé, le noyau ne le double pas
-        noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 creationflags=subprocess.CREATE_NO_WINDOW)
-        banc.attendre(claude.repond, 60, "le noyau relancé répond")
-        time.sleep(60)
-        rapport["noyau_relance"] = {"executeur": nouveau, "seul": json.loads(etat_fab.read_text(encoding="utf-8")).get("pid") == nouveau and nouveau in banc.processus()}
-        dire(f"noyau tué puis relancé : l'exécuteur {nouveau} {'continue seul' if rapport['noyau_relance']['seul'] else 'A ÉTÉ DOUBLÉ OU PERDU'}")
+        executeur = lambda: json.loads(etat_fab.read_text(encoding="utf-8")).get("pid")  # noqa: E731
+        if "coupure" not in etat:  # une fois par essai, même repris
+            dire("coupure : attente de 3 images faites…")
+            # l'exécuteur vivant : après une extinction, fabrication.json garde le pid mort de la veille (jamais tuer un pid réutilisé)
+            suivre(lambda t: (len([f for f in images.glob("*/images/plan_*.png") if lisible(f)]) >= 3 and executeur() in banc.processus())
+                   or t["etat"] in ("finie", "erreur"), 6 * 3600, "3 images")
+            pid = executeur()
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+            avant = {f: f.stat().st_mtime_ns for f in images.glob("*/images/plan_*.png") if lisible(f)}  # relevé après l'arrêt : plus rien ne s'écrit
+            dire(f"exécuteur {pid} tué avec {len(avant)} image(s) faites")
+            nouveau = banc.attendre(lambda: (p := executeur()) not in (None, pid) and p, 600, "l'exécuteur relancé", pas=2)
+            noyau.kill()  # « Quitter puis relancer » : le noyau s'arrête net, l'exécuteur détaché continue ; relancé, le noyau ne le double pas
+            noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     creationflags=subprocess.CREATE_NO_WINDOW)
+            banc.attendre(claude.repond, 60, "le noyau relancé répond")
+            time.sleep(60)
+            seul = executeur() == nouveau and nouveau in banc.processus()
+            dire(f"noyau tué puis relancé : l'exécuteur {nouveau} {'continue seul' if seul else 'A ÉTÉ DOUBLÉ OU PERDU'}")
+            etat["coupure"] = {"avant": {str(f): m for f, m in avant.items()}, "noyau_relance": {"executeur": nouveau, "seul": seul}}
+            ETAT.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+        avant = {Path(f): m for f, m in etat["coupure"]["avant"].items()}
+        rapport["noyau_relance"] = etat["coupure"]["noyau_relance"]
         t = suivre(lambda t: t["etat"] in ("finie", "erreur") and t, 20 * 3600, "la fin de l'essai")
-        rapport["duree_h"] = round((time.monotonic() - t0) / 3600, 2)  # horloge : attente de la carte et coupure comprises
+        rapport["duree_h"] = round((time.monotonic() - t0) / 3600, 2)  # horloge de ce lancement (attente de la carte et coupure comprises) ; calcul_h : l'essai entier
         rapport["coupure"] = {"images_avant": len(avant), "jamais_refaites": all(f.exists() and f.stat().st_mtime_ns == m for f, m in avant.items())}
         rapport["fin"] = t
         sid = next(s["id"] for s in claude.appeler("sessions") if s["nom"] == "Essais")
@@ -223,6 +246,7 @@ def main(argv=None) -> int:
                                   "defauts_du_plan": [dans_le_plan(d["controle"]["defauts"], le_plan, scenes), dans_le_plan(d2["controle"]["defauts"], le_plan, scenes)]}
             dire(f"refait en {rapport['refaire']['duree_h']} h : note {d2['controle']['note']}, {len(d2['controle']['defauts'])} défaut(s) ; défauts du plan "
                  f"{rapport['refaire']['defauts_du_plan'][0]} → {rapport['refaire']['defauts_du_plan'][1]}")
+        ETAT.unlink()  # l'essai est allé au bout : le prochain lancement en commence un nouveau
     except Exception as e:  # noqa: BLE001 — toute erreur va dans le rapport : jamais celui d'un essai d'avant, jamais rien
         rapport["erreur"] = f"{type(e).__name__} : {e}"
         dire(f"ARRÊT : {rapport['erreur']}")
