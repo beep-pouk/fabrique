@@ -579,3 +579,201 @@ def test_calage_et_karaoke_auto_verification():
 
     r = subprocess.run([sys.executable, "-m", "fabrique.moteur.paroles"], capture_output=True, text=True, cwd=Path(__file__).parents[2])
     assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
+
+
+# ---- J10 : F6 présentateur virtuel ----
+
+PRESENTATEUR = {"titre": "Les saisons factices", "description": "Une présentation factice.", "tags": ["saisons"], "presentateur": "pia factice",
+                "decor": "a cosy reading corner", "scenes": [
+                    {"id": "s1", "plans": [{"id": "p1", "texte": "Bonjour à tous."},
+                                           {"id": "p2", "texte": "Voici la neige.", "vue": "insert", "image": "a snowy forest", "mouvement": "gauche"}]},
+                    {"id": "s2", "plans": [{"id": "p1", "texte": "À bientôt.", "vue": "face"}]}]}
+
+
+def f6(**reglages) -> dict:
+    r = recettes.lire("F6")
+    return {**r, "reglages": {**r["reglages"], "duree_s": [1, 60], **reglages}}  # les fausses voix durent 1 s
+
+
+def personnage(s, nom: str) -> int:
+    """Un personnage de l'univers, son image de référence importée et validée (comme RT dans Session → Univers) ; l'id de la référence."""
+    from fabrique.session import univers
+    from fabrique.session.models import Personnage
+    from fabrique.tests.fixes import REFERENCE
+
+    univers.ajouter(s, "personnage", nom, "un personnage factice", "RT")
+    with execution.routeur.session(s):
+        p = Personnage.objects.get(nom=nom)
+    univers.importer_reference(s, p.id, REFERENCE, "RT")
+    with execution.routeur.session(s):
+        ref = p.references.get().id
+    univers.valider(s, ref, True, "RT")
+    return ref
+
+
+@pytest.fixture
+def presentatrice(essais):
+    import shutil
+
+    from fabrique.session import univers
+    from fabrique.session.models import Personnage
+
+    yield personnage(essais, "Pia Factice")
+    with execution.routeur.session(essais):
+        Personnage.objects.filter(nom__iexact="pia factice").delete()
+    shutil.rmtree(univers.racine(essais) / "univers" / "personnages" / univers.slug("Pia Factice"), ignore_errors=True)
+
+
+def test_f6_presentateur_de_bout_en_bout(essais, presentatrice):
+    from fabrique.tests.fixes import REFERENCE
+
+    v = fabriquer(essais, f6(), PRESENTATEUR)
+    finale = execution.finale(essais, v, "en")
+    m = montages.mesure(finale)
+    assert (m["largeur"], m["hauteur"], m["son"]) == (1920, 1080, True) and m["duree_s"] == pytest.approx(3 * 1.6, abs=0.1)  # chaque plan : sa voix + 0,6 s
+    assert [x["text"] for x in montages.sous_titres(finale)] == ["Bonjour à tous.", "Voici la neige.", "À bientôt."] and rapport(essais, v)["defauts"] == []
+    assert (execution.settings.SESSIONS / essais.dossier / "videos" / v / "_presentateur.png").read_bytes() == Path(REFERENCE).read_bytes()  # gardée avec la vidéo
+    assert morceau(essais, v, "levres", "s1/p2", "en")["demande"]["consigne"] == {"vue": "insert", "image": "a snowy forest", "mouvement": "gauche"}
+    assert morceau(essais, v, "levres", "s1/p1", "en")["demande"]["consigne"]["vue"] == "face"
+    with execution.routeur.session(essais):
+        assert {m.etape: m.outil for m in execution.Morceau.objects.filter(video_id=v)} == {
+            "voix": "faux_voix", "images": "faux_images", "levres": "faux_levres", "montage": "plan_montage", "miniature": "miniature_image", "revue": "controle_technique"}
+
+
+def test_f6_refus_de_la_forme_et_du_presentateur(essais, presentatrice):
+    from fabrique.session import univers
+
+    univers.ajouter(essais, "personnage", "PIA FACTICE", "la même, sans référence (comme l'import de Bramble Studio)", "RT")
+    assert execution.preparer(essais, f6(), PRESENTATEUR).titre == PRESENTATEUR["titre"]  # la fiche qui a une référence validée
+    with pytest.raises(Refus, match="n'est pas un personnage"):
+        execution.preparer(essais, f6(), {**PRESENTATEUR, "presentateur": "Personne"})
+    with pytest.raises(Refus, match="face caméra au moins une fois"):
+        execution.preparer(essais, f6(), {**PRESENTATEUR, "scenes": [{"id": "s1", "plans": [PRESENTATEUR["scenes"][0]["plans"][1]]}]})
+    with pytest.raises(Refus, match="consigne d'image"):
+        execution.preparer(essais, f6(), {**PRESENTATEUR, "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Regardez.", "vue": "insert"}]}]})
+    univers.valider(essais, presentatrice, False, "RT")
+    with pytest.raises(Refus, match="pas d'image de référence validée"):
+        execution.preparer(essais, f6(), PRESENTATEUR)
+    r = recettes.recette(recettes.lire("F6"))
+    assert r.script == "presentateur" and r.reglages.duree_s == (60, 900) and "musique" not in [e.brique for e in r.etapes]  # cahier § 5 : pas de musique
+
+
+def test_f6_presentateur_fige_bloquant(essais, presentatrice, monkeypatch):
+    from fabrique.moteur import faux
+
+    vrai = faux.fabriquer
+
+    def fige(fiche, d, dossier):  # les lèvres du dernier plan ne bougent pas (mouvement mesuré par l'outil réel)
+        r = vrai(fiche, d, dossier)
+        if d.brique == "levres" and d.consigne.get("vue") == "face":
+            r.infos.update(vue="face", mouvement=0.05 if d.unite == "s2/p1" else 0.6)
+        return r
+
+    monkeypatch.setattr(faux, "fabriquer", fige)
+    v = fabriquer(essais, f6(), PRESENTATEUR)
+    (x,) = [x for x in rapport(essais, v)["defauts"] if x.get("code") == "presentateur"]
+    assert x["gravite"] == "forte" and x["debut"] == pytest.approx(3.2, abs=0.05) and "s2/p1" in x["texte"]
+
+
+def test_f6_en_mode_reel_qwen_edit_et_longcat_simules(essais, presentatrice, monkeypatch):
+    """F6 en mode réel, les modèles simulés au plus près (Chatterbox et Whisper, Qwen-Image et Qwen-Image-Edit, ComfyUI, LongCat dans Linux) :
+    une image cadrée face caméra d'après la référence copiée avec la vidéo, pour tous les plans face ; un lot LongCat par langue ; l'insert
+    filmé par la caméra ; le mouvement des lèvres mesuré ; une coupure ne refait que le plan perdu."""
+    import shlex
+    import shutil
+    import subprocess
+
+    from fabrique.moteur import par_plan
+    from fabrique.moteur.f1 import comfy, images, voix
+    from fabrique.moteur.faux import lancer, programme
+    from fabrique.noyau import etat
+
+    monkeypatch.setattr(etat, "simulation", lambda: False)
+    reglages = execution.settings.SESSIONS / essais.dossier / "reglages"
+    reglages.mkdir(exist_ok=True)
+    (reglages / "config.json").write_text(json.dumps({"style": "style factice", "negatif_image": "x", "voix": {"ref_audio": "ref.wav", "ref_text": "x"},
+                                                      "images": {"largeur": 64, "hauteur": 32, "pas": 1, "cfg": 1, "shift": 1}}), encoding="utf-8")
+    appels = {"image": [], "edit": [], "longcat": [], "stop": 0}
+
+    def dire(o, dossier, scenes, cfg, *a, **k):
+        for s in scenes:
+            lancer(programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", f"sine=frequency=300:duration={1 + s['id'] / 10}", Path(dossier) / "voix" / f"s{s['id']:03d}.wav")
+        (Path(dossier) / "voix" / "_controle.json").write_text(json.dumps({str(s["id"]): {"score": 0.99, "entendu": s["narration"]} for s in scenes}), encoding="utf-8")
+
+    def qwen(self, prompt, out, seed, w=None, h=None, **k):
+        appels["image"].append((prompt, seed))
+        lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"color=c=0x406080:s={w}x{h}", "-frames:v", "1", out)
+
+    def edit(self, prompt, refs, out, seed, w=None, h=None, **k):
+        appels["edit"].append((prompt, [Path(r).name for r in refs], seed, w, h))
+        lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"color=c=0x806040:s={w}x{h}", "-frames:v", "1", out)
+
+    def windows(p: str) -> Path:
+        return Path(p[5].upper() + ":/" + p[7:])
+
+    vrai_run = par_plan.subprocess.run
+
+    def longcat(cmd, *a, **k):  # le lot de lipsync_batch.py : un clip qui bouge par plan, à la durée de sa voix
+        if cmd[0] != "wsl":
+            return vrai_run(cmd, *a, **k)
+        jobs = json.loads(windows(shlex.split(cmd[-1].split("--jobs ")[1])[0]).read_text(encoding="utf-8"))
+        appels["longcat"].append(jobs)
+        for j in jobs:
+            lancer(programme("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"testsrc=s=64x36:r=25:d={par_plan.duree(windows(j['audio'])):.2f}",
+                   "-pix_fmt", "yuv420p", windows(j["out"] + ".mp4"))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(voix, "faire", dire)
+    monkeypatch.setattr(images.Images, "qwen_image", qwen)
+    monkeypatch.setattr(images.Images, "qwen_edit", edit)
+    monkeypatch.setattr(comfy, "start", lambda *a, **k: None)
+    monkeypatch.setattr(comfy, "stop", lambda *a, **k: appels.__setitem__("stop", appels["stop"] + 1))
+    monkeypatch.setattr(par_plan.subprocess, "run", longcat)
+    try:
+        v = execution.preparer(essais, f6(), PRESENTATEUR)
+        with execution.routeur.session(essais):
+            assert {m.etape: m.outil for m in v.morceaux.all()} == {"voix": "plan_voix", "images": "plan_images", "levres": "plan_levres", "montage": "plan_montage",
+                                                                   "miniature": "miniature_image", "revue": "controle_technique"}
+        execution.jouer(essais, v.id)
+        (prompt, refs, graine, w, h), = appels["edit"]  # une image cadrée pour les deux plans face, d'après la référence copiée avec la vidéo
+        assert refs == ["_presentateur.png"] and (graine, w, h) == (7, 64, 32) and "pia factice from Picture 1" in prompt and "a cosy reading corner" in prompt
+        assert [g for _, g in appels["image"]] == [1002]  # l'insert seul
+        (lot,) = appels["longcat"]  # un lot pour la langue : les deux plans face
+        assert [Path(j["out"]).name for j in lot] == ["s001", "s003"] and all(j["image"].endswith("/image.png") and "pia factice talks" in j["prompt"] for j in lot)
+        assert lot[1]["audio"].endswith("/voix/s2/p1/voix.wav") and appels["stop"] >= 2  # ComfyUI arrêté après les images et avant LongCat
+        assert morceau(essais, v.id, "levres", "s1/p1", "en")["resultat"]["infos"]["lot"] == 2 and morceau(essais, v.id, "levres", "s2/p1", "en")["resultat"]["infos"]["lot"] == 0
+        assert morceau(essais, v.id, "levres", "s2/p1", "en")["resultat"]["infos"]["mouvement"] > 0.2  # mesuré : il bouge
+        assert morceau(essais, v.id, "levres", "s1/p2", "en")["resultat"]["infos"]["mouvement"] == "gauche"  # l'insert : la caméra
+        m = montages.mesure(execution.finale(essais, v.id, "en"))
+        assert m["duree_s"] == pytest.approx(1.7 + 1.8 + 1.9, abs=0.1) and m["son"] and rapport(essais, v.id)["defauts"] == []
+        # coupure : le clip du dernier plan perdu, refait seul
+        base = execution.settings.SESSIONS / essais.dossier / "videos" / v.id / "en"
+        shutil.rmtree(base / "levres" / "s2" / "p1")
+        (base / "atelier" / "video" / "levres" / "s003.mp4").unlink()
+        with execution.routeur.session(essais):
+            execution.Morceau.objects.filter(video_id=v.id, etape="levres", unite="s2/p1").update(etat="attente")
+        execution.jouer(essais, v.id)
+        assert [Path(j["out"]).name for j in appels["longcat"][1]] == ["s003"] and len(appels["edit"]) == 1
+    finally:
+        (reglages / "config.json").unlink()
+
+
+def test_video_pilote_au_format_presentateur(request):
+    from fabrique.noyau.models import Tache
+    from fabrique.session import reglages
+
+    s = reglages.creer(f"Session {request.node.name}", [{"code": "xx", "nom": "Langue factice"}], promesse="découvrir les saisons")
+    try:
+        reglages.ecrire(s, {"formats": ["F6"], "difference": "une saison différente", "style": "aquarelle douce"}, "RT")
+        reglages.finir(s, "RT")
+        s.refresh_from_db()
+        with pytest.raises(Refus, match="demande un présentateur"):
+            reglages.pilote(s, "RT")
+        personnage(s, "Pia Factice")
+        assert "dans la file" in reglages.pilote(s, "RT")
+        with execution.routeur.session(s):
+            v = execution.Video.objects.get(id=Tache.objects.get(session_id=s.id).video_id)
+            sc = recettes.script(v.script, "presentateur")
+            assert v.recette["id"] == "F6" and sc.presentateur == "Pia Factice" and [p.vue for x in sc.scenes for p in x.plans] == ["face", "insert", "face"]
+    finally:
+        Tache.objects.filter(session_id=s.id).delete()

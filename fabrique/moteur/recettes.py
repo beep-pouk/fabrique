@@ -2,7 +2,7 @@
 l'ordre, chacune « par » plan, scène ou vidéo, refaite pour chaque langue si « langue ». Chaque vidéo garde une copie de la recette qui l'a
 faite (session/models.py, Video.recette). Recettes livrées : recettes\\<id>.json ; une autre se donne par son chemin (essai d'un nouveau
 format). Le script d'une vidéo a sa forme, nommée par la recette (« scenes-plans-narrateur », « voix-off » : la même, plus par plan une
-consigne d'image et un mouvement de caméra)."""
+consigne d'image et un mouvement de caméra ; « presentateur » : un personnage de l'univers parle face caméra, avec des inserts)."""
 import json
 from pathlib import Path
 from typing import Annotated, Literal
@@ -55,7 +55,7 @@ class Recette(Strict):
     nom: str
     version: int = Field(ge=1)
     reglages: Reglages
-    script: Literal["scenes-plans-narrateur", "voix-off", "chanson", "scenario-bramble", "compilation", "extrait"]
+    script: Literal["scenes-plans-narrateur", "voix-off", "chanson", "presentateur", "scenario-bramble", "compilation", "extrait"]
     etapes: list[Etape] = Field(min_length=1)
     controles: str = ""
     outils: dict[str, str] = {}  # défaut du format : étape → outil
@@ -105,6 +105,36 @@ class SceneVoixOff(Scene):
 class ScriptVoixOff(Script):
     """F4 (et F3 créée seule) : une voix raconte, plan par plan, sur des images animées."""
     scenes: list[SceneVoixOff] = Field(min_length=1)
+
+
+class PlanPresentateur(Plan):
+    texte: str = Field(min_length=1, max_length=300)  # ce que le présentateur dit sur ce plan
+    vue: Literal["face", "insert"] = "face"  # face caméra (ses lèvres bougent), ou un insert : une image, sa voix continue
+    image: str = ""  # la consigne de l'image d'un insert
+    mouvement: Mouvement = "avancee"  # la caméra sur un insert
+
+    @model_validator(mode="after")
+    def insert_illustre(self):
+        if self.vue == "insert" and not self.image.strip():
+            raise ValueError("un insert a une consigne d'image")
+        return self
+
+
+class ScenePresentateur(Scene):
+    plans: list[PlanPresentateur] = Field(min_length=1)
+
+
+class ScriptPresentateur(Script):
+    """F6 : un personnage de l'univers de la session parle face caméra, dans son décor, avec des inserts."""
+    presentateur: str = Field(min_length=1, max_length=100)  # le nom d'un personnage de l'univers (sa référence validée garde son apparence)
+    decor: str = Field(min_length=1)  # où il se tient, face caméra
+    scenes: list[ScenePresentateur] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def face_camera(self):
+        if not any(p.vue == "face" for sc in self.scenes for p in sc.plans):
+            raise ValueError("un présentateur parle face caméra au moins une fois")
+        return self
 
 
 class Section(Strict):
@@ -196,9 +226,9 @@ class Extrait(Strict):
         return self
 
 
-FORMES = {"scenes-plans-narrateur": Script, "voix-off": ScriptVoixOff, "chanson": Chanson, "scenario-bramble": ScenarioBramble, "compilation": Compilation,
-          "extrait": Extrait}
-PAR_PLAN = ("scenes-plans-narrateur", "voix-off", "chanson")  # les formes qui se fabriquent plan par plan (une section de chanson = un plan)
+FORMES = {"scenes-plans-narrateur": Script, "voix-off": ScriptVoixOff, "chanson": Chanson, "presentateur": ScriptPresentateur, "scenario-bramble": ScenarioBramble,
+          "compilation": Compilation, "extrait": Extrait}
+PAR_PLAN = ("scenes-plans-narrateur", "voix-off", "chanson", "presentateur")  # les formes qui se fabriquent plan par plan (une section de chanson = un plan)
 
 
 def recette(donnees: dict) -> Recette:
@@ -233,7 +263,7 @@ def lire(source: str | Path) -> dict:
 
 def unites(s: Script, par: str) -> list[tuple[str, dict, str, dict]]:
     """(unité, exception d'outils, texte, consigne) de chaque morceau d'une étape « par » plan, scène ou vidéo ; la consigne d'un plan = ses
-    champs propres à la forme (voix-off : image, mouvement)."""
+    champs propres à la forme (voix-off : image, mouvement ; présentateur : vue, image, mouvement)."""
     if isinstance(s, Chanson):  # une section est un plan et une scène ; son texte : ses paroles
         return [(x.id, x.outils, "\n".join(x.paroles), x.model_dump(include={"type", "image", "mouvement"})) for x in s.sections] if par != "video" else [("", {}, s.titre, {})]
     if par == "plan":

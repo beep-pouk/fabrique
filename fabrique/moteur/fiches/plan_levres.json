@@ -1,0 +1,29 @@
+{
+ "id": "plan_levres",
+ "nom": "Présentateur par plan (LongCat-Video-Avatar 1.5 de Bramble Studio ; inserts : caméra)",
+ "roles": [
+  "levres"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "celle de l'outil de Bramble Studio (à reporter au banc, J6)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 16,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "plans face caméra : toute la langue d'un coup (modèle chargé une fois), environ 100 s de carte par tranche de 3 s de voix ; sessions reprises de Bramble Studio (reglages\\config.json)",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "module": "fabrique.moteur.par_plan",
+ "reglages": {
+  "secondes": 400
+ },
+ "exige": [
+  "reglages/config.json"
+ ]
+}

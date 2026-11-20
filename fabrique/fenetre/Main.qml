@@ -291,7 +291,7 @@ Window {
         border.width: choisi ? 2 : 1; border.color: choisi || activeFocus ? cSelection : cTrait
         Accessible.checkable: true; Accessible.checked: choisi
     }
-    component PlansLus: Column {  // les plans d'une scène d'une forme par plan (voix-off : texte dit, consigne d'image, mouvement)
+    component PlansLus: Column {  // les plans d'une scène d'une forme par plan (voix-off : texte dit, consigne d'image, mouvement ; présentateur : vue)
         property var plans: []
         property string scene: ""
         width: parent.width; spacing: 4
@@ -300,8 +300,9 @@ Window {
             Column {
                 width: parent.width; spacing: 0
                 T { objectName: "plan_lu_" + scene + "_" + modelData.id; text: modelData.texte || ""; width: parent.width }
-                T { visible: !!modelData.image; width: parent.width; color: cSecond; font.pixelSize: 12
-                    text: "image : " + (modelData.image || "") + (modelData.mouvement ? "  ·  caméra : " + modelData.mouvement : "") }
+                T { visible: modelData.vue === "face"; width: parent.width; color: cSecond; font.pixelSize: 12; text: "face caméra" }
+                T { visible: !!modelData.image && modelData.vue !== "face"; width: parent.width; color: cSecond; font.pixelSize: 12
+                    text: (modelData.vue ? "insert, " : "") + "image : " + (modelData.image || "") + (modelData.mouvement ? "  ·  caméra : " + modelData.mouvement : "") }
             }
         }
     }
@@ -1391,6 +1392,8 @@ Window {
                                 color: cSecond; font.pixelSize: 12 }
                         }
                     }
+                    T { visible: ongletVideo === "script" && !!video.script.presentateur; width: parent.width; color: cSecond
+                        text: "Présentateur : " + (video.script.presentateur || "") + "  ·  décor : " + (video.script.decor || "") }
                     Repeater {
                         model: ongletVideo === "script" ? (video.script.scenes || []) : []
                         Rectangle {
@@ -1572,10 +1575,10 @@ Window {
                                         property string planId: modelData.id
                                         Mono { text: "plan " + modelData.id; color: cSecond; font.pixelSize: 12 }
                                         Repeater {
-                                            model: ["texte", "image", "mouvement"].filter(c => c === "texte" || modelData[c] !== undefined)
+                                            model: ["texte", "vue", "image", "mouvement"].filter(c => c === "texte" || modelData[c] !== undefined)
                                             Column {
                                               width: parent.width; spacing: 2
-                                              property string nomChamp: ({texte: "Texte dit", image: "Image (consigne)", mouvement: "Caméra (fixe, avancee, recul, gauche, droite)"})[modelData]
+                                              property string nomChamp: ({texte: "Texte dit", vue: "Vue (face, insert)", image: "Image (consigne)", mouvement: "Caméra (fixe, avancee, recul, gauche, droite)"})[modelData]
                                               T { text: parent.nomChamp; color: cSecond; font.pixelSize: 12 }
                                               Rectangle {
                                                 width: parent.width; height: Math.max(36, champPlan.implicitHeight + 12); radius: 6; color: cLeve

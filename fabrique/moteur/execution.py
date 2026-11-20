@@ -21,7 +21,7 @@ from fabrique.garde import Refus
 from fabrique.moteur import outils, recettes
 from fabrique.noyau import routeur
 from fabrique.noyau.models import Chrono, Depense, Parametre, Session
-from fabrique.session.models import Morceau, Reglage, Video
+from fabrique.session.models import Morceau, Personnage, Reference, Reglage, Video
 
 log = logging.getLogger(__name__)
 ESSAIS, ESSAIS_PAYANT = 3, 2  # un appel payant n'est retenté qu'une fois
@@ -35,9 +35,10 @@ class Echec(Exception):
 
 def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions: dict | None = None) -> Video:
     """La vidéo et ses morceaux ; le script aussi en fichier (videos\\<id>\\<nom>.json : les outils de toute une vidéo le lisent), et ses
-    traductions (<nom>.<langue>.json : celles qui ont servi, gardées avec la vidéo)."""
+    traductions (<nom>.<langue>.json : celles qui ont servi, gardées avec la vidéo) ; pour un présentateur (F6), sa référence (_presentateur.<ext>)."""
     R = recettes.recette(recette)
     S = recettes.script(script, R.script)
+    reference = presentateur(s, S.presentateur) if R.script == "presentateur" else None
     for vid in ([S.intro, *S.videos] if R.script == "compilation" else [S.source] if R.script == "extrait" else []):
         with routeur.session(s):
             cite = Video.objects.filter(id=vid).first()
@@ -70,7 +71,22 @@ def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions
     fichier_script(s, v).write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
     for langue, contenu in (traductions or {}).items():
         traduction(s, v, langue).write_text(json.dumps(contenu, ensure_ascii=False, indent=1), encoding="utf-8")
+    if reference:  # copiée : la vidéo garde l'apparence qui l'a faite, même si l'univers change ensuite
+        shutil.copy2(reference, fichier_script(s, v).with_name(f"_presentateur{reference.suffix.lower()}"))
     return v
+
+
+def presentateur(s: Session, nom: str) -> Path:
+    """La première image de référence validée du personnage qui présente (F6), quelle que soit sa casse (l'import de Bramble Studio a deux
+    fiches pour un même ami, une seule avec ses références) ; refus en clair sans elle."""
+    with routeur.session(s):
+        connu = Personnage.objects.filter(nom__iexact=nom.strip()).exists()
+        ref = Reference.objects.filter(personnage__nom__iexact=nom.strip(), validee=True).order_by("id").first()
+    if not connu:
+        raise Refus(f"« {nom} » n'est pas un personnage de l'univers de « {s.nom} » (Session → Univers)")
+    if ref is None or not (f := settings.SESSIONS / s.dossier / ref.fichier).is_file():
+        raise Refus(f"« {nom} » n'a pas d'image de référence validée (Session → Univers) : le présentateur garde l'apparence qu'elle lui donne")
+    return f
 
 
 def langues(R: recettes.Recette, S, e: recettes.Etape) -> list[str]:

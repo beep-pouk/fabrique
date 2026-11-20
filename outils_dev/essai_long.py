@@ -103,13 +103,14 @@ def dans_le_plan(defauts: list[dict], plan: dict, scenes: dict[int, tuple[float,
 
 
 def preparer() -> Path:
-    """La session « Essais » reçoit l'univers de la session importée de Bramble Studio (fichiers et langues) ; la racine quitte la simulation."""
+    """La session « Essais » reçoit l'univers de la session importée de Bramble Studio (fichiers, langues, personnages et leurs références : le
+    présentateur de F6) ; la racine quitte la simulation."""
     import django
 
     django.setup()
     from fabrique.noyau import bases, routeur
     from fabrique.noyau.models import Parametre, Session
-    from fabrique.session.models import Langue
+    from fabrique.session.models import Langue, Personnage, Reference
 
     bases.migrer()
     essais = Session.objects.get(essais=True)
@@ -122,9 +123,15 @@ def preparer() -> Path:
             shutil.copytree(RACINE / "sessions" / bramble.dossier / d, vers / d, dirs_exist_ok=True)
     with routeur.session(bramble):  # les langues et leurs voix : l'étape « langue » les lit dans la base de la session de la vidéo
         langues = [{f.name: getattr(l, f.name) for f in Langue._meta.fields if f.name != "id"} for l in Langue.objects.all()]
+        champs = lambda o: {f.name: getattr(o, f.name) for f in o._meta.fields if f.name not in ("id", "personnage")}  # noqa: E731
+        persos = [(champs(p), [champs(r) for r in p.references.order_by("id")]) for p in Personnage.objects.order_by("id")]
     with routeur.session(essais):
         for l in langues:
             Langue.objects.update_or_create(code=l["code"], defaults=l)
+        if not Personnage.objects.exists():  # une fois : les fichiers des références sont déjà copiés (univers)
+            for p, refs in persos:
+                nouveau = Personnage.objects.create(**p)
+                Reference.objects.bulk_create([Reference(personnage=nouveau, **r) for r in refs])
     Parametre.ecrire("simulation", "non")
     return vers
 

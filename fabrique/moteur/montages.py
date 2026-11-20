@@ -174,7 +174,7 @@ def controle(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
         incrustes = None
     if d.reglages.get("sous_titres") == "incrustes" and incrustes == 0:
         defauts.append({"debut": None, "fin": None, "texte": "sous-titres incrustés attendus par le format : la source n'en a aucun", "gravite": "forte"})
-    defauts += voix_peu_intelligibles(d) + paroles_peu_comprises(d)
+    defauts += voix_peu_intelligibles(d) + paroles_peu_comprises(d) + presentateur_fige(d)
     if max_s := d.reglages.get("plan_fixe_max_s"):
         from fabrique.moteur.f1 import mouvement
         from fabrique.moteur.faux import programme
@@ -202,10 +202,7 @@ def paroles_peu_comprises(d: Demande) -> list[dict]:
 def voix_peu_intelligibles(d: Demande) -> list[dict]:
     """Les plans dont la voix, réécoutée par Whisper, reste sous le seuil de F1 après ses essais ; minutés au moment du plan dans la vidéo montée
     (« plans » du montage par plan)."""
-    quand, defauts = {}, []
-    for e, fs in d.entrees.items():
-        if d.sources.get(e) == "montage" and fs and (r := Path(fs[0]).parent / "resultat.json").is_file():
-            quand = {p["unite"]: p for p in json.loads(r.read_text(encoding="utf-8"))["infos"].get("plans", [])}
+    quand, defauts = moments(d), []
     for e, fs in d.entrees.items():
         if d.sources.get(e) != "voix":
             continue
@@ -219,6 +216,36 @@ def voix_peu_intelligibles(d: Demande) -> list[dict]:
                 p = quand.get(unite, {})
                 defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "voix", "gravite": "forte" if c["score"] < c.get("seuil", 0.93) - ECART_VOIX else "moyenne",
                                 "texte": f"voix peu intelligible ({unite} : {c['score']:.2f} sous {c.get('seuil', 0.93):.2f}, Whisper a entendu « {c.get('entendu', '')[:80]} »)"})
+    return defauts
+
+
+def moments(d: Demande) -> dict:
+    """Unité → son moment dans la vidéo montée (« plans » du montage par plan)."""
+    for e, fs in d.entrees.items():
+        if d.sources.get(e) == "montage" and fs and (r := Path(fs[0]).parent / "resultat.json").is_file():
+            return {p["unite"]: p for p in json.loads(r.read_text(encoding="utf-8"))["infos"].get("plans", [])}
+    return {}
+
+
+def presentateur_fige(d: Demande) -> list[dict]:
+    """F6 : un plan face caméra dont le clip ne bouge presque pas (mouvement mesuré par l'outil des lèvres sous le seuil de la revue de F1 ; de
+    vrais clips de LongCat bougent de 0,42 à 0,82) : le présentateur parle sans remuer les lèvres. Bloquant."""
+    from fabrique.moteur.f1 import mouvement
+
+    quand, defauts = moments(d), []
+    for e, fs in d.entrees.items():
+        if d.sources.get(e) != "levres":
+            continue
+        for morceau in dict.fromkeys(Path(f).parent for f in fs):
+            try:
+                i = json.loads((morceau / "resultat.json").read_text(encoding="utf-8"))["infos"]
+                unite = json.loads((morceau / "demande.json").read_text(encoding="utf-8"))["unite"]
+            except (OSError, ValueError, KeyError):
+                continue
+            if i.get("vue") == "face" and i.get("mouvement") is not None and i["mouvement"] < mouvement.SEUIL:
+                p = quand.get(unite, {})
+                defauts.append({"debut": p.get("debut"), "fin": p.get("fin"), "code": "presentateur", "gravite": "forte",
+                                "texte": f"présentateur figé ({unite} : mouvement {i['mouvement']} sous {mouvement.SEUIL}) : ses lèvres ne suivent pas sa voix"})
     return defauts
 
 

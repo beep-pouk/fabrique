@@ -179,6 +179,9 @@ def script_pilote(d: dict, forme: str = "scenes-plans-narrateur") -> dict:
         for sc in s["scenes"]:
             for p, mouvement in zip(sc["plans"], ("avancee", "droite")):
                 p |= {"image": d["style"] or p["texte"], "mouvement": mouvement}
+    if forme == "presentateur":  # face caméra, un insert au style de la session, face caméra
+        s |= {"presentateur": d["presentateur"], "decor": d["style"] or texte}
+        s["scenes"][0]["plans"][1] |= {"vue": "insert", "image": d["style"] or texte, "mouvement": "droite"}
     return s
 
 
@@ -200,6 +203,11 @@ def pilote(s: Session, acteur: str) -> str:
         raise Refus(f"le format {d['format']} se fabrique d'un script complet de la session : sa vidéo pilote = « Fabriquer » un de ses scripts")
     recette["reglages"]["langues"] = [l["code"] for l in d["langues"]]
     recette["outils"] = {e["id"]: outils.BRIQUES[e["brique"]]["simulation"] for e in recette["etapes"]}
+    if recette["script"] == "presentateur":  # le premier personnage qui a une référence validée présente
+        with routeur.session(s):
+            d["presentateur"] = m.Reference.objects.filter(validee=True).order_by("id").values_list("personnage__nom", flat=True).first()
+        if not d["presentateur"]:
+            raise Refus(f"le format {d['format']} demande un présentateur : un personnage de l'univers avec une image de référence validée (Session → Univers)")
     contenu = script_pilote(d, recette["script"])
     with routeur.session(s):
         if Tache.objects.filter(session_id=s.id, video_id__in=list(m.Video.objects.filter(nom__endswith=f"-{PILOTE}").values_list("id", flat=True)),

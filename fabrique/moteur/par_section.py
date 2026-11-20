@@ -108,10 +108,7 @@ def animation(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
     if image is None or not chants:
         raise RuntimeError("l'animation d'une section demande avant elle le chant et les images dans la recette")
     secondes = max([1.0, *(b["fin"] - b["debut"] for c in chants for b in bornes_du_chant(c) if b["id"] == d.unite)])
-    mouvement = d.consigne.get("mouvement", "avancee")
-    if mouvement == "fixe" and (max_s := d.reglages.get("plan_fixe_max_s")) and secondes > max_s:
-        mouvement = "avancee"  # jamais une image tenue sans mouvement au-delà de la limite du format
-    return par_plan.filmer(image, mouvement, secondes, d, dossier)
+    return par_plan.filmer(image, d.consigne.get("mouvement", "avancee"), secondes, d, dossier)
 
 
 def montage(fiche: Fiche, d: Demande, dossier: Path) -> Resultat:
