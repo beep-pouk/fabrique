@@ -83,6 +83,7 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "revenu": ("POST", "/api/sessions/{id}/publications/{pub}/revenu", s.Message),
     "portee": ("POST", "/api/sessions/{id}/publications/{pub}/portee", s.Message),
     "temps_rt": ("POST", "/api/sessions/{id}/temps", s.Message),
+    "assistant": ("POST", "/api/assistant", s.ReponseAssistant),  # J11 : la réponse dans « message »
     "deconnecter": ("POST", "/api/telephone/appareils/{appareil}/deconnecter", s.Message),
     "outils": ("GET", "/api/outils", s.Outils),
     "agir_outil": ("POST", "/api/outils/{outil}/{action}", s.Message),  # installer (ou mettre à jour), retirer, remettre

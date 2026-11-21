@@ -135,6 +135,34 @@ class Idee(BaseModel):
     creee: str
 
 
+class Estimer(BaseModel):
+    format: str  # F1 à F6
+    videos: int = Field(1, ge=1, le=100)
+
+
+class Estimation(BaseModel):
+    format: str
+    videos: int
+    connues: int  # vidéos finies de ce format, d'où viennent les médianes
+    fabrication_h: float | None
+    carte_h: float | None
+    cout_eur: float | None
+    texte: str
+
+
+class DemandeAssistant(BaseModel):
+    demande: str = Field(min_length=1, max_length=4000)
+    historique: list[dict] = []  # [{role: user|assistant, content}]
+    accord: bool = False  # « D'accord » de RT : les brouillons sont permis
+
+
+class ReponseAssistant(BaseModel):
+    message: str  # la réponse de l'assistant
+    outils: list[dict]
+    brouillons: list[str]
+    historique: list[dict]
+
+
 class NouvelleIdee(BaseModel):
     titre: str
     resume: str = ""

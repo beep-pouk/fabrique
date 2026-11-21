@@ -574,3 +574,22 @@ def test_le_lecteur_va_au_moment_d_un_defaut(qtbot, tmp_path):
     # Windows le laisse déplacer dans les 4 s que le noyau lui donne (execution.ESSAIS_OUVERT, ATTENTE_OUVERT) : le lecteur l'a bien lâché
     qtbot.waitUntil(lambda: deplacer(film, film.with_name("range.mp4")), timeout=4000)
     f.close()
+
+
+def test_assistant_par_dessus_tous_les_ecrans(qtbot):
+    """J11 : l'assistant (Ctrl+0) : une demande part avec l'historique, sa réponse s'affiche ; « D'accord » envoie l'accord ; rien d'autre."""
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: valeur(f, "sante")["version"] == "0.1.0")
+    assert not element(f, "assistant").isVisible() and not element(f, "accord_assistant").property("actif")
+    QTest.keyClick(f, Qt.Key.Key_0, Qt.KeyboardModifier.ControlModifier)
+    assert element(f, "assistant").isVisible()
+    element(f, "demande_assistant").setProperty("text", "Trois histoires du soir ?")
+    clic(f, "envoyer_assistant")
+    qtbot.waitUntil(lambda: ("/api/assistant", {"demande": "Trois histoires du soir ?", "historique": [], "accord": False}) in t.actions)
+    qtbot.waitUntil(lambda: [c["role"] for c in valeur(f, "conversation")] == ["user", "assistant"])
+    clic(f, "accord_assistant")
+    qtbot.waitUntil(lambda: any(a[0] == "/api/assistant" and a[1]["accord"] and len(a[1]["historique"]) == 2 for a in t.actions))
+    clic(f, "nav_assistant")
+    assert not element(f, "assistant").isVisible()

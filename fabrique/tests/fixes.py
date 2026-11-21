@@ -196,5 +196,7 @@ class Transport:
                 return {"message": "La page de Google est ouverte dans le navigateur.", "url": ""}
             if chemin == "/api/sessions":
                 return {"message": "Session « Nouvelle factice » créée.", "id": "s1"}
+            if chemin == "/api/assistant":
+                return {"message": "Plan : 3 vidéos F1, 6 h de fabrication.", "outils": [], "brouillons": [], "historique": []}
             return {"message": f"fait : {chemin}"}
         return REPONSES[(methode, chemin.split("?")[0])]

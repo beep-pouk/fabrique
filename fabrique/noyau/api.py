@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.http import FileResponse, StreamingHttpResponse
 from django.utils import timezone
 from ninja import NinjaAPI
@@ -28,7 +29,7 @@ log = logging.getLogger(__name__)
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", "temps", *GESTES},
+                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", "temps", "assistant", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer", "veille", "bancs"},  # « Fabrique.exe commande … » ; un banc : session « Essais » seulement (file.mettre)
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -119,6 +120,62 @@ def formats(request):
     from fabrique.session import reglages
 
     return reglages.catalogue()
+
+
+@api.post("/estimation", response=schemas.Estimation)
+@droit("estimer")
+def estimer(request, corps: schemas.Estimer):
+    """J11, assistant : n vidéos d'un format, d'après les médianes des vidéos finies de ce format dans toutes les sessions (temps des morceaux,
+    carte, dépenses) ; rien n'est créé."""
+    from statistics import median
+
+    from fabrique.noyau.models import Depense
+    from fabrique.publication import rendement
+
+    faites = []
+    for s in Session.objects.all():
+        try:
+            with routeur.session(s):
+                for v in m.Video.objects.filter(recette__id=corps.format).prefetch_related("morceaux"):
+                    ms = list(v.morceaux.all())
+                    if ms and all(x.etat == "fini" for x in ms):
+                        faites.append((sum(x.secondes or 0 for x in ms) / 3600, rendement.carte_s(v) / 3600,
+                                       sum(d.estime_eur if d.reel_eur is None else d.reel_eur for d in Depense.objects.filter(video_id=v.id))))
+        except DatabaseError:  # une base illisible : les autres comptent
+            continue
+    n = corps.videos
+    f, c, e = ([round(n * median(x[i] for x in faites), 2) for i in range(3)] if faites else (None, None, None))
+    texte = (f"{f:g} h de fabrication, dont {c:g} h de carte, {e:.2f} € (médianes de {len(faites)} vidéo(s) {corps.format})".replace(".", ",")
+             if faites else f"pas encore de vidéo {corps.format} finie : durée et coût inconnus")
+    return {"format": corps.format, "videos": n, "connues": len(faites), "fabrication_h": f, "carte_h": c, "cout_eur": e, "texte": texte}
+
+
+@api.post("/brouillons/session", response=schemas.SessionCreee)
+@droit("brouillon")
+def brouillon_session(request, corps: schemas.NouvelleSession):
+    """J11, assistant (après l'accord de RT) : une nouvelle session en pause à l'étape 1 ; RT la termine pas à pas."""
+    from fabrique.session import reglages
+
+    s = reglages.creer(corps.nom, corps.langues, corps.public, corps.promesse, "", ACTEURS[request.auth])
+    return {"message": f"Brouillon de session « {s.nom} » (en pause : à terminer dans Sessions).", "id": s.id}
+
+
+@api.post("/sessions/{id}/brouillons/video", response=schemas.Message)
+@droit("brouillon")
+def brouillon_video(request, id: str, corps: schemas.NouvelleIdee):
+    """J11, assistant (après l'accord de RT) : une idée au calendrier de la session ; RT en fait un script, puis la fabrique."""
+    from fabrique.session import calendrier
+
+    return {"message": calendrier.ajouter_idee(session_(id), corps.titre, corps.resume, "assistant", ACTEURS[request.auth])}
+
+
+@api.post("/assistant", response=schemas.ReponseAssistant)
+@droit("assistant")
+def assistant_(request, corps: schemas.DemandeAssistant):
+    """J11 : le panneau de l'assistant (fenêtre seulement) ; un brouillon seulement avec « accord »."""
+    from fabrique.noyau import assistant
+
+    return assistant.demander(corps.demande, corps.historique, corps.accord)
 
 
 @api.get("/modeles", response=list[schemas.Modele])

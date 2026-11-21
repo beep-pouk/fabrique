@@ -13,8 +13,8 @@ from django.db import connections
 
 from fabrique import dossiers, programme
 from fabrique.moteur import file
-from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
-from fabrique.noyau.models import Banc, Parametre, noter
+from fabrique.noyau import assistant, bases, depot, etat, evenements, jetons, sauvegarde, taches
+from fabrique.noyau.models import Banc, Parametre, Tache, noter
 from fabrique.publication import paquets, publication, statistiques
 from fabrique.session import calendrier
 
@@ -36,7 +36,8 @@ def tour(vu: dict, maintenant: datetime) -> dict:
     """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
     la tâche suivante lancée si la carte est libre (moteur/file.py) ; un envoi coupé repris (publication/publication.py), son échec notifié."""
     for nom, fn in (("dépôt", depot.traiter), ("file", file.tour), ("publication", publication.relancer), ("paquets", paquets.relancer),
-                    ("ordre strict", calendrier.une_fois_par_jour)):
+                    ("ordre strict", calendrier.une_fois_par_jour),
+                    ("assistant", lambda: assistant.ranger(Tache.objects.filter(etat__in=("attente", "en_cours")).exists()))):
         try:  # chacun à part : une panne de l'un n'arrête ni les autres, ni l'état, ni la sauvegarde du soir
             fn()
         except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant

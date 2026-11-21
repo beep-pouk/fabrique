@@ -24,6 +24,14 @@ Window {
     readonly property color cDefaut: "#F0564A"
 
     property string ecran: "accueil"
+    property var conversation: []  // J11, l'assistant : [{role: user|assistant|erreur, content}] ; le noyau ne garde rien
+    property bool assistantOuvert: false
+    property bool assistantAttend: false
+    function demanderAssistant(texte, accord) {
+        if (texte.trim() === "" || assistantAttend) return
+        pont.agir("assistant", {corps: {demande: texte, historique: conversation, accord: accord}})
+        conversation = conversation.concat([{role: "user", content: texte}]); assistantAttend = true
+    }
     property var sante: ({version: ""})
     property var sauvegardes: ({dossier: "", liste: [], derniere: {}})
     property var versions: ({installee: "", proposee: null, nouveautes: [], raison: ""})
@@ -227,6 +235,7 @@ Window {
             }
             if (nom === "finir_session" && ok) nouvelle = {etape: 7, id: nouvelle.id}
             if (nom === "voter" && ok) ligneBanc = Math.min(ligneBanc + 1, banc.lignes.length - 1)
+            if (nom === "assistant") { assistantAttend = false; conversation = conversation.concat([{role: ok ? "assistant" : "erreur", content: texte}]) }
             recharger()
         }
         function onAller(e) { aller(e) }
@@ -354,7 +363,50 @@ Window {
                 }
             }
         }
+        Bouton { objectName: "nav_assistant"; x: 16; anchors.bottom: parent.bottom; anchors.bottomMargin: 44; width: parent.width - 32
+                 texte: assistantOuvert ? "Fermer l'assistant" : "Assistant (Ctrl+0)"; onClic: assistantOuvert = !assistantOuvert }
         Mono { x: 16; anchors.bottom: parent.bottom; anchors.bottomMargin: 16; text: "F5 : actualiser"; color: cSecond; font.pixelSize: 12 }
+    }
+    Shortcut { sequences: ["Ctrl+0"]; onActivated: assistantOuvert = !assistantOuvert }
+
+    Rectangle {  // J11 : l'assistant, par-dessus tous les écrans ; il montre un plan chiffré, prépare un brouillon après « D'accord », jamais un geste
+        objectName: "assistant"
+        visible: assistantOuvert; z: 10
+        anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+        width: 400; color: cPanneau
+        Rectangle { width: 1; height: parent.height; color: cTrait }
+        Flickable {
+            id: filAssistant
+            anchors { left: parent.left; right: parent.right; top: parent.top; bottom: saisieAssistant.top; margins: 16 }
+            contentHeight: colAssistant.implicitHeight; clip: true
+            onContentHeightChanged: contentY = Math.max(0, contentHeight - height)
+            Column {
+                id: colAssistant
+                width: parent.width; spacing: 10
+                T { text: "Assistant"; font.pixelSize: 18; font.weight: Font.DemiBold }
+                T { visible: conversation.length === 0; width: parent.width; color: cSecond
+                    text: "Écrivez ce que vous voulez fabriquer : il répond par un plan chiffré. « D'accord » lui fait préparer un brouillon (session ou vidéo). Il ne fabrique, n'approuve et ne publie jamais." }
+                Repeater {
+                    model: conversation
+                    T { width: parent.width; text: (modelData.role === "user" ? "Vous : " : "") + modelData.content
+                        color: modelData.role === "user" ? cSecond : modelData.role === "erreur" ? cDefaut : cTexte }
+                }
+                T { visible: assistantAttend; text: "…"; color: cSecond }
+            }
+        }
+        Column {
+            id: saisieAssistant
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 16 }
+            spacing: 8
+            Champ { id: demandeAssistant; nom: "demande_assistant"; width: parent.width; libelle: "Votre demande" }
+            Row {
+                spacing: 8
+                Bouton { objectName: "envoyer_assistant"; texte: "Envoyer"; actif: !assistantAttend && demandeAssistant.texte.trim() !== ""
+                         onClic: { demanderAssistant(demandeAssistant.texte, false); demandeAssistant.texte = "" } }
+                Bouton { objectName: "accord_assistant"; texte: "D'accord, préparer"; actif: !assistantAttend && conversation.length > 0
+                         onClic: demanderAssistant("D'accord : prépare le brouillon de ce plan.", true) }
+            }
+        }
     }
 
     Item {
