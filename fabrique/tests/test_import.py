@@ -32,6 +32,8 @@ TABLES = {
     "core_langue": "id integer primary key, code text, nom text, ordre integer, rtl bool, police text, voix_validee bool, outil_voix text, reglages_voix text, "
                    "raison text, note text, preselectionnee bool",
     "core_parametre": "cle text primary key, valeur text",
+    "core_musique": "id integer primary key, nom text, consigne text, outil text, licence text, credit text, verrouillee bool",
+    "core_voix": "id integer primary key, nom text, consigne text, outil text, licence text, credit text, verrouillee bool",
 }
 SCENARIO = {"format": 2, "title": "Une histoire factice", "scenes": [{"id": 1, "narration": "Il était une fois."}]}
 
@@ -67,6 +69,7 @@ def studio(tmp_path, monkeypatch):
     c.execute("insert into core_reference values (1, 1, 'PROJET/personnages/ami_un/references_gemini/1_face.jpg', 'face', 'gemini', 1, 0, '2026-11-01 10:00:00')")
     c.execute("insert into core_langue values (1, 'xx', 'Langue factice', 1, 0, '', 1, 'outil_factice', ?, 'r', null, 1)",
               (json.dumps({"ref": "PROJET/tests/voix_langues/xx/ref.wav", "t3": "modele/t3.safetensors"}),))
+    c.execute("insert into core_musique values (1, 'Berceuse factice', 'piano doux', 'outil_musique', 'licence factice', 'Compositeur Factice', 1)")
     c.executemany("insert into core_parametre values (?, ?)", [("depart_chaine", "2026-12-01"), ("composant_ffmpeg", "D:/ailleurs"), ("cle_gemini", "SECRET"),
                                                                ("youtube_chaine", "SECRET"), ("code_telephone", "123456")])
     c.commit()  # reste dans le wal : la connexion reste ouverte, rien n'est reporté dans la base
@@ -88,7 +91,7 @@ def test_a_blanc_puis_pour_de_vrai(studio):
     avant = empreinte(studio)
     r = bramble.importer()
     assert r["a_blanc"] and r["session"] == "Session Factice" and not Session.objects.filter(nom="Session Factice").exists()
-    assert r["base"] == {"episodes": 1, "versions": 1, "fiches": 1, "idees": 0, "personnages": 1, "lieux": 1, "references": 1, "langues": 1}
+    assert r["base"] == {"episodes": 1, "versions": 1, "fiches": 1, "idees": 0, "personnages": 1, "lieux": 1, "references": 1, "langues": 1, "ressources": 1}
     assert r["fichiers"]["nombre"] == 15  # 11 fichiers et dossiers de la liste (dont 3 fichiers de personnages), la règle, la voix de référence de la langue
     r = bramble.importer(pour_de_vrai=True, acteur="RT")
     assert r["copies_identiques"] and r["source_intacte"] and empreinte(studio) == avant  # rien n'a bougé chez Bramble Studio
@@ -104,6 +107,11 @@ def test_a_blanc_puis_pour_de_vrai(studio):
         l = m.Langue.objects.get(code="xx")
         assert l.reglages_voix == {"ref": "univers/voix_langues/xx/ref.wav", "t3": "modele/t3.safetensors"} and (d / l.reglages_voix["ref"]).is_file()
         assert m.Prevision.objects.get().details["heros"] == "Ami Un" and m.Prevision.objects.get().details["episode"] == "s1e01"
+        r_ = m.Ressource.objects.get()
+        assert (r_.type, r_.licence, r_.credit, r_.verrouillee) == ("musique", "licence factice", "Compositeur Factice", True)  # droits et crédits
+    from fabrique.session import reglages
+    d_ = reglages.lire(s)
+    assert d_["formats"] == ["F1"] and d_["format"] == "F1" and d_["difference"] and d_["assistant"] == "fini"  # le garde-fou ne bloque pas Bramble
     assert json.loads((d / "import_bramble.json").read_text(encoding="utf-8"))["copies_identiques"]
 
 

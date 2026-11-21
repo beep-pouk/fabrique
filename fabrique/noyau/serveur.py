@@ -1,6 +1,7 @@
 """Le processus du noyau (« Fabrique.exe noyau ») : instance unique (prise exclusive du port de l'API, faite ici : waitress seul laisserait deux
 serveurs écouter le même port sous Windows), migrations en attente, jetons, puis l'API ; une boucle de fond écrit l'état chaque minute, publie
-les changements, lance la sauvegarde du soir (installée seulement : jamais en développement). Repris de Bramble Studio (core/lancement.py)."""
+les changements, lance la sauvegarde du soir et le relevé quotidien des statistiques (installée seulement : jamais en développement), reprend un envoi que RT a lancé (Publier) et que plus rien n'envoie, fait les paquets prêts à poster d'une vidéo approuvée. Repris de Bramble
+Studio (core/lancement.py)."""
 import logging
 import os
 import threading
@@ -13,7 +14,9 @@ from django.db import connections
 from fabrique import dossiers, programme
 from fabrique.moteur import file
 from fabrique.noyau import bases, depot, etat, evenements, jetons, sauvegarde, taches
-from fabrique.noyau.models import Parametre, noter
+from fabrique.noyau.models import Banc, Parametre, noter
+from fabrique.publication import paquets, publication, statistiques
+from fabrique.session import calendrier
 
 log = logging.getLogger(__name__)
 PAS = 2  # secondes entre deux tours de la boucle de fond
@@ -31,26 +34,39 @@ def quitter_bientot(delai: float = 0.5):
 
 def tour(vu: dict, maintenant: datetime) -> dict:
     """Un tour de la boucle de fond ; `vu` garde ce qui a été publié (état de la sauvegarde, de la file, heure du dernier état écrit). La file :
-    la tâche suivante lancée si la carte est libre (moteur/file.py)."""
-    try:  # une file ou un dépôt en panne n'arrêtent ni l'état ni la sauvegarde du soir
-        depot.traiter()
-        file.tour()
-    except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
-        log.exception("dépôt ou file : tour raté")
-    s, f = taches.lire("sauvegarde"), file.lister()
-    change = s != vu.get("sauvegarde") or f != vu.get("file")
+    la tâche suivante lancée si la carte est libre (moteur/file.py) ; un envoi coupé repris (publication/publication.py), son échec notifié."""
+    for nom, fn in (("dépôt", depot.traiter), ("file", file.tour), ("publication", publication.relancer), ("paquets", paquets.relancer),
+                    ("ordre strict", calendrier.une_fois_par_jour)):
+        try:  # chacun à part : une panne de l'un n'arrête ni les autres, ni l'état, ni la sauvegarde du soir
+            fn()
+        except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant
+            log.exception("%s : tour raté", nom)
+    s, f, p = taches.lire("sauvegarde"), file.lister(), {t: taches.lire(t) for t in ("publication", "paquets")}
+    i, a_voter = taches.lire("installation"), set(Banc.objects.filter(etat="a_voter").values_list("id", flat=True))
+    change = s != vu.get("sauvegarde") or f != vu.get("file") or i != vu.get("installation")
     if "sauvegarde" in vu:
+        if i != vu.get("installation", i) and i.get("etat") in ("faite", "erreur"):
+            evenements.publier("info" if i["etat"] == "faite" else "alerte", titre="Outil installé" if i["etat"] == "faite" else "Installation ratée",
+                               message=f"{i.get('outil', '')} {i.get('message', '')}".strip())
+        for b in sorted(a_voter - vu.get("bancs", a_voter)):
+            evenements.publier("info", titre="Banc prêt", message=f"Banc {b} : à vous de voter, à l'aveugle (écran Banc, Ctrl+5)")
         if s != vu["sauvegarde"]:
             evenements.publier("sauvegarde", **s)
         if f != vu["file"]:
             evenements.publier("file", taches=f)
+        for t, titre in (("publication", "Publication"), ("paquets", "Paquets prêts à poster")):
+            if p[t] != vu["publication"][t] and p[t].get("etat") == "erreur":
+                for a in p[t].get("alertes", []):
+                    evenements.publier("alerte", titre=titre, message=a)
     if change or time.monotonic() - vu.get("ecrit", -MINUTE) >= MINUTE:
         evenements.publier("etat", **etat.ecrire())
         vu["ecrit"] = time.monotonic()
-    vu["sauvegarde"], vu["file"] = s, f
+    vu["sauvegarde"], vu["file"], vu["publication"], vu["installation"], vu["bancs"] = s, f, p, i, a_voter
     if programme.installee() and taches.due(Parametre.lire("auto_sauvegarde"), maintenant) and not taches.occupe("sauvegarde"):
         Parametre.ecrire("auto_sauvegarde", maintenant.isoformat(timespec="seconds"))
         taches.lancer("sauvegarde", "noyau")
+    if programme.installee() and statistiques.du(maintenant) and not taches.occupe("releve"):
+        statistiques.lancer("noyau")
     return vu
 
 

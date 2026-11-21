@@ -1,0 +1,10 @@
+{
+ "_source": "Fiches des réseaux pour les paquets prêts à poster (J4). Limites de publication des API (plus strictes que les applis), relevées le 18/11/2026 : docs.publora.com/guides/platform-limits ; Snapchat Spotlight : 60 s. Une valeur à changer = une donnée, jamais du code. format : largeur × hauteur de la vidéo et de la miniature (une image d'un autre format est posée sur son propre fond flouté, jamais rognée) ; parties_max : une vidéo plus longue que duree_max_s est coupée en parties (aux silences) si elle en fait au plus parties_max, sinon pas de paquet (la déclinaison courte s'en chargera) ; titre_max 0 : pas de champ titre, le titre ouvre le texte.",
+ "reseaux": [
+  {"id": "tiktok", "nom": "TikTok", "largeur": 1080, "hauteur": 1920, "duree_min_s": 3, "duree_max_s": 600, "parties_max": 3, "poids_max_mo": 1000, "texte_max": 2200, "titre_max": 0, "hashtags_max": 5},
+  {"id": "instagram", "nom": "Instagram (Reels)", "largeur": 1080, "hauteur": 1920, "duree_min_s": 3, "duree_max_s": 900, "parties_max": 2, "poids_max_mo": 300, "texte_max": 2200, "titre_max": 0, "hashtags_max": 5},
+  {"id": "facebook", "nom": "Facebook", "largeur": 1920, "hauteur": 1080, "duree_min_s": 1, "duree_max_s": 2700, "parties_max": 1, "poids_max_mo": 2000, "texte_max": 5000, "titre_max": 0, "hashtags_max": 5},
+  {"id": "pinterest", "nom": "Pinterest", "largeur": 1080, "hauteur": 1920, "duree_min_s": 4, "duree_max_s": 900, "parties_max": 2, "poids_max_mo": 2000, "texte_max": 800, "titre_max": 100, "hashtags_max": 5},
+  {"id": "snapchat", "nom": "Snapchat (Spotlight)", "largeur": 1080, "hauteur": 1920, "duree_min_s": 5, "duree_max_s": 60, "parties_max": 1, "poids_max_mo": 250, "texte_max": 160, "titre_max": 0, "hashtags_max": 3}
+ ]
+}

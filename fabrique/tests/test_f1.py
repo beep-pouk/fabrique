@@ -42,7 +42,7 @@ def test_recette_f1():
 def test_f1_en_simulation_de_bout_en_bout(essais):
     v = execution.preparer(essais, recettes.lire("F1"), SCENARIO, nom="2026-01-01-s1e01")
     with routeur.session(essais):
-        assert {m.outil for m in Morceau.objects.filter(video=v)} == {b["simulation"] for b in outils.BRIQUES.values()}  # simulation : jamais un vrai outil
+        assert {m.outil for m in Morceau.objects.filter(video=v)} == {outils.BRIQUES[m.brique]["simulation"] for m in Morceau.objects.filter(video=v)}  # simulation : jamais un vrai outil
     execution.jouer(essais, v.id)
     with routeur.session(essais):
         assert {m.etat for m in Morceau.objects.filter(video=v)} == {"fini"}
@@ -277,12 +277,19 @@ def test_refaire_rate_ne_bouge_rien(essais, monkeypatch):
 
     v = execution.preparer(essais, recettes.lire("F1"), SCENES, nom="2026-01-01-s1e01")
     execution.jouer(essais, v.id)
-    monkeypatch.setattr(refaire, "preparer", lambda *a, **k: (_ for _ in ()).throw(OSError("fichier ouvert")))  # l'atelier refuse de bouger
+    monkeypatch.setattr(execution, "ATTENTE_OUVERT", 0)
+    appels = []
+    monkeypatch.setattr(refaire, "preparer", lambda *a, **k: appels.append(1) or (_ for _ in ()).throw(OSError("fichier ouvert")))  # l'atelier refuse de bouger
     with pytest.raises(Refus, match="rien n'a bougé"):
         execution.refaire(essais, v.id, [1], "RT")
+    assert len(appels) == execution.ESSAIS_OUVERT
     with routeur.session(essais):
         assert {m.etat for m in Morceau.objects.filter(video=v)} == {"fini"}
         assert all(execution.resultat(essais, m) for m in Morceau.objects.filter(video=v))  # chaque morceau à sa place
+    # un fichier lâché avec retard (le lecteur de la fenêtre) : la tentative suivante passe
+    monkeypatch.setattr(refaire, "preparer", lambda *a, **k: {"plans": [1], "etapes": ["images"], "ranges": []} if appels.append(1) or len(appels) > execution.ESSAIS_OUVERT + 1 else
+                        (_ for _ in ()).throw(OSError("fichier ouvert")))
+    assert "à refaire" in execution.refaire(essais, v.id, [1], "RT")
 
 
 def test_estimation_f1_suit_la_longueur_du_script():

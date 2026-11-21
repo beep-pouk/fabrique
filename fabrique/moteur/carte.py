@@ -1,4 +1,4 @@
-"""Verrou de la carte (plan § 5.4), vérifié avant chaque tâche lourde : 1) une seule des nôtres à la fois ; 2) Bramble Studio ne fabrique rien
+"""Verrou de la carte (plan § 5.4), vérifié avant chaque tâche lourde : 1) une seule des nôtres à la fois, et aucune pendant l'installation d'un outil ; 2) Bramble Studio ne fabrique rien
 (son DONNEES\\etat.json, lu sans jamais l'écrire : il le réécrit au moins chaque minute, un état de plus de 15 min veut dire qu'il est arrêté ;
 récent mais illisible : on attend ; seule une tâche d'épisode compte, ses autres tâches lourdes (analyses) sont vues par la règle 3) ;
 3) aucun autre gros programme sur la carte (nvidia-smi : utilisation d'au moins 50 %, le seuil de Bramble Studio, ou la moitié de sa mémoire
@@ -53,4 +53,4 @@ def autre_programme() -> str:
 
 
 def occupee(maintenant: datetime | None = None) -> str:
-    return ("une fabrication est déjà en cours" if taches.occupe("fabrication") else "") or bramble(maintenant or datetime.now()) or autre_programme()
+    return ("une fabrication est déjà en cours" if taches.occupe("fabrication") else "") or ("un outil s'installe" if taches.occupe("installation") else "") or bramble(maintenant or datetime.now()) or autre_programme()

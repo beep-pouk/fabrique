@@ -1,5 +1,6 @@
 """Réglages Django du noyau. Une base du noyau (donnees\\noyau.sqlite3) ; la base de chaque session est branchée à la demande par
-noyau/routeur.py (sessions\\<dossier>\\session.sqlite3). API locale seulement : ni cookies, ni formulaires, ni pages."""
+noyau/routeur.py (sessions\\<dossier>\\session.sqlite3). L'API locale, et une seule page : celle de
+l'iPhone (noyau/telephone.py), jointe par `tailscale serve` (hôte *.ts.net)."""
 import tomllib
 
 from fabrique import dossiers
@@ -12,7 +13,7 @@ VERSION = tomllib.loads((dossiers.CODE.parent / "pyproject.toml").read_text(enco
 
 SECRET_KEY = "fabrique-api-locale"  # rien n'est signé : l'API se protège par jeton (noyau/jetons.py)
 DEBUG = False
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".ts.net"]
 INSTALLED_APPS = ["fabrique.noyau", "fabrique.session"]
 MIDDLEWARE = []
 ROOT_URLCONF = "fabrique.urls"

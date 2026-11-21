@@ -2,6 +2,7 @@
 (noyau/schemas.py), jamais recopiés ; tests/test_contrat.py vérifie que chaque appel existe tel quel dans le contrat OpenAPI. Sans Django ni Qt."""
 import json
 import socket
+import string
 import time
 import urllib.error
 import urllib.parse
@@ -41,6 +42,56 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "nouvelle_version": ("POST", "/api/sessions/{id}/scripts/{code}/versions", s.Message),
     "demander": ("POST", "/api/sessions/{id}/scripts/{code}/demander", s.Message),
     "agir_file": ("POST", "/api/file/{id}/{action}", s.Message),
+    "destinations": ("GET", "/api/sessions/{id}/destinations", list[s.Destination]),
+    "relier": ("POST", "/api/sessions/{id}/destinations/{langue}/relier", s.Lien),
+    "rafraichir": ("POST", "/api/sessions/{id}/destinations/{langue}/rafraichir", s.Message),
+    "approuver": ("POST", "/api/sessions/{id}/videos/{video}/approuver", s.Message),
+    "publications": ("GET", "/api/sessions/{id}/videos/{video}/publications", list[s.Publication]),
+    "retoucher": ("POST", "/api/sessions/{id}/publications/{pub}/retoucher", s.Message),
+    "choisir": ("POST", "/api/sessions/{id}/publications/{pub}/choisir", s.Message),
+    "publier": ("POST", "/api/sessions/{id}/publications/{pub}/{action}", s.Message),  # action : publier, reprendre, annuler
+    "paquets": ("GET", "/api/sessions/{id}/videos/{video}/paquets", list[s.Paquet]),
+    "refaire_paquets": ("POST", "/api/sessions/{id}/videos/{video}/paquets", s.Message),
+    "code_telephone": ("POST", "/api/telephone/code", s.CodeTelephone),
+    "importer_session": ("POST", "/api/sessions/importer", s.Message),
+    "agir_session": ("POST", "/api/sessions/{id}/{action}", s.Message),  # pause, reprendre, archiver, desarchiver, dupliquer, exporter, modele
+    "changer_mode": ("POST", "/api/mode", s.Message),
+    "nouvelle_session": ("POST", "/api/sessions", s.SessionCreee),
+    "formats": ("GET", "/api/formats", list[s.Format]),
+    "modeles": ("GET", "/api/modeles", list[s.Modele]),
+    "calendrier": ("GET", "/api/calendrier", list[s.ElementCalendrier]),  # debut, fin, session : dans la requête
+    "historique": ("GET", "/api/sessions/{id}/historique", list[s.Changement]),
+    "ajouter_element": ("POST", "/api/sessions/{id}/univers/ajouter", s.Message),
+    "ecrire_style": ("POST", "/api/sessions/{id}/univers/style", s.Message),
+    "ecrire_droits": ("POST", "/api/sessions/{id}/univers/{type}/{pk}/droits", s.Message),
+    "partager": ("POST", "/api/sessions/{id}/univers/{type}/{pk}/partager", s.Message),
+    "valider_reference": ("POST", "/api/sessions/{id}/references/{pk}/valider", s.Message),
+    "importer_reference": ("POST", "/api/sessions/{id}/personnages/{pk}/references", s.Message),
+    "reglages": ("GET", "/api/sessions/{id}/reglages", s.ReglagesSession),
+    "ecrire_reglages": ("POST", "/api/sessions/{id}/reglages", s.Message),
+    "finir_session": ("POST", "/api/sessions/{id}/finir", s.Message),
+    "pilote": ("POST", "/api/sessions/{id}/pilote", s.Message),
+    "etape_suivante": ("POST", "/api/sessions/{id}/reglages", s.Message),  # « Suivant » de la nouvelle session : son propre nom (la fenêtre avance sur sa réponse)
+    "creer_script": ("POST", "/api/sessions/{id}/scripts", s.ScriptCree),
+    "dater_script": ("POST", "/api/sessions/{id}/scripts/{code}/dater", s.Message),
+    "idees": ("GET", "/api/sessions/{id}/idees", list[s.Idee]),
+    "ajouter_idee": ("POST", "/api/sessions/{id}/idees", s.Message),
+    "suivi": ("GET", "/api/sessions/{id}/videos/{video}/suivi", list[s.SuiviPublication]),
+    "appareils": ("GET", "/api/telephone/appareils", list[s.Appareil]),
+    "deconnecter": ("POST", "/api/telephone/appareils/{appareil}/deconnecter", s.Message),
+    "outils": ("GET", "/api/outils", s.Outils),
+    "agir_outil": ("POST", "/api/outils/{outil}/{action}", s.Message),  # installer (ou mettre à jour), retirer, remettre
+    "depenses": ("GET", "/api/depenses", s.Depenses),
+    "plafond": ("POST", "/api/depenses/plafond", s.Message),
+    "bancs": ("GET", "/api/bancs", list[s.BancListe]),
+    "nouveau_banc": ("POST", "/api/bancs", s.Message),
+    "banc": ("GET", "/api/bancs/{id}", s.BancDetail),
+    "voter": ("POST", "/api/bancs/{id}/voter", s.Message),
+    "rendre_verdict": ("POST", "/api/bancs/{id}/verdict", s.Message),
+    "adopter": ("POST", "/api/bancs/{id}/adopter", s.Message),
+    "veille": ("GET", "/api/veille", list[s.CandidatVeille]),
+    "verser_veille": ("POST", "/api/veille", s.Message),
+    "statut_veille": ("POST", "/api/veille/{pk}/statut", s.Message),
 }
 
 
@@ -72,7 +123,10 @@ class Client:
     def appeler(self, appel: str, corps=None, /, **params):
         methode, chemin, schema = APPELS[appel]
         t = TypeAdapter(schema)
-        lu = self.transport(methode, chemin.format(**{k: urllib.parse.quote(str(v), safe="") for k, v in params.items()}), corps)
+        champs = {f for _, f, _, _ in string.Formatter().parse(chemin) if f}
+        requete = {k: v for k, v in params.items() if k not in champs}  # le reste : dans la requête (calendrier : debut, fin, session)
+        chemin = chemin.format(**{k: urllib.parse.quote(str(v), safe="") for k, v in params.items() if k in champs})
+        lu = self.transport(methode, chemin + (f"?{urllib.parse.urlencode(requete)}" if requete else ""), corps)
         return t.dump_python(t.validate_python(lu), mode="json")
 
     def repond(self) -> bool:

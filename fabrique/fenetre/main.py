@@ -24,7 +24,8 @@ from fabrique.fenetre.client import Client, ErreurApi
 log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
 GARDE_MS = 30_000
-VK_1, VK_2, VK_3 = 0x31, 0x32, 0x33  # touches 1, 2 et 3 du haut du clavier, quelle que soit la disposition (AZERTY : « & » et « é »)
+CREATIONS = {"nouvelle_session", "relier", "code_telephone"}  # des lectures qui font quelque chose : leur refus est dit à RT
+VK_1, VK_2, VK_3, VK_4, VK_5, VK_9 = 0x31, 0x32, 0x33, 0x34, 0x35, 0x39  # touches du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
 
 
 class Pont(QObject):
@@ -57,8 +58,12 @@ class Pont(QObject):
     def _lire(self, nom: str, params: dict | None = None):
         params = params or {}
         try:
-            self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon
-        except (OSError, ErreurApi) as e:
+            self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon, une nouvelle session
+        except ErreurApi as e:  # le refus d'une lecture qui crée (nouvelle session : nom pris…) est dit à RT ; les autres seulement journalisés
+            log.warning("lecture %s : %s", nom, e)
+            if nom in CREATIONS:
+                self.fait.emit(nom, str(e)[:1].upper() + str(e)[1:] + ".", False)
+        except OSError as e:
             log.warning("lecture %s : %s", nom, e)
 
     @Slot(str, "QVariantMap")
@@ -84,6 +89,10 @@ class Pont(QObject):
             self.notifier("La sauvegarde a raté", d.get("message", ""), True)
         elif type_ == "noyau":
             self.notifier("Le noyau de Fabrique ne démarre pas", d.get("message", ""), True)
+        elif type_ == "alerte":
+            self.notifier(d.get("titre", "Fabrique"), d.get("message", ""), True)
+        elif type_ == "info":
+            self.notifier(d.get("titre", "Fabrique"), d.get("message", ""))
 
     def eventFilter(self, _, e):
         if e.type() == QEvent.Type.KeyPress:
@@ -91,7 +100,8 @@ class Pont(QObject):
             repetee = e.isAutoRepeat() or e.key() in self.tenues
             self.tenues.add(e.key())
             ctrl = bool(e.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "systeme")) if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
+            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "outils"), (VK_5, "banc"), (VK_9, "systeme"))
+                           if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
             ecran = touche or ("" if e.key() == Qt.Key.Key_F5 else None)
             if ecran is not None:
                 if not repetee:

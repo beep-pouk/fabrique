@@ -1,5 +1,7 @@
-"""Les tâches détachées du noyau (« executer <tâche> ») : la sauvegarde (le soir à 23 h 30, ou au clic de RT), tâche légère, et la fabrication
-d'une vidéo de la file (moteur/file.py), tâche lourde. L'état de chacune est un fichier (donnees\\taches\\<tâche>.json) : lu par le noyau, par
+"""Les tâches détachées du noyau (« executer <tâche> ») : la sauvegarde (le soir à 23 h 30, ou au clic de RT), la publication (les envois
+lancés par « Publier », publication/publication.py), les paquets prêts à poster (publication/paquets.py) et le relevé quotidien des statistiques
+(publication/statistiques.py), tâches légères, la fabrication d'une vidéo ou un banc de la file (moteur/file.py), tâche lourde, et
+l'installation d'un outil (moteur/installation.py), jamais pendant une fabrication. L'état de chacune est un fichier (donnees\\taches\\<tâche>.json) : lu par le noyau, par
 « libre » (installateur) et par Claude, sans la base. Sans Django en tête de module : « libre » le lit sans le démarrer."""
 import json
 import logging
@@ -10,7 +12,7 @@ from datetime import datetime, timedelta
 from fabrique import dossiers, programme
 
 log = logging.getLogger(__name__)
-TACHES = ("sauvegarde", "fabrication")
+TACHES = ("sauvegarde", "fabrication", "publication", "releve", "paquets", "installation")
 DEMARRAGE_S = 60  # lancée, pas encore de pid (le relais démarre l'exécuteur) : comptée comme en cours
 HEURE_SAUVEGARDE = (23, 30)
 
@@ -80,6 +82,14 @@ def due(derniere: str, maintenant: datetime) -> bool:
         return True
 
 
+def priorite_basse():
+    """Tâche légère : priorité basse, elle passe à côté d'une fabrication."""
+    if os.name == "nt":
+        import ctypes
+
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)  # BELOW_NORMAL_PRIORITY_CLASS
+
+
 def executer(nom: str = "", *args) -> int:
     if nom not in TACHES:
         print(f"tâche inconnue : {nom} (connues : {', '.join(TACHES)})")
@@ -88,15 +98,28 @@ def executer(nom: str = "", *args) -> int:
         from fabrique.moteur import file
 
         return file.executer(*args)
+    if nom == "publication":
+        from fabrique.publication import publication
+
+        return publication.executer()
+    if nom == "paquets":
+        from fabrique.publication import paquets
+
+        return paquets.executer()
+    if nom == "releve":
+        from fabrique.publication import statistiques
+
+        return statistiques.executer()
+    if nom == "installation":
+        from fabrique.moteur import installation
+
+        return installation.executer(*args)
     if occupe(nom):
         print(f"la {nom} est déjà en cours")
         return 3
     from fabrique.noyau import sauvegarde
 
-    if os.name == "nt":  # tâche légère : priorité basse, elle passe à côté d'une fabrication
-        import ctypes
-
-        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)  # BELOW_NORMAL_PRIORITY_CLASS
+    priorite_basse()
     ecrire(nom, {"etat": "en_cours", "pid": os.getpid(), "debut": datetime.now().isoformat(timespec="seconds")})
     try:
         z = sauvegarde.sauvegarder()

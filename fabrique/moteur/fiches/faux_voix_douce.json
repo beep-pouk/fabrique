@@ -1,0 +1,35 @@
+{
+ "id": "faux_voix_douce",
+ "nom": "Fausse voix douce (candidate)",
+ "roles": [
+  "voix"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "simulation",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "simulation d'un outil candidat à installer : un son plus grave, sans carte",
+ "version": "2",
+ "dernier_banc": null,
+ "etat": "candidat",
+ "faux": true,
+ "module": "fabrique.moteur.faux",
+ "reglages": {
+  "hauteur_hz": 330
+ },
+ "installation": {
+  "pas": [
+   {"titre": "dossier des poids", "dossier": "poids"},
+   {"titre": "poids", "commande": ["{python}", "-c", "import shutil, sys; shutil.copy(sys.argv[1], sys.argv[2])", "{programme}/moteur/fiches/faux_voix.json", "poids/modele.json"]},
+   {"titre": "contrôle", "commande": ["{python}", "-c", "open('pret.txt', 'w').write('ok')"], "si_absent": "pret.txt"}
+  ],
+  "temoins": ["poids/modele.json", "pret.txt"],
+  "place_go": 0
+ }
+}

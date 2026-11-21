@@ -83,6 +83,10 @@ def demander(s: Session, code: str, quoi: str, langue: str, acteur: str) -> str:
     une demande « script »."""
     if quoi not in ("ecrire", "traduire") or (quoi == "traduire" and not langue):
         raise Refus("demande attendue : « ecrire », ou « traduire » avec une langue")
+    from fabrique.moteur import recettes
+    from fabrique.session import calendrier
+
+    forme = calendrier.format_du_script(s, code)
     with routeur.session(s):
         sc = m.Script.objects.filter(code=code).first()
         if sc is None:
@@ -93,6 +97,9 @@ def demander(s: Session, code: str, quoi: str, langue: str, acteur: str) -> str:
         d = {"action": quoi, "session": s.nom, "session_id": s.id, "code": code, "titre": sc.titre, "langue": langue, "date_prevue": str(sc.date_prevue or ""),
              "version": v.numero if v else None, "contenu": v.contenu if v else None, "regles": v.regles if v else None, "demande_par": acteur,
              "date": datetime.now().isoformat(timespec="seconds"),
+             "format": forme, "forme": (f := recettes.lire(forme)["script"]),  # une compilation ou un extrait cite des vidéos finies de la session :
+             "schema": None if f == "scenario-bramble" else recettes.FORMES[f].model_json_schema(),  # ses champs ; Bramble : lint.py et format-scenario
+             "videos_finies": [{"id": x.id, "titre": x.titre} for x in m.Video.objects.order_by("cree") if not x.morceaux.exclude(etat="fini").exists()],
              "rendre": f"un fichier JSON dans {dossiers.depot()} : {{\"action\": \"script\", \"session\": \"{s.nom}\", \"code\": \"{code}{'.' + langue if langue else ''}\", \"contenu\": …}}"}
     dossier = garde.verifier(dossiers.depot() / ("a_ecrire" if quoi == "ecrire" else "a_traduire"))
     dossier.mkdir(parents=True, exist_ok=True)

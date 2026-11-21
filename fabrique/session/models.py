@@ -62,12 +62,13 @@ class Personnage(models.Model):
     nom = models.CharField(max_length=100)
     role = models.CharField(max_length=50, default="")
     statut = models.CharField(max_length=20, default="actif")
-    details = models.JSONField(default=dict)  # espèce, description, vêtements, yeux, date du statut, plafond de références
+    details = models.JSONField(default=dict)  # espèce, description, vêtements, yeux, date du statut, plafond de références, licence, credit
 
 
 class Lieu(models.Model):
     nom = models.CharField(max_length=100)
     description = models.TextField(default="")
+    details = models.JSONField(default=dict)  # licence, credit (droits de l'élément, crédits à citer)
 
 
 class Reference(models.Model):
@@ -79,6 +80,18 @@ class Reference(models.Model):
     validee = models.BooleanField(default=False)
     verifiee = models.BooleanField(default=False)
     date = models.DateTimeField()
+    details = models.JSONField(default=dict)  # licence, credit
+
+
+class Ressource(models.Model):
+    """Une musique ou une voix de l'univers et ses droits (repris de Bramble Studio : core/models._Ressource)."""
+    type = models.CharField(max_length=10)  # musique, voix
+    nom = models.CharField(max_length=100)
+    consigne = models.TextField(default="")  # consigne (musique) ou réglages (voix)
+    outil = models.CharField(max_length=100, default="")
+    licence = models.CharField(max_length=200, default="")
+    credit = models.CharField(max_length=200, default="")
+    verrouillee = models.BooleanField(default=False)
 
 
 class Langue(models.Model):
@@ -104,6 +117,7 @@ class Video(models.Model):
     script = models.JSONField()
     recette = models.JSONField()
     cree = models.DateTimeField(auto_now_add=True)
+    essai = models.BooleanField(default=False)  # copiée de la session Essais (commande copier-essai) : toujours publiée en non répertorié, titre marqué
 
 
 class Morceau(models.Model):
@@ -122,3 +136,64 @@ class Morceau(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["video", "etape", "unite", "langue"], name="morceau_unique")]
+
+
+class Destination(models.Model):
+    """Où sont publiées les vidéos d'une langue : une par langue et par réseau (J4 : « youtube »), et à part en simulation (le faux YouTube :
+    jamais un vrai jeton, et une vraie chaîne jamais marquée refusée par le faux). Le jeton de rafraîchissement est chiffré par Windows
+    (noyau/cles.py) : jamais en clair, jamais rendu par l'API, jamais journalisé."""
+    langue = models.CharField(max_length=10)
+    reseau = models.CharField(max_length=20)
+    simulation = models.BooleanField(default=False)
+    chaine_id = models.CharField(max_length=100, default="")  # lus chez le réseau
+    chaine = models.CharField(max_length=200, default="")
+    playlists = models.JSONField(default=list)  # [{"id", "titre"}]
+    jeton = models.TextField(default="")  # chiffré ; vide : pas reliée
+    reliee = models.DateTimeField(null=True)  # date de connexion
+    refusee = models.DateTimeField(null=True)  # le réseau a refusé le jeton (invalid_grant) : à relier
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["langue", "reseau", "simulation"], name="destination_unique")]
+
+
+class Publication(models.Model):
+    """Une vidéo × une langue (celle du script : ses fichiers sous « commun », puis chaque version de langue), envoyée sur la destination de
+    sa langue (une langue sans chaîne reliée : brouillon possible, envoi refusé). Repris de Bramble Studio (core/models.Publication) : textes
+    retouchés en versions (jamais écrasées), envoi reprenable suivi dans « envoi » (session d'envoi le temps de l'envoi, octets confirmés,
+    étapes faites)."""
+    video = models.ForeignKey(Video, on_delete=models.CASCADE, related_name="publications")
+    langue = models.CharField(max_length=10)
+    dossier = models.CharField(max_length=10)  # « commun » (langue du script) ou la langue : videos\<id>\<dossier>\atelier\<nom>\final
+    fichier = models.CharField(max_length=200, default="")  # la vidéo, dans final
+    miniature = models.CharField(max_length=200, default="")  # dans final ; vide : aucune
+    titre = models.CharField(max_length=100, default="")
+    description = models.TextField(default="")
+    tags = models.JSONField(default=list)
+    playlist = models.CharField(max_length=100, default="")
+    enfants = models.BooleanField(default=True)  # « conçue pour les enfants »
+    ia = models.BooleanField(default=True)  # déclaration IA (containsSyntheticMedia)
+    planifiee_le = models.DateTimeField(null=True)  # le créneau (publishAt)
+    non_repertorie = models.BooleanField(default=False)  # première publication de sa destination : non répertoriée, sans publishAt
+    simulation = models.BooleanField(default=False)  # envoyée au faux YouTube (posé au clic « Publier »)
+    statut = models.CharField(max_length=20, default="brouillon")  # brouillon, en_file, envoi, erreur, planifiee, non_repertoriee
+    identifiant_youtube = models.CharField(max_length=50, default="")
+    envoi = models.JSONField(default=dict)
+    versions = models.JSONField(default=list)  # [{numero, titre, description, auteur, date}]
+    paquets = models.JSONField(default=dict)  # paquets prêts à poster : {réseau: {etat, raison, fichiers, miniature, fautes}, "fini": True}
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["video", "langue"], name="publication_unique")]
+
+
+class StatistiqueJour(models.Model):
+    """Un jour d'une chaîne (publication vide) ou d'une de ses vidéos chez YouTube (reports.query de l'API Analytics : chiffres en retard de
+    48 à 72 h, relus et corrigés au relevé suivant). Repris de Bramble Studio (core/models.StatistiqueJour), par destination."""
+    destination = models.ForeignKey(Destination, on_delete=models.CASCADE, related_name="statistiques")
+    publication = models.ForeignKey(Publication, on_delete=models.CASCADE, null=True, related_name="statistiques")
+    date = models.DateField()
+    vues = models.PositiveIntegerField(default=0)
+    heures = models.FloatField(default=0)
+    duree_moyenne = models.FloatField(null=True)
+    retention = models.FloatField(null=True)  # % vu
+    abonnes = models.IntegerField(default=0)  # gagnés
+    abonnes_perdus = models.IntegerField(default=0)

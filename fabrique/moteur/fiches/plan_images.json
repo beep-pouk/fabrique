@@ -1,0 +1,29 @@
+{
+ "id": "plan_images",
+ "nom": "Images par plan (Qwen-Image et Qwen-Image-Edit 2511 de Bramble Studio, par ComfyUI)",
+ "roles": [
+  "images"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "celle de l'outil de Bramble Studio (à reporter au banc, J6)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 16,
+  "disque_go": 0
+ },
+ "langues": [],
+ "limites": "la consigne du plan et le style de la session, au cadre du format ; présentateur (F6) : une image face caméra pour tous ses plans, cadrée par Qwen-Image-Edit d'après sa référence ; toute la vidéo d'un coup",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "module": "fabrique.moteur.par_plan",
+ "reglages": {
+  "secondes": 45
+ },
+ "exige": [
+  "reglages/config.json"
+ ]
+}

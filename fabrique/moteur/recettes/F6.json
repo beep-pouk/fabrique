@@ -1,0 +1,67 @@
+{
+ "schema": 1,
+ "id": "F6",
+ "nom": "Présentateur virtuel",
+ "version": 1,
+ "reglages": {
+  "duree_s": [
+   60,
+   900
+  ],
+  "cadre": "16:9",
+  "langues": [
+   "en"
+  ],
+  "sous_titres": "fichier",
+  "enfants": true,
+  "declaration_ia": true,
+  "plan_fixe_max_s": 12
+ },
+ "script": "presentateur",
+ "etapes": [
+  {
+   "id": "voix",
+   "brique": "voix",
+   "par": "plan",
+   "langue": true
+  },
+  {
+   "id": "images",
+   "brique": "images",
+   "par": "plan"
+  },
+  {
+   "id": "levres",
+   "brique": "levres",
+   "par": "plan",
+   "langue": true
+  },
+  {
+   "id": "montage",
+   "brique": "montage",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "miniature",
+   "brique": "miniature",
+   "par": "video",
+   "langue": true
+  },
+  {
+   "id": "revue",
+   "brique": "controle",
+   "par": "video",
+   "langue": true
+  }
+ ],
+ "controles": "technique",
+ "outils": {
+  "voix": "plan_voix",
+  "images": "plan_images",
+  "levres": "plan_levres",
+  "montage": "plan_montage",
+  "miniature": "miniature_image",
+  "revue": "controle_technique"
+ }
+}

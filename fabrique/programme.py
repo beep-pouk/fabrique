@@ -49,6 +49,12 @@ def commande(*args) -> list[str]:
     return [str(sans_console if sans_console.is_file() else python), "-m", "fabrique", *map(str, args)]
 
 
+def python() -> str:
+    """Un Python à lancer (pas d'une recette d'installation) : celui du runtime une fois installé (Fabrique.exe n'en est pas un), sinon le nôtre."""
+    p = dossiers.programme()
+    return str(p / "runtime" / "python.exe") if p else sys.executable
+
+
 def lancer_detache(*args, journal: Path, popen=subprocess.Popen):
     """Une sous-commande sans fenêtre, détachée de qui la lance (elle survit à son arrêt) ; sorties et plantages dans `journal`. Sous Windows un
     relais qui s'arrête aussitôt la lance : elle n'est l'enfant de personne."""

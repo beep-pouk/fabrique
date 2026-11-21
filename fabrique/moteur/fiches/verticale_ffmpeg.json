@@ -1,0 +1,27 @@
+{
+ "id": "verticale_ffmpeg",
+ "nom": "Extrait vertical (ffmpeg)",
+ "roles": [
+  "verticale"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "LGPL (ffmpeg, livré avec le studio)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 1
+ },
+ "langues": [],
+ "limites": "1080 × 1920 sur fond flouté, sous-titres de la source incrustés",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "simulable": true,
+ "module": "fabrique.moteur.montages",
+ "reglages": {
+  "secondes": 60
+ }
+}

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#121212">
+<title>Fabrique</title>
+<style>
+body { margin: 0; padding: 12px 14px 40px; background: #121212; color: #e8e8e8; font: 16px -apple-system, system-ui, sans-serif; }
+h1 { font-size: 20px; margin: 4px 0 10px; } h2 { font-size: 17px; margin: 18px 0 6px; } h3 { font-size: 15px; margin: 12px 0 4px; color: #bbb; }
+.carte { background: #1e1e1e; border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.petit { color: #9a9a9a; font-size: 13px; white-space: pre-wrap; } .alerte { color: #ff8a80; } .ok { color: #8bd48b; }
+button, a.bouton { display: inline-block; min-height: 44px; padding: 10px 14px; margin: 6px 6px 0 0; border: 0; border-radius: 8px; background: #2f3b4d;
+  color: #fff; font-size: 15px; text-decoration: none; box-sizing: border-box; }
+button.ambre { background: #c98a1a; color: #111; font-weight: 600; } button:disabled { opacity: .45; }
+input { font-size: 28px; letter-spacing: 6px; width: 9ch; padding: 8px; border-radius: 8px; border: 1px solid #555; background: #1e1e1e; color: #fff; }
+.video { cursor: pointer; } #message { position: sticky; top: 0; background: #2b2b2b; border-radius: 8px; padding: 8px 10px; display: none; }
+</style>
+</head>
+<body>
+<h1>Fabrique</h1>
+<div id="message" role="status" aria-live="polite"></div>
+<main id="page"></main>
+<script>
+"use strict";
+const page = document.getElementById("page"), message = document.getElementById("message");
+let ouverte = null;  // {session, video, titre} : la vidéo dont le détail est ouvert
+let enConnexion = false;  // le formulaire du code est affiché : rien ne le refait (le clavier se fermerait)
+
+function el(tag, props, ...enfants) {  // des noeuds seulement, jamais de HTML assemblé : tout texte reçu reste du texte
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v === null || v === undefined) continue;
+    if (k === "onclick") e.onclick = v; else if (k === "texte") e.textContent = v; else e.setAttribute(k, v);
+  }
+  for (const x of enfants.flat()) if (x !== null && x !== undefined) e.append(x instanceof Node ? x : String(x));
+  return e;
+}
+function dire(texte, alerte) { message.textContent = texte; message.className = alerte ? "alerte" : ""; message.style.display = texte ? "block" : "none"; }
+
+async function api(methode, chemin, corps) {
+  const r = await fetch("/api" + chemin, {method: methode, credentials: "same-origin",
+    headers: methode === "GET" ? {} : {"Content-Type": "application/json", "X-Fabrique": "iphone"}, body: methode === "GET" ? undefined : JSON.stringify(corps || {})});
+  if (r.status === 401) { if (!enConnexion) connexion(); throw new Error("non connecté"); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || ("erreur " + r.status));
+  return d;
+}
+
+function connexion() {
+  ouverte = null;
+  enConnexion = true;
+  const champ = el("input", {inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", "aria-label": "code à 6 chiffres"});
+  page.replaceChildren(el("div", {class: "carte"},
+    el("p", {texte: "Taper le code à 6 chiffres affiché dans la fenêtre de Fabrique (Système → Téléphone)."}), champ,
+    el("div", {}, el("button", {onclick: async () => {
+      const r = await fetch("/iphone/connexion", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify({code: champ.value})});
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { enConnexion = false; dire(d.message); tour(); } else dire(d.detail || "refusé", true);
+    }}, "Se connecter"))));
+}
+
+async function agir(chemin, texte, question) {
+  if (question && !confirm(question)) return;
+  try { dire(texte + "…"); dire((await api("POST", chemin)).message); } catch (e) { dire(e.message, true); }
+  tour();
+}
+
+async function detail() {
+  const {session, video} = ouverte;
+  const [pubs, paquets] = await Promise.all([api("GET", `/sessions/${session}/videos/${video}/publications`), api("GET", `/sessions/${session}/videos/${video}/paquets`)]);
+  const blocs = [el("button", {onclick: () => { ouverte = null; tour(); }}, "← Vidéos"), el("h2", {texte: ouverte.titre})];
+  if (!pubs.length) blocs.push(el("p", {class: "petit", texte: "Pas encore approuvée."}),
+    el("button", {onclick: () => agir(`/sessions/${session}/videos/${video}/approuver`, "Approuver", `Approuver « ${ouverte.titre} » ?`)}, "Approuver"));
+  for (const p of pubs) {
+    const quand = p.non_repertorie ? "en non répertorié (première vidéo de la chaîne, ou vidéo d'essai)" : `en privé, publique le ${p.creneau}`;
+    const actions = [];
+    if (p.statut === "erreur" || (p.statut === "brouillon" && !p.lien))
+      actions.push(el("button", {class: "ambre", disabled: p.fautes.length || p.destination !== "reliée" ? "" : null,
+        onclick: () => agir(`/sessions/${session}/publications/${p.id}/${p.statut === "erreur" ? "reprendre" : "publier"}`, "Publier",
+          `${p.statut === "erreur" ? "Reprendre l'envoi de" : "Publier"} « ${p.titre} » (${p.langue}) sur ${p.chaine || "la chaîne"}, ${quand} ?`)},
+        p.statut === "erreur" ? "Reprendre l'envoi" : "Publier"));
+    if (p.statut === "en_file") actions.push(el("button", {onclick: () => agir(`/sessions/${session}/publications/${p.id}/annuler`, "Annuler")}, "Annuler"));
+    blocs.push(el("div", {class: "carte"}, el("h3", {texte: `${p.langue} · ${p.statut}`}), el("div", {texte: p.titre}),
+      el("div", {class: "petit", texte: `${p.chaine || "chaîne : " + p.destination} · ${quand}${p.playlist_titre && !p.non_repertorie ? " · " + p.playlist_titre : ""}\nEnfants : ${p.enfants ? "oui" : "non"} · IA déclarée : ${p.ia ? "oui" : "non"}${p.envoi ? "\nEnvoi : " + p.envoi : ""}`}),
+      p.lien ? el("a", {href: p.lien, class: "bouton"}, "Voir sur YouTube") : null,
+      ...p.fautes.map(f => el("div", {class: "alerte", texte: "✗ " + f})), ...p.avis.map(a => el("div", {class: "petit", texte: "• " + a})),
+      p.erreur ? el("div", {class: "alerte", texte: p.erreur}) : null, el("div", {}, actions)));
+  }
+  if (paquets.length) blocs.push(el("h2", {texte: "Paquets prêts à poster"}));
+  for (const q of paquets) {
+    const base = `/api/sessions/${session}/publications/${q.publication}/paquets/${q.reseau}/`;
+    blocs.push(el("div", {class: "carte"}, el("h3", {texte: `${q.nom} · ${q.langue} · ${q.etat}`}), q.raison ? el("div", {class: "petit", texte: q.raison}) : null,
+      ...q.fichiers.map((f, i) => el("a", {class: "bouton", href: base + encodeURIComponent(f.nom), download: f.nom},
+        `Vidéo${q.fichiers.length > 1 ? " " + (i + 1) + "/" + q.fichiers.length : ""} (${Math.round(f.duree_s)} s, ${f.poids_mo} Mo)`)),
+      q.miniature ? el("a", {class: "bouton", href: base + q.miniature, download: q.miniature}, "Miniature") : null,
+      ...(q.etat === "fait" ? q.textes.map((t, i) => el("button", {onclick: async () => {
+        try { await navigator.clipboard.writeText(t.titre ? t.titre + "\n\n" + t.texte : t.texte); dire("texte copié"); } catch (e) { dire("copie refusée : " + e.message, true); }
+      }}, `Copier le texte${q.textes.length > 1 ? " " + (i + 1) : ""}`)) : [])));
+  }
+  return blocs;
+}
+
+async function accueil() {
+  const [etat, sessions] = await Promise.all([api("GET", "/etat"), api("GET", "/sessions")]);
+  const blocs = [el("div", {class: "carte"}, el("div", {class: "petit", texte: etat.texte.filter(l => !l.startsWith("! ")).join("\n")}),
+    ...etat.alertes.map(a => el("div", {class: "alerte", texte: "! " + a})))];
+  for (const s of sessions.filter(s => !s.essais)) {
+    const videos = await api("GET", `/sessions/${s.id}/videos`);
+    blocs.push(el("h2", {texte: s.nom}));
+    for (const v of videos.slice(0, 12)) {
+      const [faits, tous] = v.progression.split("/").map(Number);
+      blocs.push(el("div", {class: "carte video", role: "button", tabindex: "0", onclick: () => { ouverte = {session: s.id, video: v.id, titre: v.titre}; tour(); }},
+        el("div", {texte: v.titre}), el("div", {class: v.erreurs ? "alerte" : faits === tous && tous ? "ok" : "petit",
+          texte: `${v.recette} · ${faits === tous && tous ? "finie" : v.progression}${v.erreurs ? " · " + v.erreurs + " erreur(s)" : ""}`})));
+    }
+    if (!videos.length) blocs.push(el("p", {class: "petit", texte: "Aucune vidéo."}));
+  }
+  return blocs;
+}
+
+let enCours = false;
+async function tour() {
+  if (enCours || enConnexion) return;
+  enCours = true;
+  try { page.replaceChildren(...(ouverte ? await detail() : await accueil())); } catch (e) { if (e.message !== "non connecté") dire(e.message, true); }
+  finally { enCours = false; }
+}
+tour();
+setInterval(() => { if (document.visibilityState === "visible") tour(); }, 5000);
+</script>
+</body>
+</html>

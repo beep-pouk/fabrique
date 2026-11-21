@@ -6,5 +6,8 @@
  "levres": {"titre": "Lèvres", "defaut": "faux_levres", "simulation": "faux_levres", "sortie": [".mp4"], "infos": []},
  "montage": {"titre": "Montage", "defaut": "faux_montage", "simulation": "faux_montage", "sortie": [".mp4"], "infos": []},
  "miniature": {"titre": "Miniature", "defaut": "faux_miniature", "simulation": "faux_miniature", "sortie": [".png", ".jpg"], "infos": []},
- "controle": {"titre": "Contrôle", "defaut": "faux_controle", "simulation": "faux_controle", "sortie": [".json"], "infos": ["defauts"]}
+ "controle": {"titre": "Contrôle", "defaut": "faux_controle", "simulation": "faux_controle", "sortie": [".json"], "infos": ["defauts"]},
+ "assemblage": {"titre": "Assemblage", "defaut": "assemblage_ffmpeg", "simulation": "assemblage_ffmpeg", "sortie": [".mp4"], "infos": ["chapitres"]},
+ "verticale": {"titre": "Montage vertical", "defaut": "verticale_ffmpeg", "simulation": "verticale_ffmpeg", "sortie": [".mp4"], "infos": []},
+ "chant": {"titre": "Musique chantée", "defaut": "chant_acestep", "simulation": "faux_chant", "sortie": [".wav"], "infos": ["mots", "sections", "compris"]}
 }

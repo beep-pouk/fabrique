@@ -9,7 +9,7 @@ from datetime import datetime
 from django.conf import settings
 
 from fabrique import dossiers, programme
-from fabrique.moteur import file
+from fabrique.moteur import file, veille
 from fabrique.noyau import taches
 from fabrique.noyau.models import Parametre, Session
 
@@ -21,12 +21,38 @@ def simulation() -> bool:
     return not reel_permis or Parametre.lire("simulation", "oui") != "non"
 
 
+def changer(reel: bool, acteur: str) -> str:
+    """Système → « Passer en mode réel » / « Revenir en simulation » (clic de RT, repris de Bramble Studio, core/mode_reel.py) : refusé tant
+    qu'une vidéo est dans la file ou qu'un envoi est en cours (une tâche commencée dans un mode ne finit jamais dans l'autre)."""
+    from fabrique.garde import Refus
+    from fabrique.noyau import routeur
+    from fabrique.noyau.models import Tache, noter
+    from fabrique.session.models import Publication
+
+    if acteur != "RT":
+        raise Refus("seul RT change de mode")
+    if Tache.objects.filter(etat__in=("attente", "en_cours", "pause")).exists() or taches.occupe("fabrication", "publication"):
+        raise Refus("une vidéo est dans la file (ou une tâche tourne) : changer de mode une fois la file vide")
+    for s in Session.objects.filter(essais=False):
+        with routeur.session(s):
+            if Publication.objects.filter(statut__in=("en_file", "envoi")).exists():
+                raise Refus(f"un envoi est en cours dans « {s.nom} » : changer de mode une fois l'envoi fini ou annulé")
+    Parametre.ecrire("simulation", "non" if reel else "oui")
+    noter(acteur, "mode", reel=reel)
+    return "Mode réel : les vrais outils et les vraies chaînes (rien ne part sans votre clic)." if reel else "Retour en simulation : faux outils, faux YouTube."
+
+
 def alertes(e: dict, libre: int) -> list[str]:
     a = []
     if libre < SEUIL_DISQUE_GO * 1e9:
         a.append(f"disque : {libre / 1e9:.0f} Go libres (moins de {SEUIL_DISQUE_GO} Go)")
     if e["sauvegarde"].get("etat") == "erreur":
         a.append(f"la dernière sauvegarde a raté : {e['sauvegarde'].get('message', '')}")
+    for t in ("publication", "paquets", "releve"):
+        if e[t].get("etat") == "erreur":
+            a += e[t].get("alertes", [])
+    if (i := e.get("installation", {})).get("etat") == "erreur":
+        a.append(f"l'installation de {i.get('outil', 'un outil')} a raté : {i.get('message', '')}")
     a += [f"« {t['titre']} » : {x}" for t in e["file"]["taches"] if t["etat"] not in ("finie", "annulee") for x in t["alertes"]]
     return a
 
@@ -40,13 +66,17 @@ def etat(maintenant: datetime | None = None) -> dict:
          "sessions": list(Session.objects.order_by("cree").values_list("nom", flat=True)),
          "file": {"attente": [t["titre"] for t in attente], "encours": encours and f"{encours['titre']} ({encours['progression']})",
                   "raison": attente[0]["raison"] if attente and not encours else "", "taches": liste},
-         "sauvegarde": taches.lire("sauvegarde")}
+         "sauvegarde": taches.lire("sauvegarde"), "publication": taches.lire("publication"), "paquets": taches.lire("paquets"),
+         "releve": taches.lire("releve"), "installation": taches.lire("installation"),
+         "veille": {"derniere": Parametre.lire("veille_derniere"), "a_faire": veille.due()}}
     e["alertes"] = alertes(e, shutil.disk_usage(settings.RACINE).free)
     s, f = e["sauvegarde"], e["file"]
     e["texte"] = [f"[{datetime.fromisoformat(e['heure']):%d/%m %H:%M}] Fabrique {e['version']} ({e['mode']})",
                   f"Sessions : {', '.join(e['sessions']) or 'aucune'} | en cours : {f['encours'] or 'rien'} | file : {len(f['attente'])}"
                   + (f" (attend : {f['raison']})" if f["raison"] else ""),
                   f"Dernière sauvegarde : {s.get('etat', 'aucune')} {s.get('fin', '')} {s.get('fichier', s.get('message', ''))}".rstrip(),
+                  f"Dernier relevé des statistiques : {e['releve'].get('etat', 'aucun')} {e['releve'].get('fin', '')}".rstrip(),
+                  *(["À faire (Claude) : veille mensuelle des outils (« commande veille <fichier.json> »)"] if e["veille"]["a_faire"] else []),
                   *(f"! {a}" for a in e["alertes"])]
     return e
 

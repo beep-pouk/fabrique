@@ -21,12 +21,13 @@ from fabrique.garde import Refus
 from fabrique.moteur import outils, recettes
 from fabrique.noyau import routeur
 from fabrique.noyau.models import Chrono, Depense, Parametre, Session
-from fabrique.session.models import Morceau, Reglage, Video
+from fabrique.session.models import Morceau, Personnage, Reference, Reglage, Video
 
 log = logging.getLogger(__name__)
 ESSAIS, ESSAIS_PAYANT = 3, 2  # un appel payant n'est retenté qu'une fois
 PAUSE_S = 2.0  # entre deux essais : une panne passagère ne les brûle pas d'un coup
 RESULTAT = "resultat.json"
+ESSAIS_OUVERT, ATTENTE_OUVERT = 3, 2.0  # refaire : un fichier encore ouvert (le lecteur de la fenêtre le lâche avec retard) attend jusqu'à 4 s
 
 
 class Echec(Exception):
@@ -35,22 +36,60 @@ class Echec(Exception):
 
 def preparer(s: Session, recette: dict, script: dict, nom: str = "", traductions: dict | None = None) -> Video:
     """La vidéo et ses morceaux ; le script aussi en fichier (videos\\<id>\\<nom>.json : les outils de toute une vidéo le lisent), et ses
-    traductions (<nom>.<langue>.json : celles qui ont servi, gardées avec la vidéo)."""
+    traductions (<nom>.<langue>.json : celles qui ont servi, gardées avec la vidéo) ; pour un présentateur (F6), sa référence (_presentateur.<ext>)."""
     R = recettes.recette(recette)
     S = recettes.script(script, R.script)
+    reference = presentateur(s, S.presentateur) if R.script == "presentateur" else None
+    for vid in ([S.intro, *S.videos] if R.script == "compilation" else [S.source] if R.script == "extrait" else []):
+        with routeur.session(s):
+            cite = Video.objects.filter(id=vid).first()
+        if R.script == "compilation" and cite and (cite.recette.get("script") in ("compilation", "extrait") or (cite.recette.get("reglages") or {}).get("cadre") == "9:16"):
+            raise Refus(f"« {cite.titre} » est une compilation ou une courte verticale : une compilation ne prend que des vidéos longues")
+        for langue in R.reglages.langues:
+            source = finale(s, vid, langue)  # chaque vidéo citée a sa vidéo finale dans chaque langue du format, sinon refus tout de suite
+            if R.script == "extrait" and S.fin_s > (duree := sonde(source)):
+                raise Refus(f"l'extrait va jusqu'à {S.fin_s:g} s, la vidéo source dure {duree:.1f} s")
+    if R.script in recettes.PAR_PLAN:  # le texte d'un morceau est pris dans la traduction de sa langue : mêmes plans, sinon refus tout de suite
+        for langue, contenu in (traductions or {}).items():
+            if [u for u, *_ in recettes.unites(recettes.script(contenu, R.script), "plan")] != [u for u, *_ in recettes.unites(S, "plan")]:
+                raise Refus(f"la traduction en « {langue} » n'a pas les mêmes scènes et plans que le script")
+            if contenu.get("musique", script.get("musique")) != script.get("musique"):  # une chanson traduite garde son style, son tempo, sa tonalité
+                raise Refus(f"la traduction en « {langue} » change la musique de la chanson : seules les paroles se traduisent")
+            if [c.get("vue") for *_, c in recettes.unites(recettes.script(contenu, R.script), "plan")] != [c.get("vue") for *_, c in recettes.unites(S, "plan")]:
+                raise Refus(f"la traduction en « {langue} » change la vue d'un plan (face caméra ou insert) : seul le texte se traduit")
     with routeur.session(s), transaction.atomic(using=routeur.ouvrir(s)):
         reglages = dict(Reglage.objects.values_list("cle", "valeur"))
         v = Video.objects.create(titre=S.titre, nom=nom, script=script, recette=recette)
         morceaux = decouper(R, S, reglages)
+        if manque := [f"{f.nom} ({x})" for o in sorted({m.outil for m in morceaux}) for f in [outils.fiches()[o]] for x in f.exige
+                      if not (settings.SESSIONS / s.dossier / x).is_file()]:
+            raise Refus(f"« {s.nom} » n'a pas ce que demandent les outils de ce format : {', '.join(manque)}")
+        if R.script in recettes.PAR_PLAN and (sans := sorted({m.langue for m in morceaux if m.langue not in ("", R.reglages.langues[0], *(traductions or {}))
+                                                                 and not outils.fiches()[m.outil].faux})):
+            raise Refus(f"pas de traduction en « {sans[0]} » : une voix réelle y lirait le texte de la langue du script")
         for m in morceaux:
             m.video = v
         Morceau.objects.bulk_create(morceaux)
     fichier_script(s, v).parent.mkdir(parents=True, exist_ok=True)
     fichier_script(s, v).write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
     for langue, contenu in (traductions or {}).items():
-        f = fichier_script(s, v)
-        f.with_name(f"{f.stem}.{langue}.json").write_text(json.dumps(contenu, ensure_ascii=False, indent=1), encoding="utf-8")
+        traduction(s, v, langue).write_text(json.dumps(contenu, ensure_ascii=False, indent=1), encoding="utf-8")
+    if reference:  # copiée : la vidéo garde l'apparence qui l'a faite, même si l'univers change ensuite
+        shutil.copy2(reference, fichier_script(s, v).with_name(f"_presentateur{reference.suffix.lower()}"))
     return v
+
+
+def presentateur(s: Session, nom: str) -> Path:
+    """La première image de référence validée du personnage qui présente (F6), quelle que soit sa casse (l'import de Bramble Studio a deux
+    fiches pour un même ami, une seule avec ses références) ; refus en clair sans elle."""
+    with routeur.session(s):  # casse comparée en Python : celle de SQLite ignore les accents (« É » ≠ « é »)
+        fiches = [p for p in Personnage.objects.all() if p.nom.strip().casefold() == nom.strip().casefold()]
+        refs = [settings.SESSIONS / s.dossier / r.fichier for r in Reference.objects.filter(personnage__in=fiches, validee=True).order_by("id")]
+    if not fiches:
+        raise Refus(f"« {nom} » n'est pas un personnage de l'univers de « {s.nom} » (Session → Univers)")
+    if (f := next((x for x in refs if x.is_file()), None)) is None:
+        raise Refus(f"« {nom} » n'a pas d'image de référence validée (Session → Univers) : le présentateur garde l'apparence qu'elle lui donne")
+    return f
 
 
 def langues(R: recettes.Recette, S, e: recettes.Etape) -> list[str]:
@@ -63,7 +102,7 @@ def langues(R: recettes.Recette, S, e: recettes.Etape) -> list[str]:
 def decouper(R: recettes.Recette, S, reglages: dict) -> list[Morceau]:
     """Les morceaux (pas encore enregistrés) : étape × unité × langue, l'outil de chacun choisi."""
     morceaux = [Morceau(etape=e.id, brique=e.brique, unite=unite, langue=langue, outil=outils.choisir(e.brique, e.id, langue, du_plan, R.outils, reglages))
-                for e in R.etapes for langue in langues(R, S, e) for unite, du_plan, _ in recettes.unites(S, e.par)]
+                for e in R.etapes for langue in langues(R, S, e) for unite, du_plan, *_ in recettes.unites(S, e.par)]
     for i, m in enumerate(morceaux):
         m.ordre = i
     return morceaux
@@ -71,6 +110,11 @@ def decouper(R: recettes.Recette, S, reglages: dict) -> list[Morceau]:
 
 def fichier_script(s: Session, v: Video) -> Path:
     return settings.SESSIONS / s.dossier / "videos" / v.id / f"{v.nom or 'script'}.json"
+
+
+def traduction(s: Session, v: Video, langue: str) -> Path:
+    f = fichier_script(s, v)
+    return f.with_name(f"{f.stem}.{langue}.json")
 
 
 def dossier(s: Session, m: Morceau) -> Path:
@@ -84,7 +128,10 @@ def couvre(a: str, b: str) -> bool:
 
 def resultat(s: Session, m: Morceau) -> outils.Resultat | None:
     """Le résultat d'un morceau dont tous les fichiers sont là ; None sinon."""
-    d = dossier(s, m)
+    return lu(dossier(s, m))
+
+
+def lu(d: Path) -> outils.Resultat | None:
     try:
         r = outils.Resultat.model_validate_json((d / RESULTAT).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -99,12 +146,40 @@ def demande(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: in
         for p in v.morceaux.filter(etape=avant.id, etat="fini").order_by("ordre"):
             if couvre(p.unite, m.unite) and (not p.langue or not m.langue or p.langue == m.langue):
                 entrees.setdefault(avant.id, []).extend(str(dossier(s, p) / f) for f in resultat(s, p).fichiers)
-    texte = next(t for u, _, t in recettes.unites(S, R.etapes[i].par) if u == m.unite)
+    if m.langue and R.script in recettes.PAR_PLAN and (t := traduction(s, v, m.langue)).is_file():  # le texte dans la langue du morceau
+        S = recettes.script(json.loads(t.read_text(encoding="utf-8")), R.script)
+    texte, consigne = next((t, c) for u, _, t, c in recettes.unites(S, R.etapes[i].par) if u == m.unite)
     graine = int(hashlib.sha256(f"{v.id}/{m.etape}/{m.unite}/{m.langue}".encode()).hexdigest()[:8], 16)  # stable : refaire donne la même chose
-    return outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, texte=texte, entrees=entrees,
+    return outils.Demande(brique=m.brique, etape=m.etape, unite=m.unite, langue=m.langue, texte=texte, consigne=consigne, entrees=entrees,
                           sources={e.id: e.brique for e in R.etapes[:i]}, reglages=R.reglages.model_dump(), graine=graine,
                           session=str(settings.SESSIONS / s.dossier), script=str(fichier_script(s, v)),
                           atelier=str(settings.SESSIONS / s.dossier / "videos" / v.id / (m.langue or "commun") / "atelier" / (v.nom or "video")))
+
+
+def finale(s: Session, video_id: str, langue: str = "") -> Path:
+    """La vidéo finale d'une vidéo de la session dans `langue` (vide : celle du script) : le fichier .mp4 principal du dernier morceau fini de la
+    brique montage pour cette langue, ou du montage commun quand c'est la langue du script ; sinon un refus en clair."""
+    with routeur.session(s):
+        v = Video.objects.filter(id=video_id).first()
+        if v is None:
+            raise Refus(f"vidéo inconnue dans « {s.nom} » : {video_id}")
+        base = v.script.get("language") or (v.recette.get("reglages") or {}).get("langues", [""])[0]
+        langue = langue or base
+        if v.morceaux.exclude(etat="fini").exists():
+            raise Refus(f"« {v.titre} » n'est pas finie (morceaux à faire ou en erreur) : la finir d'abord")
+        for m in v.morceaux.filter(brique__in=("montage", "assemblage", "verticale"), etat="fini").order_by("-ordre"):
+            if m.langue == langue or (not m.langue and langue == base):
+                d = dossier(s, m)
+                if (r := resultat(s, m)) and (mp4 := [d / f for f in r.fichiers if f.lower().endswith(".mp4")]):
+                    return max(mp4, key=lambda f: f.stat().st_mtime)  # la plus récente, comme la publication (un titre changé laisse l'ancienne)
+    raise Refus(f"« {v.titre} » n'a pas de vidéo finale en {langue} : la fabriquer d'abord")
+
+
+def sonde(video: Path) -> float:
+    """La durée d'une vidéo (ffprobe)."""
+    from fabrique.publication import paquets
+
+    return paquets.mesure(video)["duree_s"]
 
 
 def depense_du_mois(**filtre) -> float:
@@ -112,12 +187,12 @@ def depense_du_mois(**filtre) -> float:
     return sum(d.estime_eur if d.reel_eur is None else d.reel_eur for d in Depense.objects.filter(date__gte=debut, **filtre))
 
 
-def refus_payant(s: Session, f: outils.Fiche, cout: float, reglages: dict) -> str:
-    """Vide si l'appel payant tient sous le plafond du mois (réglage du noyau) et celui de la session ; sinon la raison, en clair."""
+def refus_payant(s: Session, f: outils.Fiche, cout: float, reglages: dict, pour: str = "l'appel") -> str:
+    """Vide si la dépense tient sous le plafond du mois (réglage du noyau) et celui de la session ; sinon la raison, en clair."""
     for quoi, plafond, depense in (("du mois", float(Parametre.lire("plafond_mois_eur") or 0), depense_du_mois()),
                                    ("de la session", float(reglages.get("plafond_eur") or 0), depense_du_mois(session_id=s.id))):
         if plafond <= 0 or depense + cout > plafond:
-            return f"{f.nom} est payant ({euros(cout)} l'appel) et le plafond {quoi} est de {euros(plafond)} ({euros(depense)} déjà dépensés)"
+            return f"{f.nom} est payant ({euros(cout)} {pour}) et le plafond {quoi} est de {euros(plafond)} ({euros(depense)} déjà dépensés)"
     return ""
 
 
@@ -145,6 +220,22 @@ def renommer(tmp: Path, final: Path):
             time.sleep(0.5)
 
 
+def produire(f: outils.Fiche, d: outils.Demande, final: Path) -> outils.Resultat:
+    """Un essai de l'outil : il écrit dans <final>.tmp, son résultat est contrôlé, rangé à côté de sa demande, puis le dossier prend son nom."""
+    tmp = final.with_name(final.name + ".tmp")
+    if final.exists():  # sans résultat complet : abîmé, refait
+        shutil.rmtree(final)
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True)
+    r = outils.adaptateur(f).fabriquer(f, d, tmp)
+    outils.controler_resultat(d.brique, r, tmp)
+    (tmp / "demande.json").write_text(d.model_dump_json(indent=1), encoding="utf-8")
+    (tmp / RESULTAT).write_text(r.model_dump_json(indent=1), encoding="utf-8")
+    renommer(tmp, final)
+    return r
+
+
 def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script, i: int, m: Morceau, reglages: dict, alerter):
     final = dossier(s, m)
     if resultat(s, m):  # renommé juste avant une coupure : fini
@@ -153,25 +244,15 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
         return
     d = demande(s, v, R, S, i, m)
     f = outils.fiche(m.outil, m.brique, m.langue)
-    tmp = final.with_name(final.name + ".tmp")
     while True:
         if not f.local and (raison := refus_payant(s, f, outils.adaptateur(f).estimer(f, d).cout_eur, reglages)):
             f = repli(m, raison, reglages, alerter)
         depense = None
         try:
-            if final.exists():  # sans résultat complet : abîmé, refait
-                shutil.rmtree(final)
-            if tmp.exists():
-                shutil.rmtree(tmp)
-            tmp.mkdir(parents=True)
             if not f.local:
                 depense = Depense.objects.create(session_id=s.id, outil=f.id, estime_eur=outils.adaptateur(f).estimer(f, d).cout_eur)
             debut = time.monotonic()
-            r = outils.adaptateur(f).fabriquer(f, d, tmp)
-            outils.controler_resultat(m.brique, r, tmp)
-            (tmp / "demande.json").write_text(d.model_dump_json(indent=1), encoding="utf-8")
-            (tmp / RESULTAT).write_text(r.model_dump_json(indent=1), encoding="utf-8")
-            renommer(tmp, final)
+            r = produire(f, d, final)
             break
         except Exception as e:  # noqa: BLE001 — l'outil peut tout lever : essai suivant, repli, ou arrêt avec la cause
             m.essais += 1  # seuls les échecs comptent : une coupure en plein morceau n'en est pas un
@@ -191,7 +272,9 @@ def jouer_morceau(s: Session, v: Video, R: recettes.Recette, S: recettes.Script,
     if depense:
         depense.reel_eur = r.infos.get("cout_eur")
         depense.save(update_fields=["reel_eur"])
-    Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id, secondes=secondes / (len(S.scenes) if not m.unite else 1))  # vidéo entière : par scène
+    if (lot := r.infos.get("lot")) != 0:  # un outil en lot (toute la langue au premier morceau) : son temps par fichier fait ; 0 : rien calculé ici
+        Chrono.objects.create(recette=R.id, etape=m.etape, outil=f.id,
+                              secondes=secondes / (lot or 1) / (max(1, len(getattr(S, "scenes", []))) if not m.unite else 1))  # vidéo entière : par scène
     m.etat, m.secondes, m.message = "fini", secondes, ""
     m.save(update_fields=["etat", "secondes", "message"])
 
@@ -217,7 +300,7 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
     from fabrique.moteur.f1 import refaire as f1
     from fabrique.noyau.models import Tache
 
-    if Tache.objects.filter(session_id=s.id, video_id=video_id, etat__in=("attente", "en_cours", "pause")).exists():
+    if Tache.objects.filter(session_id=s.id, video_id=video_id, banc=0, etat__in=("attente", "en_cours", "pause")).exists():
         raise Refus("cette vidéo est encore dans la file : refaire quand elle est finie")
     with routeur.session(s):
         v = Video.objects.filter(id=video_id).first()
@@ -225,32 +308,44 @@ def refaire(s: Session, video_id: str, plans: list[int], acteur: str) -> str:
             raise Refus(f"vidéo inconnue : {video_id}")
         if v.recette.get("script") != "scenario-bramble":
             raise Refus("refaire un plan : seulement pour une vidéo du format F1 à ce jalon")
+        if v.publications.filter(statut__in=("en_file", "envoi")).exists():
+            raise Refus("un envoi de cette vidéo vers YouTube est en cours : refaire une fois l'envoi fini ou annulé")
+        envoyee = v.publications.exclude(identifiant_youtube="").exists()
         base = settings.SESSIONS / s.dossier / "videos" / v.id
         _, a_refaire, _ = f1.etapes(v.script, plans)  # les plans contrôlés avant que rien ne bouge
         a_refaire += ["langue"]  # chaque version de langue reprend les visuels de la langue du script : refaite avec eux
         langues = [a for d in sorted(base.iterdir()) if d.name not in ("commun", "_refaits") and (a := d / "atelier" / (v.nom or "video")).is_dir()]
         quand = datetime.now()
-        morceaux, horodatage, ranges, rangees = list(v.morceaux.filter(etape__in=a_refaire)), f"{quand:%Y%m%d_%H%M%S_%f}", [], []
-        try:  # les morceaux d'abord, puis les pièces des ateliers ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
-            for m in morceaux:
-                if (d := dossier(s, m)).exists():
-                    (cible := base / "_refaits" / horodatage / f"{m.etape}{'.' + m.langue if m.langue else ''}").parent.mkdir(parents=True, exist_ok=True)
-                    d.rename(cible)
-                    ranges.append((cible, d))
-            for a in langues:
-                rangees.append((a, f1.ranger_langue(a, v.script, plans, horodatage)))
-            r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans, quand=quand)
-        except (OSError, Refus) as e:
-            for a, rels in reversed(rangees):
-                f1.remettre(a, rels, horodatage)
-            for cible, d in reversed(ranges):
-                cible.rename(d)
-            raise e if isinstance(e, Refus) else Refus(f"un fichier de la vidéo est ouvert ailleurs ({e.__class__.__name__}) : rien n'a bougé, réessayer") from e
+        morceaux, horodatage = list(v.morceaux.filter(etape__in=a_refaire)), f"{quand:%Y%m%d_%H%M%S_%f}"
+        for essai in range(ESSAIS_OUVERT):  # Windows lâche un fichier ouvert avec retard (lecteur de la fenêtre, antivirus) : on attend un peu
+            ranges, rangees = [], []
+            try:  # les morceaux d'abord, puis les pièces des ateliers ; au premier échec, tout revient : jamais une vidéo à moitié remise à faire
+                for m in morceaux:
+                    if (d := dossier(s, m)).exists():
+                        (cible := base / "_refaits" / horodatage / f"{m.etape}{'.' + m.langue if m.langue else ''}").parent.mkdir(parents=True, exist_ok=True)
+                        d.rename(cible)
+                        ranges.append((cible, d))
+                for a in langues:
+                    rangees.append((a, f1.ranger_langue(a, v.script, plans, horodatage)))
+                r = f1.preparer(base / "commun" / "atelier" / (v.nom or "video"), v.script, plans, quand=quand)
+                break
+            except (OSError, Refus) as e:
+                for a, rels in reversed(rangees):
+                    f1.remettre(a, rels, horodatage)
+                for cible, d in reversed(ranges):
+                    cible.rename(d)
+                if isinstance(e, Refus):
+                    raise
+                if essai == ESSAIS_OUVERT - 1:
+                    raise Refus(f"un fichier de la vidéo est ouvert ailleurs ({e.__class__.__name__}) : rien n'a bougé, réessayer") from e
+                time.sleep(ATTENTE_OUVERT)
         for m in morceaux:
             m.etat, m.essais, m.message = "attente", 0, ""
             m.save(update_fields=["etat", "essais", "message"])
+        v.publications.update(paquets={"fini": True, "erreur": "vidéo refaite : « Refaire les paquets » une fois la nouvelle vidéo finie"})
     t = file.mettre(s, v.id, v.titre, acteur)
-    return f"« {v.titre} » : plans {r['plans']} à refaire ({', '.join(r['etapes'])}) — {len(r['ranges'])} pièce(s) rangée(s) à côté, tâche {t.id} dans la file"
+    return (f"« {v.titre} » : plans {r['plans']} à refaire ({', '.join(r['etapes'])}) — {len(r['ranges'])} pièce(s) rangée(s) à côté, tâche {t.id} dans la file"
+            + (" ; déjà envoyée sur YouTube : la vidéo en ligne reste l'ancienne" if envoyee else ""))
 
 
 def estimer(s: Session, video_id: str) -> dict:

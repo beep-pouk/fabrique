@@ -1,0 +1,27 @@
+{
+ "id": "montage_karaoke",
+ "nom": "Montage d'une chanson, sous-titres karaoké (ffmpeg, libass)",
+ "roles": [
+  "montage"
+ ],
+ "local": true,
+ "prix_unite_eur": 0,
+ "prix_date": null,
+ "licence": "LGPL (ffmpeg, livré avec le studio)",
+ "credit": "",
+ "besoins": {
+  "carte_go": 0,
+  "disque_go": 1
+ },
+ "langues": [],
+ "limites": "clips aux bornes des sections, la chanson entière, karaoké incrusté, SRT par ligne",
+ "version": "1",
+ "dernier_banc": null,
+ "etat": "en_service",
+ "faux": false,
+ "simulable": true,
+ "module": "fabrique.moteur.par_section",
+ "reglages": {
+  "secondes": 60
+ }
+}
