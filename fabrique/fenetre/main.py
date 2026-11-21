@@ -25,7 +25,21 @@ log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
 GARDE_MS = 30_000
 CREATIONS = {"nouvelle_session", "relier", "code_telephone"}  # des lectures qui font quelque chose : leur refus est dit à RT
-VK_1, VK_2, VK_3, VK_4, VK_5, VK_9 = 0x31, 0x32, 0x33, 0x34, 0x35, 0x39  # touches du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
+VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_9 = 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x39  # touches du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
+INACTIF_S = 120  # J11 : au-delà, RT n'est plus devant le PC ; sa minute n'est pas comptée
+
+
+def inactif_s() -> float:
+    """Secondes depuis le dernier appui de touche ou mouvement de souris sur ce PC (GetLastInputInfo de Windows) ; 0 si illisible."""
+    import ctypes
+
+    class Lii(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+    li = Lii(ctypes.sizeof(Lii), 0)
+    if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(li)):
+        return 0.0
+    return ((ctypes.windll.kernel32.GetTickCount() - li.dwTime) & 0xFFFFFFFF) / 1000
 
 
 class Pont(QObject):
@@ -66,6 +80,21 @@ class Pont(QObject):
         except OSError as e:
             log.warning("lecture %s : %s", nom, e)
 
+    @Slot(str, str)
+    def compter(self, session: str, cle: str):
+        """Une minute de RT sur une vidéo ou un script (J11) : comptée seulement fenêtre au premier plan et PC utilisé ; envoyée sans bruit."""
+        if self.active() and inactif_s() < INACTIF_S:
+            self.fond.submit(self._compter, session, cle)
+
+    def active(self) -> bool:
+        return QApplication.applicationState() == Qt.ApplicationState.ApplicationActive
+
+    def _compter(self, session: str, cle: str):
+        try:
+            self.client.appeler("temps_rt", {"cle": cle, "secondes": 60}, id=session)
+        except (ErreurApi, OSError) as e:  # une minute perdue n'est pas une erreur pour RT
+            log.warning("temps de RT : %s", e)
+
     @Slot(str, "QVariantMap")
     def agir(self, nom: str, params):
         self.fond.submit(self._agir, nom, dict(params))
@@ -100,7 +129,8 @@ class Pont(QObject):
             repetee = e.isAutoRepeat() or e.key() in self.tenues
             self.tenues.add(e.key())
             ctrl = bool(e.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "outils"), (VK_5, "banc"), (VK_9, "systeme"))
+            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "outils"), (VK_5, "banc"),
+                                                   (VK_6, "statistiques"), (VK_9, "systeme"))
                            if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
             ecran = touche or ("" if e.key() == Qt.Key.Key_F5 else None)
             if ecran is not None:

@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", *GESTES},
+                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", "temps", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer", "veille", "bancs"},  # « Fabrique.exe commande … » ; un banc : session « Essais » seulement (file.mettre)
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -629,6 +629,41 @@ def choisir(request, id: str, pub: int, corps: schemas.Choix):
     return {"message": publication.choisir(session_(id), pub, ACTEURS[request.auth], corps.miniature, corps.playlist, corps.jour, corps.horaire)}
 
 
+@api.post("/sessions/{id}/publications/{pub}/revenu", response=schemas.Message)
+@droit("retoucher")
+def revenu(request, id: str, pub: int, corps: schemas.Revenu):
+    """Statistiques : le revenu d'une publication, saisi par RT (aucune chaîne n'est monétisée aujourd'hui)."""
+    s = session_(id)
+    with routeur.session(s):
+        if not m.Publication.objects.filter(id=pub).update(revenu_eur=corps.revenu_eur):
+            raise HttpError(404, f"publication inconnue : {pub}")
+    noter(ACTEURS[request.auth], "revenu", session=id, publication=pub, revenu_eur=corps.revenu_eur)
+    return {"message": "revenu effacé" if corps.revenu_eur is None else f"revenu : {corps.revenu_eur:.2f} €"}
+
+
+@api.post("/sessions/{id}/publications/{pub}/portee", response=schemas.Message)
+@droit("retoucher")
+def portee(request, id: str, pub: int, corps: schemas.Portee):
+    """Statistiques : impressions et taux de clic d'un jour, saisis par RT quand le rapport « reach » de YouTube manque (plan § 8.4)."""
+    from datetime import date as jour
+
+    s = session_(id)
+    try:
+        d = jour.fromisoformat(corps.date)
+    except ValueError:
+        raise HttpError(422, f"date illisible : {corps.date}") from None
+    with routeur.session(s):
+        p = m.Publication.objects.filter(id=pub).exclude(identifiant_youtube="").first()
+        if p is None:
+            raise Refus("cette publication n'est pas chez YouTube : rien à mesurer")
+        d_ = m.Destination.objects.filter(langue=p.langue, simulation=p.simulation).exclude(jeton="").first()
+        if d_ is None:
+            raise Refus(f"aucune chaîne reliée pour « {p.langue} »")
+        m.StatistiqueJour.objects.update_or_create(destination=d_, publication=p, date=d, defaults={"impressions": corps.impressions, "ctr": corps.ctr})
+    noter(ACTEURS[request.auth], "portee", session=id, publication=pub, date=corps.date)
+    return {"message": f"{corps.impressions} impressions, {corps.ctr:g} % de clics le {d:%d/%m}"}
+
+
 @api.post("/sessions/{id}/publications/{pub}/{action}", response=schemas.Message)
 @droit("publier")
 def publier(request, id: str, pub: int, action: Literal["publier", "reprendre", "annuler"]):
@@ -922,6 +957,39 @@ def exporter_en_fond(s: Session, videos: bool, qui: str):
 
 
 # en dernier : « /sessions/{id}/{action} » prendrait sinon les chemins des routes plus précises (destinations…)
+@api.get("/statistiques", response=schemas.Statistiques)
+@droit("voir")
+def statistiques(request):
+    """Statistiques → Sessions et « quoi fabriquer ensuite » (J11) ; une base illisible ne cache pas les autres sessions."""
+    from fabrique.publication import rendement
+
+    sessions_ = []
+    for s in Session.objects.filter(essais=False, archivee__isnull=True).order_by("nom"):
+        try:
+            sessions_.append(rendement.resume(s))
+        except Exception:  # noqa: BLE001
+            log.exception("statistiques de la session %s", s.nom)
+    return {"sessions": sessions_, "ensuite": rendement.ensuite()}
+
+
+@api.get("/sessions/{id}/statistiques", response=schemas.StatistiquesSession)
+@droit("voir")
+def statistiques_session(request, id: str):
+    from fabrique.publication import rendement
+
+    return rendement.session(session_(id))
+
+
+@api.post("/sessions/{id}/temps", response=schemas.Message)
+@droit("temps")
+def temps_rt(request, id: str, corps: schemas.TempsRT):
+    """La fenêtre, chaque minute passée par RT sur une vidéo ou sur son script (J11)."""
+    from fabrique.publication import rendement
+
+    rendement.noter_temps(session_(id), corps.cle, corps.secondes)
+    return {"message": "noté"}
+
+
 @api.post("/sessions/{id}/{action}", response=schemas.Message)
 @droit("sessions")
 def agir_session(request, id: str, action: Literal["pause", "reprendre", "archiver", "desarchiver", "dupliquer", "exporter", "modele"], corps: schemas.ActionSession):

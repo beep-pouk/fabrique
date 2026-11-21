@@ -25,7 +25,7 @@ LISTE = [("accueil", "accueil", "1280x800", "1"), ("sessions", "sessions", "1280
          ("video_script", "video:script", "1280x800", "1"), ("fabrication", "video:fabrication", "1280x800", "1"), ("video", "video", "1280x800", "1"), ("script", "script", "1280x800", "1"), ("script_ecriture", "script_ecriture", "1280x800", "1"), ("script_voix_off", "script:s1e02", "1280x800", "1"), ("script_voix_off_ecriture", "script_ecriture:s1e02", "1280x800", "1"), ("publication", "publication", "1280x800", "1"), ("systeme", "systeme", "1280x800", "1"), ("systeme_125", "systeme", "1600x1000", "1.25"),
          ("systeme_150", "systeme", "1920x1200", "1.5"), ("systeme_2560", "systeme", "2560x1440", "1"), ("outils", "outils", "1280x800", "1"),
          ("outils_150", "outils", "1920x1200", "1.5"), ("banc", "banc", "1280x800", "1"), ("banc_vote", "banc:1", "1280x800", "1"), ("banc_verdict", "banc:2", "1280x800", "1"),
-         ("banc_2560", "banc:1", "2560x1440", "1")]
+         ("banc_2560", "banc:1", "2560x1440", "1"), ("statistiques", "statistiques", "1280x800", "1")]
 
 
 def deplacer(a: Path, b: Path) -> bool:
@@ -98,6 +98,37 @@ def test_script_presentateur_lu_et_ecrit(qtbot):
     clic(f, "modifier_script")
     assert element(f, "champ_vue_0_0").property("text") == "" and element(f, "champ_image_0_0") is not None
     assert element(f, "champ_vue_0_1").property("text") == "insert"
+
+
+def test_statistiques_et_temps_de_rt(qtbot, monkeypatch):
+    """J11 : Statistiques (Ctrl+6) : « quoi fabriquer ensuite », sessions, chaînes, vidéos ; un revenu noté ; votre temps compté une minute à la
+    fois, seulement fenêtre active et PC utilisé."""
+    t = Transport()
+    moteur, pont, f = main.ouvrir(Client(transport=t))
+    f.show()
+    qtbot.waitUntil(lambda: valeur(f, "sante")["version"] == "0.1.0" and len(valeur(f, "sessions")) == 3)
+    f.setProperty("session", "s1")
+    QTest.keyClick(f, Qt.Key.Key_6, Qt.KeyboardModifier.ControlModifier)
+    assert f.property("ecran") == "statistiques" and element(f, "ecran_statistiques").isVisible()
+    qtbot.waitUntil(lambda: len(valeur(f, "statistiques_session")["videos"]) == 1)
+    assert element(f, "ensuite_0").property("text").startswith("1. Histoires factices · F1 · chaîne en — 8,8 h vues par heure de carte")
+    assert "pas assez de chiffres" in element(f, "ensuite_1").property("text")
+    assert "20000 impressions, 5,2 % de clics" in element(f, "stat_chiffres_0").property("text")
+    assert element(f, "stat_chaine_en").property("text").startswith("Chaîne en (Chaîne factice) — 900 vues")
+    element(f, "revenu_v1_en").setProperty("text", "1,25")
+    clic(f, "noter_revenu_v1_en")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/publications/7/revenu", {"revenu_eur": 1.25}) in t.actions)
+    # le compteur : rien fenêtre inactive ou PC inutilisé depuis plus de 2 min ; une minute sinon, sans message pour RT
+    f.setProperty("ecran", "video")
+    f.setProperty("video", {**valeur(f, "video"), "id": "v1"})
+    compteur = f.findChild(QObject, "compteur_rt")
+    for actif, inactif in ((False, 0), (True, 300), (True, 5)):
+        monkeypatch.setattr(main.Pont, "active", lambda self, a=actif: a)
+        monkeypatch.setattr(main, "inactif_s", lambda i=inactif: i)
+        compteur.metaObject().invokeMethod(compteur, "triggered")
+    qtbot.waitUntil(lambda: [c for chemin, c in t.actions if chemin == "/api/sessions/s1/temps"] == [{"cle": "video:v1", "secondes": 60}])
+    QTest.qWait(100)
+    assert len([c for chemin, c in t.actions if chemin == "/api/sessions/s1/temps"]) == 1 and valeur(f, "message") != "fait : /api/sessions/s1/temps"
 
 
 def test_parcours(qtbot):

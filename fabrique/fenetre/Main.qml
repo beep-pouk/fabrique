@@ -60,6 +60,8 @@ Window {
     property var idees: []
     property var historique: []
     property var suivi: []
+    property var statistiques: ({sessions: [], ensuite: []})  // J11 : Statistiques → sessions et « quoi fabriquer ensuite »
+    property var statistiques_session: ({videos: [], destinations: []})
     readonly property var reglagesVides: ({nom: "", pause: false, public: "", promesse: "", style: "", difference: "", objectif: "", arret: "", format: "", formats: [],
                                            assistant: "", plafond_eur: 0, duree_min: null, duree_max: null, enfants: true, declaration_ia: true, ordre_strict: true,
                                            langues: [], manque: []})
@@ -102,6 +104,7 @@ Window {
         if (ecran === "sessions" && onglet === "calendrier") chargerCal()
         if (ecran === "video" && video.id !== "") ["video", "publications", "paquets", "suivi"].forEach(n => pont.lire(n, {id: session, video: video.id}))
         if (ecran === "script" && script.code !== "") pont.lire("script", {id: session, code: script.code})
+        if (ecran === "statistiques") { pont.charger("statistiques"); if (session !== "") pont.lire("statistiques_session", {id: session}) }
     }
     function ouvrirOnglet(id) { onglet = id; defileSession.contentY = 0; if (id === "calendrier") chargerCal() }
     function rafraichir() {  // un événement du noyau (un morceau fini, une sauvegarde…) : ce qui bouge seul, jamais les champs que RT remplit
@@ -173,6 +176,7 @@ Window {
     function ecrire() { brouillon = JSON.parse(JSON.stringify(script.contenu)); controler = script.regles }
     function regles() { return brouillon ? controler : script.regles }
     function basculer(l) { var c = langues.slice(); var i = c.indexOf(l); if (i >= 0) c.splice(i, 1); else c.push(l); langues = c }
+    function nb(x, d) { return x === null || x === undefined ? "—" : Number(x).toFixed(d).replace(".", ",") }
     function duree(s) { return s >= 3600 ? (s / 3600).toFixed(1).replace(".", ",") + " h" : Math.max(1, Math.round(s / 60)) + " min" }
     function cocher(n) { var c = coches.slice(); var i = c.indexOf(n); if (i >= 0) c.splice(i, 1); else c.push(n); coches = c }
     function aller(e) { if (e !== "") ecran = e; recharger() }
@@ -196,6 +200,11 @@ Window {
     }
 
     Component.onCompleted: recharger()
+    Timer {  // J11 : votre temps sur une vidéo ou son script, une minute à la fois (le pont ne la compte que fenêtre active et PC utilisé)
+        objectName: "compteur_rt"; interval: 60000; running: true; repeat: true
+        onTriggered: { var c = ecran === "video" && video.id !== "" ? "video:" + video.id : ecran === "script" && script.code !== "" ? "script:" + script.code : ""
+                       if (c !== "" && session !== "") pont.compter(session, c) }
+    }
     Connections {
         target: pont
         function onRecu(nom, d) {
@@ -330,7 +339,8 @@ Window {
             Item { width: 1; height: 16 }
             Repeater {
                 model: [{id: "accueil", nom: "Accueil", touche: "Ctrl+1"}, {id: "sessions", nom: "Sessions", touche: "Ctrl+2"}, {id: "file", nom: "File", touche: "Ctrl+3"},
-                        {id: "outils", nom: "Outils", touche: "Ctrl+4"}, {id: "banc", nom: "Banc", touche: "Ctrl+5"}, {id: "systeme", nom: "Système", touche: "Ctrl+9"}]
+                        {id: "outils", nom: "Outils", touche: "Ctrl+4"}, {id: "banc", nom: "Banc", touche: "Ctrl+5"}, {id: "statistiques", nom: "Statistiques", touche: "Ctrl+6"},
+                        {id: "systeme", nom: "Système", touche: "Ctrl+9"}]
                 Rectangle {
                     objectName: "nav_" + modelData.id
                     width: parent.width; height: 40; radius: 6
@@ -1622,6 +1632,122 @@ Window {
                                 Mono { text: "scène " + modelData.id + (modelData.bramble ? "  ·  Bramble : " + modelData.bramble : ""); color: cSecond; font.pixelSize: 12 }
                                 T { visible: !modelData.plans; text: modelData.narration || ""; width: parent.width }
                                 PlansLus { plans: modelData.plans || []; scene: modelData.id; presentateur: !!script.contenu.presentateur }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Flickable {
+            objectName: "ecran_statistiques"
+            visible: ecran === "statistiques"
+            anchors.fill: parent; contentHeight: pileStats.height + 48; clip: true
+            ScrollBar.vertical: ScrollBar { width: 8; policy: ScrollBar.AsNeeded; contentItem: Rectangle { radius: 4; color: cTrait } }
+            Column {
+                id: pileStats
+                x: 24; y: 24; width: Math.min(contenu.width - 48, 960); spacing: 16
+                T { text: "Statistiques"; font.pixelSize: 28; font.weight: Font.DemiBold }
+                T { text: "Heures vues sur YouTube (relevées chaque jour), temps de carte, votre temps (compté quand une vidéo ou son script est ouvert et que vous "
+                          + "utilisez le PC), dépenses et revenus."; color: cSecond; width: parent.width }
+                Panneau {
+                    titre: "Quoi fabriquer ensuite"
+                    T { width: parent.width; color: cSecond; font.pixelSize: 12
+                        text: "Par chaîne : heures vues pour une heure de carte (la carte est partagée entre les sessions), puis pour une minute de votre temps, puis revenus." }
+                    T { visible: !statistiques.ensuite.length; text: "Aucune vidéo publiée : rien à comparer pour l'instant."; color: cSecond }
+                    Repeater {
+                        model: statistiques.ensuite
+                        T {
+                            objectName: "ensuite_" + index; width: parent.width; color: modelData.assez ? cTexte : cSecond
+                            text: (modelData.assez ? (index + 1) + ". " : "· ") + modelData.session + " · " + modelData.format + " · chaîne " + modelData.langue + " — "
+                                  + (modelData.assez ? nb(modelData.par_heure_carte, 1) + " h vues par heure de carte, " + nb(modelData.par_minute_rt, 2)
+                                                       + " h par minute de votre temps" + (modelData.revenu_eur != null ? ", " + nb(modelData.revenu_eur, 2) + " € de revenus" : "")
+                                                     : "pas assez de chiffres (" + modelData.videos + " vidéo(s) publiée(s) depuis une semaine, " + modelData.recentes + " plus récente(s))")
+                        }
+                    }
+                }
+                Panneau {
+                    titre: "Sessions"
+                    Repeater {
+                        model: statistiques.sessions
+                        Rectangle {
+                            objectName: "stat_session_" + index
+                            width: parent.width; height: ligneStatSession.implicitHeight + 16; radius: 6
+                            color: modelData.id === session ? cLeve : "transparent"; border.width: 1; border.color: modelData.id === session ? cSelection : cTrait
+                            T { id: ligneStatSession; x: 12; y: 8; width: parent.width - 24
+                                text: modelData.nom + " — " + modelData.publiees + " vidéo(s) publiée(s) sur " + modelData.videos + ", " + modelData.vues + " vues, "
+                                      + nb(modelData.heures, 1) + " h vues ; carte " + nb(modelData.carte_h, 1) + " h, votre temps " + nb(modelData.rt_min, 0) + " min, dépenses "
+                                      + nb(modelData.depenses_eur, 2) + " €" + (modelData.revenu_eur != null ? ", revenus " + nb(modelData.revenu_eur, 2) + " €" : "") }
+                            Clic { onTapped: { choisir(modelData.id); pont.lire("statistiques_session", {id: modelData.id}) } }
+                            Accessible.role: Accessible.Button; Accessible.name: ligneStatSession.text
+                        }
+                    }
+                }
+                Panneau {
+                    titre: "Chaînes de la session"
+                    T { visible: !statistiques_session.destinations.length; text: "Aucune chaîne reliée (Session → Destinations)."; color: cSecond }
+                    Repeater {
+                        model: statistiques_session.destinations
+                        Column {
+                            id: chaineStat
+                            property real plus: Math.max.apply(null, [1].concat(modelData.jours.map(j => j.vues)))
+                            width: parent.width; spacing: 4
+                            T { objectName: "stat_chaine_" + modelData.langue; width: parent.width
+                                text: "Chaîne " + modelData.langue + (modelData.chaine ? " (" + modelData.chaine + ")" : "") + " — " + modelData.vues_28j + " vues et "
+                                      + nb(modelData.heures_28j, 1) + " h vues sur 28 jours ; depuis le début : " + modelData.vues + " vues, " + nb(modelData.heures, 1)
+                                      + " h, " + modelData.abonnes + " abonnés" + (modelData.ctr != null ? ", " + nb(modelData.ctr, 1) + " % de clics" : "") }
+                            Row {
+                                height: 48; spacing: 2
+                                Repeater {
+                                    model: modelData.jours
+                                    Rectangle { width: 10; height: Math.max(1, 48 * modelData.vues / chaineStat.plus); anchors.bottom: parent.bottom; radius: 2; color: cSelection
+                                                Accessible.role: Accessible.Graphic; Accessible.name: modelData.date + " : " + modelData.vues + " vues" }
+                                }
+                            }
+                        }
+                    }
+                }
+                Panneau {
+                    titre: "Vidéos de la session"
+                    T { visible: !statistiques_session.videos.length; text: "Aucune vidéo fabriquée dans cette session."; color: cSecond }
+                    Repeater {
+                        model: statistiques_session.videos
+                        Rectangle {
+                            id: carteStat
+                            property var v: modelData
+                            objectName: "stat_video_" + index
+                            width: parent.width; height: colStat.implicitHeight + 20; radius: 6; color: cLeve
+                            Column {
+                                id: colStat
+                                x: 12; y: 10; width: parent.width - 24; spacing: 6
+                                T { text: carteStat.v.titre + "  ·  " + carteStat.v.format + (carteStat.v.publiee_le ? "  ·  publiée le " + carteStat.v.publiee_le + " ("
+                                          + carteStat.v.langues.join(", ") + ")" : "  ·  pas publiée"); font.weight: Font.DemiBold; width: parent.width }
+                                T { objectName: "stat_chiffres_" + index; width: parent.width; font.pixelSize: 12; color: cSecond
+                                    text: carteStat.v.vues + " vues, " + nb(carteStat.v.heures, 1) + " h vues"
+                                          + (carteStat.v.impressions ? ", " + carteStat.v.impressions + " impressions, " + nb(carteStat.v.ctr, 1) + " % de clics" : "")
+                                          + "  ·  carte " + nb(carteStat.v.carte_h, 1) + " h, votre temps " + nb(carteStat.v.rt_min, 0) + " min, dépenses "
+                                          + nb(carteStat.v.depenses_eur, 2) + " €"
+                                          + (carteStat.v.par_heure_carte != null ? "  ·  " + nb(carteStat.v.par_heure_carte, 1) + " h vues par heure de carte" : "") }
+                                Repeater {
+                                    model: carteStat.v.publications
+                                    Row {
+                                        id: saisiePub
+                                        property var p: modelData
+                                        spacing: 8
+                                        T { text: "Chaîne " + saisiePub.p.langue; anchors.verticalCenter: parent.verticalCenter; width: 90 }
+                                        Champ { id: champRevenu; nom: "revenu_" + carteStat.v.id + "_" + saisiePub.p.langue; width: 150; libelle: "revenu (€)"
+                                                texte: saisiePub.p.revenu_eur != null ? String(saisiePub.p.revenu_eur).replace(".", ",") : "" }
+                                        Bouton { objectName: "noter_revenu_" + carteStat.v.id + "_" + saisiePub.p.langue; texte: "Noter le revenu"
+                                                 onClic: pont.agir("revenu", {id: session, pub: saisiePub.p.id,
+                                                                              corps: {revenu_eur: champRevenu.texte.trim() === "" ? null : Number(champRevenu.texte.replace(",", "."))}}) }
+                                        Champ { id: champJour; width: 130; libelle: "jour (AAAA-MM-JJ)" }
+                                        Champ { id: champImpr; width: 110; libelle: "impressions" }
+                                        Champ { id: champCtr; width: 90; libelle: "clics (%)" }
+                                        Bouton { texte: "Noter la portée"; actif: champJour.texte !== "" && champImpr.texte !== "" && champCtr.texte !== ""
+                                                 onClic: pont.agir("portee", {id: session, pub: saisiePub.p.id, corps: {date: champJour.texte.trim(),
+                                                                   impressions: parseInt(champImpr.texte), ctr: Number(champCtr.texte.replace(",", "."))}}) }
+                                    }
+                                }
                             }
                         }
                     }

@@ -641,3 +641,98 @@ class Repere(BaseModel):
 
 class Veille(BaseModel):
     candidats: list[Repere] = Field(min_length=1)
+
+
+class StatVideo(BaseModel):
+    """J11, Statistiques → Vidéos : une vidéo de la session (publication/rendement.py)."""
+    id: str
+    titre: str
+    format: str
+    langues: list[str]  # celles qui sont chez YouTube
+    publiee_le: str
+    vues: int
+    heures: float
+    abonnes: int
+    retention: float | None
+    impressions: int
+    ctr: float | None  # %
+    carte_h: float
+    rt_min: float
+    depenses_eur: float
+    revenu_eur: float | None
+    par_heure_carte: float | None  # heures vues pour une heure de carte
+    par_minute_rt: float | None
+    publications: list[dict]  # [{id, langue, revenu_eur}] : la saisie des revenus
+
+
+class StatDestination(BaseModel):
+    langue: str
+    reseau: str
+    chaine: str
+    vues: int
+    heures: float
+    abonnes: int
+    retention: float | None
+    impressions: int
+    ctr: float | None
+    vues_28j: int
+    heures_28j: float
+    jours: list[dict]  # [{date, vues}]
+
+
+class StatistiquesSession(BaseModel):
+    videos: list[StatVideo]
+    destinations: list[StatDestination]
+
+
+class ResumeSession(BaseModel):
+    id: str
+    nom: str
+    videos: int
+    publiees: int
+    vues: int
+    heures: float
+    carte_h: float
+    rt_min: float
+    depenses_eur: float
+    revenu_eur: float | None
+    par_heure_carte: float | None
+    par_minute_rt: float | None
+
+
+class Ensuite(BaseModel):
+    """Un groupe de « quoi fabriquer ensuite » : session × format × chaîne (langue)."""
+    session: str
+    session_id: str
+    format: str
+    langue: str
+    videos: int  # publiées depuis au moins 7 jours
+    recentes: int
+    heures: float
+    carte_h: float
+    rt_min: float
+    revenu_eur: float | None
+    par_heure_carte: float | None
+    par_minute_rt: float | None
+    assez: bool  # assez de chiffres pour être classé
+
+
+class Statistiques(BaseModel):
+    sessions: list[ResumeSession]
+    ensuite: list[Ensuite]
+
+
+class Revenu(BaseModel):
+    revenu_eur: float | None = Field(default=None, ge=0)  # None : effacer
+
+
+class Portee(BaseModel):
+    """Les impressions et le taux de clic d'un jour, saisis par RT quand le rapport « reach » manque."""
+    date: str  # AAAA-MM-JJ
+    impressions: int = Field(ge=0)
+    ctr: float = Field(ge=0, le=100)
+
+
+class TempsRT(BaseModel):
+    cle: str  # « video:<id> » ou « script:<code> »
+    secondes: float

@@ -180,6 +180,9 @@ class Publication(models.Model):
     envoi = models.JSONField(default=dict)
     versions = models.JSONField(default=list)  # [{numero, titre, description, auteur, date}]
     paquets = models.JSONField(default=dict)  # paquets prêts à poster : {réseau: {etat, raison, fichiers, miniature, fautes}, "fini": True}
+    variantes = models.JSONField(default=list)  # J11, titres et miniatures : [{titre, miniature, note, raisons, depuis}] ; « depuis » : en ligne depuis ce jour
+    variante = models.IntegerField(default=0)  # celle qui est posée (titre et miniature ci-dessus)
+    revenu_eur = models.FloatField(null=True)  # saisi par RT dans Statistiques (aucune chaîne n'est monétisée aujourd'hui)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["video", "langue"], name="publication_unique")]
@@ -197,3 +200,16 @@ class StatistiqueJour(models.Model):
     retention = models.FloatField(null=True)  # % vu
     abonnes = models.IntegerField(default=0)  # gagnés
     abonnes_perdus = models.IntegerField(default=0)
+    impressions = models.PositiveIntegerField(null=True)  # J11 : rapport « reach » de l'API YouTube Reporting (ou saisi par RT)
+    ctr = models.FloatField(null=True)  # taux de clic des impressions, en %
+
+
+class TempsRT(models.Model):
+    """Le temps de RT sur une vidéo ou sur son script (J11), par jour : la fenêtre compte une minute par minute passée sur leurs écrans, fenêtre
+    active et PC utilisé (pas inactif depuis 2 min). « cle » : « video:<id> » ou « script:<code> »."""
+    cle = models.CharField(max_length=120)
+    date = models.DateField()
+    secondes = models.FloatField(default=0)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["cle", "date"], name="temps_rt_unique")]

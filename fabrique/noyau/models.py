@@ -81,6 +81,7 @@ class Depense(models.Model):
     """Un appel d'outil payant : estimé avant l'appel, réel quand le service le donne."""
     date = models.DateTimeField(auto_now_add=True)
     session_id = models.CharField(max_length=32)
+    video_id = models.CharField(max_length=32, default="")  # la vidéo fabriquée (ou mise au banc) : Statistiques, par vidéo
     outil = models.CharField(max_length=50)
     estime_eur = models.FloatField()
     reel_eur = models.FloatField(null=True)
