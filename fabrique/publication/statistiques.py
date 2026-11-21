@@ -5,6 +5,8 @@ session réelle, la chaîne et ses playlists (deux appels de l'API Data : ils ga
 Les chiffres de YouTube arrivent avec 48 à 72 h de retard : les RETARD_JOURS derniers jours connus sont relus et corrigés ; sinon les HISTOIRE_JOURS jours
 avant la liaison (chaîne : chiffres dès le premier relevé) ou depuis la veille du créneau (vidéo) ; un PC éteint plusieurs jours rattrape tout. Un refus (quota, réseau, jeton) n'arrête pas les autres
 destinations : il est dit dans l'état de la tâche (alerte), et le relevé est réessayé une heure plus tard. En lecture seule chez YouTube."""
+import csv
+import io
 import json
 import logging
 import os
@@ -75,6 +77,41 @@ def rapport(s: Session, d: m.Destination, pub: m.Publication | None, aujourd_hui
         return enregistrer(d, pub, json.loads(corps))
 
 
+TYPE_PORTEE = "channel_reach_basic_a1"  # impressions des miniatures et taux de clic, par vidéo et par jour
+
+
+def portee(s: Session, d: m.Destination) -> int:
+    """J11 : impressions et taux de clic des vidéos publiées (API YouTube Reporting, rapport « reach » quotidien de la chaîne). Le travail est
+    créé au premier relevé (YouTube y verse ensuite un rapport par jour) ; chaque rapport lu une fois (le dernier jour lu est gardé) ; les
+    lignes d'une vidéo (abonnés ou non, pays…) additionnées, le taux de clic pondéré ; une saisie de RT pour ce jour est remplacée."""
+    base, cle = youtube.urls()["reporting"], f"portee:{s.id}:{d.pk}"
+    _, _, b = youtube.appeler(s, d.langue, "GET", url=base + "/v1/jobs")
+    travail = next((j["id"] for j in json.loads(b or b"{}").get("jobs", []) if j.get("reportTypeId") == TYPE_PORTEE), None)
+    if travail is None:
+        youtube.appeler(s, d.langue, "POST", url=base + "/v1/jobs", corps={"reportTypeId": TYPE_PORTEE, "name": "Fabrique"})
+        return 0
+    _, _, b = youtube.appeler(s, d.langue, "GET", url=f"{base}/v1/jobs/{travail}/reports")
+    lu, n = Parametre.lire(cle), 0
+    with routeur.session(s):
+        pubs = {p.identifiant_youtube: p for p in m.Publication.objects.filter(langue=d.langue, simulation=d.simulation).exclude(identifiant_youtube="")}
+    for r in sorted(json.loads(b or b"{}").get("reports", []), key=lambda r: r["startTime"]):  # shortcut: une page de rapports ; pageToken s'il en manque un jour
+        if (jour := r["startTime"][:10]) <= lu:
+            continue
+        _, _, texte = youtube.appeler(s, d.langue, "GET", url=r["downloadUrl"])
+        par = {}  # (vidéo, jour) → [impressions, clics]
+        for ligne in csv.DictReader(io.StringIO(texte.decode("utf-8-sig"))):
+            if ligne.get("video_id") in pubs:
+                i, x = int(ligne.get("video_thumbnail_impressions") or 0), par.setdefault((ligne["video_id"], ligne["date"]), [0, 0.0])
+                x[0], x[1] = x[0] + i, x[1] + i * float(ligne.get("video_thumbnail_impressions_ctr") or 0)
+        with routeur.session(s):
+            for (vid, j), (i, clics) in par.items():
+                m.StatistiqueJour.objects.update_or_create(destination=d, publication=pubs[vid], date=datetime.strptime(j, "%Y%m%d").date(),
+                                                           defaults={"impressions": i, "ctr": round(100 * clics / i, 2) if i else None})
+                n += 1
+        Parametre.ecrire(cle, jour)
+    return n
+
+
 def relever(aujourd_hui: date | None = None) -> tuple[list[str], list[str]]:
     """Le relevé de toutes les destinations reliées ; rend (fait, alertes)."""
     aujourd_hui = aujourd_hui or timezone.localdate()
@@ -94,7 +131,7 @@ def relever(aujourd_hui: date | None = None) -> tuple[list[str], list[str]]:
                                 .exclude(planifiee_le=None))
                 jours = rapport(s, d, None, aujourd_hui)
                 videos = sum(rapport(s, d, p, aujourd_hui) for p in pubs)
-                faits.append(f"{s.nom} ({d.langue}) : chaîne {jours} jour(s), {len(pubs)} vidéo(s) {videos} jour(s)")
+                faits.append(f"{s.nom} ({d.langue}) : chaîne {jours} jour(s), {len(pubs)} vidéo(s) {videos} jour(s), portée {portee(s, d)} jour(s)")
             except Exception as e:  # noqa: BLE001 — quota, réseau, jeton : les autres destinations continuent, réessai dans une heure
                 (log.warning if isinstance(e, (Refus, youtube.ErreurYoutube, OSError, ValueError, KeyError)) else log.exception)("relevé %s (%s) : %s", s.nom, d.langue, e)
                 alertes.append(f"relevé des statistiques de {s.nom} ({d.langue}) reporté : {e}")

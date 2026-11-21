@@ -55,10 +55,11 @@ class Faux(ThreadingHTTPServer):
         self.refuser = False
         self.statistiques = {}  # {vidéo ou CHAINE_STATS: {AAAA-MM-JJ: {métrique: valeur}}}
         self.analytics_refus = None
+        self.travaux, self.portee = {}, {}  # API Reporting : travaux créés ; {vidéo: (impressions, taux de clic 0-1)} des rapports « reach »
 
     @property
     def urls(self) -> dict:
-        return {"auth": f"{self.base}/o/oauth2/v2/auth", "token": f"{self.base}/token", "api": self.base, "analytics": self.base}
+        return {"auth": f"{self.base}/o/oauth2/v2/auth", "token": f"{self.base}/token", "api": self.base, "analytics": self.base, "reporting": self.base}
 
     def demarrer(self) -> "Faux":
         threading.Thread(target=self.serve_forever, kwargs={"poll_interval": 0.05}, name="faux-youtube", daemon=True).start()
@@ -319,6 +320,26 @@ class Requete(BaseHTTPRequestHandler):
         entetes = [{"name": "day", "columnType": "DIMENSION", "dataType": "STRING"}] + [{"name": m, "columnType": "METRIC", "dataType": METRIQUES[m]} for m in metriques]
         self._repondre(200, {"kind": "youtubeAnalytics#resultTable", "columnHeaders": entetes, **({"rows": rows} if rows else {})})  # sans donnée : pas de clé rows (comme l'API)
 
+    # ---- portée (API YouTube Reporting : travail « channel_reach_basic_a1 », un rapport CSV par jour) ----
+
+    def _rapports_portee(self, travail: str):
+        if travail not in self.server.travaux:
+            return self._erreur(404, "notFound", "Job not found")
+        jours = [datetime.now().date() - timedelta(days=n) for n in (4, 3, 2)]
+        self._repondre(200, {"reports": [{"id": f"r{j:%Y%m%d}", "jobId": travail, "startTime": f"{j}T07:00:00Z", "endTime": f"{j + timedelta(1)}T07:00:00Z",
+                                          "downloadUrl": f"{self.server.base}/v1/media/{travail}/{j:%Y%m%d}"} for j in jours]})
+
+    def _csv_portee(self, jour: str):
+        lignes = ["date,channel_id,video_id,live_or_on_demand,subscribed_status,country_code,video_thumbnail_impressions,video_thumbnail_impressions_ctr"]
+        for v, (i, c) in self.server.portee.items():  # deux lignes par vidéo (abonnés ou non) : Fabrique les additionne
+            lignes += [f"{jour},{CHAINE[0]},{v},on_demand,subscribed,FR,{i // 2},{c}", f"{jour},{CHAINE[0]},{v},on_demand,not_subscribed,US,{i - i // 2},{c}"]
+        donnees = ("\n".join(lignes) + "\n").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv")
+        self.send_header("Content-Length", str(len(donnees)))
+        self.end_headers()
+        self.wfile.write(donnees)
+
     # ---- routes ----
 
     def do_GET(self):
@@ -334,6 +355,12 @@ class Requete(BaseHTTPRequestHandler):
             return self._repondre(200, {"kind": "youtube#channelListResponse", "items": [{"kind": "youtube#channel", "id": CHAINE[0], "snippet": {"title": CHAINE[1]}}]})
         if chemin == "/v2/reports":
             return self._rapport(p)
+        if chemin == "/v1/jobs":
+            return self._repondre(200, {"jobs": list(self.server.travaux.values())} if self.server.travaux else {})
+        if chemin.startswith("/v1/jobs/") and chemin.endswith("/reports"):
+            return self._rapports_portee(chemin.split("/")[3])
+        if chemin.startswith("/v1/media/"):
+            return self._csv_portee(chemin.rsplit("/", 1)[1])
         self._erreur(404, "notFound", "Not Found")
 
     def do_POST(self):
@@ -345,6 +372,11 @@ class Requete(BaseHTTPRequestHandler):
         if not self._autorise():
             self._corps()
             return
+        if chemin == "/v1/jobs":
+            corps = json.loads(self._corps() or b"{}")
+            t = {"id": f"job{len(self.server.travaux) + 1}", "reportTypeId": corps.get("reportTypeId", ""), "name": corps.get("name", "")}
+            self.server.travaux[t["id"]] = t
+            return self._repondre(200, t)
         routes = {"/upload/youtube/v3/videos": self._session, "/upload/youtube/v3/thumbnails/set": self._miniature, "/youtube/v3/playlistItems": self._element,
                   "/upload/youtube/v3/captions": self._sous_titres}
         if chemin in routes:

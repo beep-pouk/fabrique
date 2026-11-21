@@ -33,7 +33,7 @@ RESEAU = "youtube"
 PORTEE = "https://www.googleapis.com/auth/youtube.force-ssl"  # videos.insert, thumbnails.set, playlistItems.insert, captions.insert, videos.list, playlists.list
 PORTEES = " ".join((PORTEE, "https://www.googleapis.com/auth/yt-analytics.readonly", "https://www.googleapis.com/auth/youtube.readonly"))  # + statistiques (Bramble J7)
 GOOGLE = {"auth": "https://accounts.google.com/o/oauth2/v2/auth", "token": "https://oauth2.googleapis.com/token", "api": "https://www.googleapis.com",
-          "analytics": "https://youtubeanalytics.googleapis.com"}
+          "analytics": "https://youtubeanalytics.googleapis.com", "reporting": "https://youtubereporting.googleapis.com"}
 SECRET = "youtube_client_secret.json"
 ATTENTE_RETOUR_S = 300  # le serveur de retour attend RT 5 min sur la page Google
 MARGE_S = 60  # un jeton d'accès qui expire dans moins d'une minute est renouvelé

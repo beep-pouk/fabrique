@@ -516,11 +516,13 @@ def test_releve_quotidien_chaine_et_videos_publiees(session, faux, monkeypatch):
     j = [f"{timezone.localdate() - timedelta(days=n)}" for n in range(6, -1, -1)]
     faux.statistiques = {faux_youtube.CHAINE_STATS: {d: {"views": 10 + i, "subscribersGained": 1} for i, d in enumerate(j[:-2])},
                          "vidFaux1": {d: {"views": 3, "estimatedMinutesWatched": 90} for d in j[1:-2]}}
+    faux.travaux["job1"] = {"id": "job1", "reportTypeId": "channel_reach_basic_a1"}  # J11, portée : un rapport « reach » par jour, CSV
+    faux.portee = {"vidFaux1": (1000, 0.05), "vidAutre": (10, 0.5)}
     taches.fichier("releve").unlink(missing_ok=True)
     Parametre.ecrire("releve_jour", "")
     assert statistiques.executer() == 0
     e = taches.lire("releve")
-    assert e["etat"] == "fait" and f"{session.nom} (xx) : chaîne 5 jour(s), 1 vidéo(s) 4 jour(s)" in e["faits"] and not [f for f in e["faits"] if "Essais" in f]
+    assert e["etat"] == "fait" and f"{session.nom} (xx) : chaîne 5 jour(s), 1 vidéo(s) 4 jour(s), portée 3 jour(s)" in e["faits"] and not [f for f in e["faits"] if "Essais" in f]
     assert stats(session) == {d: (10 + i, 1) for i, d in enumerate(j[:-2])} and set(stats(session, pub)) == set(j[1:-2])
     with routeur.session(session):
         assert m.StatistiqueJour.objects.get(publication=pub, date=j[1]).heures == 1.5
@@ -529,8 +531,14 @@ def test_releve_quotidien_chaine_et_videos_publiees(session, faux, monkeypatch):
     assert filtres[-2:] == ["", "video==vidFaux1"] and "video==vidEssai" not in filtres and faux.appels_de("GET", "/youtube/v3/channels")  # l'API Data aussi : le projet Google reste actif
     # le lendemain : les 3 derniers jours connus relus, un chiffre corrigé par YouTube remplace l'ancien
     faux.statistiques[faux_youtube.CHAINE_STATS][j[4]] = {"views": 99}
-    assert statistiques.executer() == 0
+    ligne = lambda: next(f for f in taches.lire("releve")["faits"] if f.startswith(f"{session.nom} (xx)"))  # noqa: E731
+    assert statistiques.executer() == 0 and ligne().endswith("portée 0 jour(s)")  # rapports « reach » déjà lus : pas relus
     assert faux.appels_de("GET", "/v2/reports")[-2]["params"]["startDate"] == j[2] and stats(session)[j[4]] == (99, 0)
+    with routeur.session(session):
+        x = m.StatistiqueJour.objects.get(publication=pub, date=timezone.localdate() - timedelta(days=2))
+        assert (x.impressions, x.ctr, x.vues) == (1000, 5.0, 3)  # lignes additionnées, taux pondéré ; les vues de l'API Analytics gardées
+    faux.travaux.clear()  # pas de travail « reach » chez YouTube : créé au relevé suivant
+    assert statistiques.executer() == 0 and [t["reportTypeId"] for t in faux.travaux.values()] == ["channel_reach_basic_a1"]
 
 
 def test_releve_refuse_par_le_quota_puis_reessai(session, faux, monkeypatch):
