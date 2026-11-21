@@ -17,6 +17,10 @@ Pour chaque jalon, dans l'ordre :
 - **Un geste de RT** prévu au § 7.3 (relier les chaînes et cliquer « Publier » à J4, voter aux bancs, cliquer « Fabriquer » à J12) ou **une vraie question** : l'écrire dans `docs\QUESTIONS.md` (une ligne datée, en QCM, option recommandée en premier), **avancer sur tout ce qui n'en dépend pas**, et ne s'arrêter que si plus rien n'avance. La supervision répond dans ce fichier (ligne « Réponse : »).
 - **La limite d'usage** : commit, « à reprendre à … » en tête de `docs\REPRISE.md`, puis s'arrêter. La supervision relance.
 
+## PRIORITÉ 1 (RT, 21/11 : « je ne vois pas vraiment l'évolution de l'application »)
+
+RT n'a chez lui que la 0.2.1. **Avant tout autre travail** : fusionner dans `main`, dans l'ordre, les branches recettées (j3 → j10, puis j11 en cours si elle tient debout), suite verte, recettes rejouées, **une version publiée** dans `FABRIQUE\versions`, puis écrire « 0.x.0 prête » dans QUESTIONS (la supervision l'installe et passe en mode réel). Ensuite, publier une version à **chaque jalon recetté** : RT doit voir l'application grandir. Économiser l'usage : lire peu, relectures à froid courtes, pas de sous-agents en parallèle sans nécessité.
+
 ## S'inspirer de l'open source (demande de RT, 17/11 22 h 43)
 
 Avant de concevoir une brique, un écran ou un flux, **regarder comment les meilleurs logiciels libres l'ont fait** et reprendre ce qui est éprouvé plutôt que réinventer. Ordre de préférence : 1) une bibliothèque libre installée par uv (la plus solide, licence permissive) ; 2) du code copié et adapté ; 3) seulement l'idée. Code cloné pour lecture dans `OUTILS\fabrique_construction\references\` (hors dépôt), lu avec graphify ou grep, jamais exécuté sans raison.
