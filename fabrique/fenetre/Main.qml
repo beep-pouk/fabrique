@@ -1274,6 +1274,25 @@ Window {
                                               + "  ·  " + (p.non_repertorie ? "sans playlist (non répertorié)" : p.playlist_titre !== "" ? "playlist : " + p.playlist_titre : "sans playlist")
                                               + "  ·  pour enfants : " + (p.enfants ? "oui" : "non")
                                               + "  ·  IA déclarée : " + (p.ia ? "oui" : "non") + (p.chapitres.length ? "  ·  " + p.chapitres.length + " chapitres" : "") }
+                                    T { visible: p.proposition !== null; objectName: "proposition_" + index; width: parent.width; color: cAttention
+                                        text: p.proposition ? "Proposé : " + p.proposition.raison : "" }
+                                    Flow {
+                                        visible: p.variantes.length > 1; width: parent.width; spacing: 10
+                                        Repeater {
+                                            model: p.variantes
+                                            Column {
+                                                width: 200; spacing: 4
+                                                Image { visible: status === Image.Ready; source: modelData.miniature !== "" ? "file:///" + modelData.miniature.replace(/\\/g, "/") : ""
+                                                        width: 168; height: 94; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: false }
+                                                T { width: parent.width; font.pixelSize: 13; text: modelData.titre }
+                                                Mono { width: parent.width; color: cSecond; font.pixelSize: 12; wrapMode: Text.Wrap
+                                                       text: (modelData.note !== null ? "note " + nb(modelData.note, 1) + " / 10 · " : "") + modelData.raisons.join(" · ") }
+                                                Bouton { objectName: "variante_" + carte.p.id + "_" + index; texte: index === p.variante ? "Variante " + (index + 1) + " ✓" : "Choisir la variante " + (index + 1)
+                                                         actif: index !== p.variante && (carte.modifiable || p.lien !== "")
+                                                         onClic: pont.agir("choisir", {id: session, pub: p.id, corps: {variante: index}}) }
+                                            }
+                                        }
+                                    }
                                     Flow {
                                         visible: carte.modifiable && p.miniatures.length > 0; width: parent.width; spacing: 6
                                         T { text: "Miniature :"; color: cSecond; wrapMode: Text.NoWrap; height: 32; verticalAlignment: Text.AlignVCenter }

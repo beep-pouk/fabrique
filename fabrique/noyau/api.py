@@ -626,6 +626,10 @@ def retoucher(request, id: str, pub: int, corps: schemas.Retouche):
 def choisir(request, id: str, pub: int, corps: schemas.Choix):
     from fabrique.publication import publication
 
+    if corps.variante is not None:  # J11 : aussi après la publication (titre et miniature changés chez YouTube)
+        from fabrique.publication import variantes
+
+        return {"message": variantes.choisir(session_(id), pub, corps.variante, ACTEURS[request.auth])}
     return {"message": publication.choisir(session_(id), pub, ACTEURS[request.auth], corps.miniature, corps.playlist, corps.jour, corps.horaire)}
 
 

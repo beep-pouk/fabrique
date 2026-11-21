@@ -28,7 +28,7 @@ from fabrique.garde import Refus
 from fabrique.noyau import etat, routeur, taches
 from fabrique.noyau.models import Session, Tache, noter
 from fabrique.session import reglages
-from fabrique.publication import youtube
+from fabrique.publication import variantes, youtube
 from fabrique.publication.faux_youtube import longueur_tags
 from fabrique.session import models as m
 
@@ -208,6 +208,7 @@ def approuver(s: Session, video_id: str, acteur: str) -> str:
                 pub.playlist, pub.planifiee_le = playlist_proposee(v.script, playlists.get(langue, [])), creneau(jour)
                 pub.enfants, pub.ia = regles["enfants"], regles["declaration_ia"]  # les règles de la session (Session → Règles)
                 pub.versions = [{"numero": 1, "titre": pub.titre, "description": pub.description, "auteur": "noyau", "date": _maintenant()}]
+                variantes.preparer(s, pub, d)  # J11 : titres et miniatures, notés
                 pub.save()
                 faites.append(langue)
     noter(acteur, "approuver", session=s.id, video=video_id, langues=faites)
@@ -293,7 +294,9 @@ def apercu(s: Session, video_id: str) -> list[dict]:
                 + ([] if c["reliee"] else ["chaîne de la langue pas reliée : brouillon seulement, « Publier » refusé"]),
                 "versions": len(pub.versions), "lien": f"https://youtu.be/{pub.identifiant_youtube}" if pub.identifiant_youtube else "",
                 "envoi": f"{e.get('octets', 0) / 1e6:.1f} / {e['taille'] / 1e6:.1f} Mo".replace(".", ",") + (f" ; fait : {', '.join(e['fait'])}" if e.get("fait") else "")
-                if e.get("taille") else "", "erreur": e.get("erreur", "")})
+                if e.get("taille") else "", "erreur": e.get("erreur", ""),
+                "variantes": [{**x, "miniature": str(d / x["miniature"]) if x["miniature"] else ""} for x in pub.variantes], "variante": pub.variante,
+                "proposition": variantes.proposition(pub)})
     return lignes
 
 

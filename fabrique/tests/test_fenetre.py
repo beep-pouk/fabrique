@@ -201,6 +201,9 @@ def test_parcours(qtbot):
     clic(f, "confirmer_publier_0")
     qtbot.waitUntil(lambda: ("/api/sessions/s1/publications/7/publier", None) in t.actions)
     assert f.property("aPublier") == -1
+    assert not element(f, "variante_7_0").property("actif")  # J11 : la variante posée
+    clic(f, "variante_7_1")
+    qtbot.waitUntil(lambda: ("/api/sessions/s1/publications/7/choisir", {"variante": 1}) in t.actions)
     pile = element(f, "onglet_publication").parentItem().parentItem().parentItem()  # le Flickable de la vidéo
     pile.setProperty("contentY", pile.property("contentHeight") - pile.height())
     clic(f, "copier_tiktok_1")

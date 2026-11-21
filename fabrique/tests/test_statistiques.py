@@ -35,6 +35,17 @@ def video(s, n: int, fmt="F1", jours=10, heures=3.0, langues=("en",), carte=(360
         return v
 
 
+@pytest.fixture(autouse=True)
+def delier():
+    """Après chaque test : les chaînes factices déliées (jeton vide), sinon le relevé quotidien des autres fichiers de tests les lirait."""
+    yield
+    from fabrique.noyau.models import Session
+
+    for s in Session.objects.all():
+        with routeur.session(s):
+            m.Destination.objects.filter(jeton="chiffré factice").update(jeton="")
+
+
 @pytest.fixture
 def chiffres(request):
     """Deux sessions : « Alpha » (F1, 3 vidéos anciennes et une récente, en et xx), « Bêta » (F4, 3 vidéos qui rendent moins), « Gamma » (une seule)."""
@@ -101,3 +112,41 @@ def test_temps_de_rt_et_saisies_par_l_api(chiffres):
     assert v2["revenu_eur"] == 2.5 and v2["rt_min"] == 2.0 and v2["impressions"] == 2500 and v2["ctr"] == 4.5  # (1000 × 4 + 1000 × 4 + 500 × 6,5) / 2500
     tout = n.get("/api/statistiques", **entete("fenetre")).json()
     assert {x["nom"] for x in tout["sessions"]} >= {a.nom, b.nom} and tout["ensuite"]
+
+
+def test_variantes_notees_proposees_et_choisies(tmp_path, request):
+    """J11, titres et miniatures : note mesurée (contraste, couleurs, longueur du titre) ; proposition quand le taux de clic reste sous la
+    médiane de la chaîne après MIN_IMPRESSIONS ; choix avant la publication = nouvelle version du titre."""
+    from PIL import Image, ImageDraw
+
+    from fabrique.publication import variantes
+
+    terne, vive = tmp_path / "terne.png", tmp_path / "vive.png"
+    Image.new("RGB", (1280, 720), (128, 128, 128)).save(terne)
+    im = Image.new("RGB", (1280, 720), (250, 200, 0))
+    ImageDraw.Draw(im).rectangle((0, 0, 640, 720), fill=(20, 40, 200))
+    im.save(vive)
+    assert variantes.note(vive, "Titre court")[0] > variantes.note(terne, "Titre court")[0]
+    assert variantes.note(vive, "x" * 90)[0] < variantes.note(vive, "Titre court")[0]
+
+    s = bases.creer(f"Variantes {request.node.name}")
+    autres = [video(s, n) for n in (1, 2)]  # 1 000 impressions à 4 % chacune : la médiane de la chaîne
+    v = video(s, 3)
+    with routeur.session(s):
+        for a in autres:
+            m.StatistiqueJour.objects.filter(publication__video=a).update(impressions=2000)
+        pub = m.Publication.objects.get(video=v)
+        pub.variantes = [{"titre": "Titre A", "miniature": "", "note": 5.0, "raisons": [], "depuis": None, "portee": None},
+                         {"titre": "Titre B", "miniature": "", "note": 7.0, "raisons": [], "depuis": None, "portee": None}]
+        pub.save()
+        assert variantes.proposition(pub) is None  # 1 000 impressions à 4 % : pas sous la médiane
+        m.StatistiqueJour.objects.filter(publication=pub).update(impressions=1500, ctr=2.0)
+        assert variantes.proposition(pub)["variante"] == 1
+        pub.statut, pub.identifiant_youtube, pub.titre, pub.versions = "brouillon", "", "Titre A", [{"numero": 1, "titre": "Titre A"}]
+        pub.save()
+    assert variantes.choisir(s, pub.pk, 1, "rt") == "variante 2 posée"
+    with routeur.session(s):
+        pub.refresh_from_db()
+        assert (pub.titre, pub.variante, len(pub.versions)) == ("Titre B", 1, 2)
+    with pytest.raises(Refus):
+        variantes.choisir(s, pub.pk, 5, "rt")

@@ -258,6 +258,7 @@ def test_approuver_prepare_un_brouillon_par_langue(session, faux, envois):
     assert (en["playlist"], en["playlist_titre"], en["destination"], en["chaine"]) == ("PLfauxUn", "Histoires du renard", "reliée", "Chaîne factice")
     assert en["enfants"] and en["ia"] and en["non_repertorie"] and en["creneau"] == ""  # première publication de la chaîne
     assert en["miniature"].endswith("miniature.jpg") and en["miniatures"] == ["miniature.jpg"] and en["video"].endswith("2099-12-01-s1e01.mp4")
+    assert en["variantes"][0]["titre"] == en["titre"] and en["variante"] == 0 and en["proposition"] is None  # J11 : la sienne d abord
     assert xx["playlist"] == "" and xx["destination"] == "pas reliée" and any("pas reliée" in a for a in xx["avis"])
     p = lire(session, en["id"])
     assert p.dossier == "commun" and lire(session, xx["id"]).dossier == "xx" and p.versions[0]["numero"] == 1

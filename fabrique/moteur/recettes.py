@@ -80,6 +80,9 @@ class Plan(Strict):
     outils: dict[str, str] = {}  # exception du plan : étape → outil
 
 
+TITRES = "jusqu'à deux autres titres possibles pour la même vidéo : Fabrique en fait des variantes notées, RT choisit avant de publier"
+
+
 class Scene(Strict):
     id: Nom
     plans: list[Plan] = Field(min_length=1)
@@ -90,6 +93,7 @@ class Script(Strict):
     scenes: list[Scene] = Field(min_length=1)
     description: str = ""  # textes de publication (titre : « titre »)
     tags: list[str] = []
+    titres: list[str] = Field([], max_length=2, description=TITRES)  # J11 : variantes « titres et miniatures »
 
 
 class PlanVoixOff(Plan):
@@ -158,6 +162,7 @@ class Chanson(Strict):
     titre: str
     description: str = ""
     tags: list[str] = []
+    titres: list[str] = Field([], max_length=2, description=TITRES)  # J11 : variantes « titres et miniatures »
     musique: StyleMusique
     sections: list[Section] = Field(min_length=1)
 
@@ -202,6 +207,7 @@ class Compilation(Strict):
     videos: list[str] = Field(min_length=2)
     description: str = ""
     tags: list[str] = []
+    titres: list[str] = Field([], max_length=2, description=TITRES)  # J11 : variantes « titres et miniatures »
 
     @model_validator(mode="after")
     def sans_doublon(self):
@@ -218,6 +224,7 @@ class Extrait(Strict):
     fin_s: float
     description: str = ""
     tags: list[str] = []
+    titres: list[str] = Field([], max_length=2, description=TITRES)  # J11 : variantes « titres et miniatures »
 
     @model_validator(mode="after")
     def court(self):

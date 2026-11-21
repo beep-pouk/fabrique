@@ -479,6 +479,9 @@ class Publication(BaseModel):
     lien: str  # la vidéo chez YouTube, une fois envoyée
     envoi: str  # octets confirmés, étapes faites
     erreur: str
+    variantes: list[dict] = []  # J11 : {titre, miniature (chemin complet), note, raisons, depuis, portee}
+    variante: int = 0  # celle qui est posée
+    proposition: dict | None = None  # J11 : {variante, raison} quand le taux de clic reste sous la médiane de la chaîne
 
 
 class Paquet(BaseModel):
@@ -523,6 +526,7 @@ class Choix(BaseModel):
     playlist: str | None = None  # None : inchangée ; « » : aucune
     jour: str = ""  # AAAA-MM-JJ
     horaire: str = ""  # HH:MM
+    variante: int | None = None  # J11 : une variante (titre et miniature), avant ou après la publication
 
 
 ScriptDetail.model_rebuild()  # la planche utilise PlanVideo, défini plus bas
