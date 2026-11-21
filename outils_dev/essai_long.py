@@ -162,8 +162,8 @@ def main(argv=None) -> int:
         file = claude.appeler("file")
         lu = json.loads(ETAT.read_text(encoding="utf-8")) if ETAT.is_file() else {}
         suivie = next((t for t in file if lu.get("histoire") == str(a.histoire) and t["id"] == lu.get("tache") and t["etat"] != "annulee"), None)
-        if suivie and suivie["etat"] == "erreur" and suivie["raison"].startswith("l'exécuteur s'est arrêté"):  # des extinctions du PC : RT clique « Reprendre »
-            dire(f"tâche {suivie['id']} arrêtée par les coupures : {fenetre.appeler('agir_file', id=suivie['id'], action='reprendre')['message']}")
+        if suivie and suivie["etat"] == "erreur":  # extinctions du PC, carte tombée (pilote de la carte perdu) : RT clique « Reprendre »
+            dire(f"tâche {suivie['id']} en erreur ({suivie['raison']}) : {fenetre.appeler('agir_file', id=suivie['id'], action='reprendre')['message']}")
         for t in file:  # une autre tâche restée d'un essai interrompu : annulée, jamais suivie à la place de celle-ci
             if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause") and t is not suivie:
                 dire(f"tâche {t['id']} d'un essai d'avant : {fenetre.appeler('agir_file', id=t['id'], action='annuler')['message']}")
@@ -253,7 +253,8 @@ def main(argv=None) -> int:
                                   "defauts_du_plan": [dans_le_plan(d["controle"]["defauts"], le_plan, scenes), dans_le_plan(d2["controle"]["defauts"], le_plan, scenes)]}
             dire(f"refait en {rapport['refaire']['duree_h']} h : note {d2['controle']['note']}, {len(d2['controle']['defauts'])} défaut(s) ; défauts du plan "
                  f"{rapport['refaire']['defauts_du_plan'][0]} → {rapport['refaire']['defauts_du_plan'][1]}")
-        ETAT.unlink()  # l'essai est allé au bout : le prochain lancement en commence un nouveau
+        if t["etat"] == "finie":
+            ETAT.unlink()  # l'essai est allé au bout : le prochain lancement en commence un nouveau ; en erreur, il le reprend
     except Exception as e:  # noqa: BLE001 — toute erreur va dans le rapport : jamais celui d'un essai d'avant, jamais rien
         rapport["erreur"] = f"{type(e).__name__} : {e}"
         dire(f"ARRÊT : {rapport['erreur']}")
@@ -262,7 +263,7 @@ def main(argv=None) -> int:
         RAPPORT.write_text(json.dumps(rapport, ensure_ascii=False, indent=1), encoding="utf-8")
         subprocess.run([sys.executable, "-m", "fabrique", "arreter"], cwd=DEPOT, env=env, capture_output=True, timeout=120)
         noyau.kill()
-    return 0 if "erreur" not in rapport else 1
+    return 0 if "erreur" not in rapport and rapport.get("fin", {}).get("etat") == "finie" else 1  # une tâche en erreur : la chaîne de nuit la reprend
 
 
 if __name__ == "__main__":

@@ -1,5 +1,19 @@
 {
- "0.2.1": ["Correctif : lancée depuis un autre programme (Bramble Studio), Fabrique démarre désormais son noyau (elle n'hérite plus de ses réglages) ; si le noyau ne démarre pas, la fenêtre le dit au lieu de le relancer en silence."],
- "0.2.0": ["Le moteur à recettes : chaque format est une recette, chaque rôle (voix, images, animation, musique, lèvres, montage, miniature, contrôle) a sa prise et ses outils ; une fabrication reprend là où elle s'était arrêtée ; une seule à la fois, jamais pendant un rendu de Bramble Studio ; outils payants seulement sous un plafond (0 € au départ). En simulation pour l'instant : rien n'est encore fabriqué pour de vrai."],
- "0.1.0": ["Le socle de Fabrique : la fenêtre, l'écran Système (sauvegardes, mises à jour, journal, clés), la sauvegarde du soir."]
+ "0.10.0": [
+  "F1 refait les vidéos longues comme Bramble Studio (voix, images, animation, lèvres, musique, montage, miniature, revue), avec les mêmes outils et les mêmes réglages.",
+  "Publication : relier une chaîne YouTube, Approuver puis Publier (non répertorié d'abord, créneau, miniature, playlist, sous-titres), paquets prêts à poster pour les autres réseaux, page iPhone, relevé des chiffres chaque jour.",
+  "Sessions : Accueil en mur de sessions, nouvelle session pas à pas, pause, dupliquer, archiver, exporter et importer ; calendrier et banque d'idées ; univers complet (références, droits, crédits).",
+  "Outils et bancs : registre des outils (en service, candidat, retiré), installer un outil, banc à l'aveugle où RT vote, dépenses et plafonds des outils en ligne, veille du mois.",
+  "Nouveaux formats : compilation (F2), courte verticale (F3, tirée d'une vidéo longue ou créée seule), voix off + images (F4), chanson avec karaoké (F5), présentateur virtuel (F6) ; vidéo pilote de chaque format ; écran Script plan par plan.",
+  "Statistiques (Ctrl+6) : chiffres par vidéo, par session et par chaîne (heures vues, temps de carte, temps de RT, dépenses, revenus saisis) et « quoi fabriquer ensuite »."
+ ],
+ "0.2.1": [
+  "Correctif : lancée depuis un autre programme (Bramble Studio), Fabrique démarre désormais son noyau (elle n'hérite plus de ses réglages) ; si le noyau ne démarre pas, la fenêtre le dit au lieu de le relancer en silence."
+ ],
+ "0.2.0": [
+  "Le moteur à recettes : chaque format est une recette, chaque rôle (voix, images, animation, musique, lèvres, montage, miniature, contrôle) a sa prise et ses outils ; une fabrication reprend là où elle s'était arrêtée ; une seule à la fois, jamais pendant un rendu de Bramble Studio ; outils payants seulement sous un plafond (0 € au départ). En simulation pour l'instant : rien n'est encore fabriqué pour de vrai."
+ ],
+ "0.1.0": [
+  "Le socle de Fabrique : la fenêtre, l'écran Système (sauvegardes, mises à jour, journal, clés), la sauvegarde du soir."
+ ]
 }
