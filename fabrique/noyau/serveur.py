@@ -37,7 +37,7 @@ def tour(vu: dict, maintenant: datetime) -> dict:
     la tâche suivante lancée si la carte est libre (moteur/file.py) ; un envoi coupé repris (publication/publication.py), son échec notifié."""
     for nom, fn in (("dépôt", depot.traiter), ("file", file.tour), ("publication", publication.relancer), ("paquets", paquets.relancer),
                     ("ordre strict", calendrier.une_fois_par_jour),
-                    ("assistant", lambda: assistant.ranger(Tache.objects.filter(etat__in=("attente", "en_cours")).exists()))):
+                    ("assistant", lambda: assistant.ranger(Tache.objects.filter(etat__in=("attente", "en_cours")).exclude(raison=file.PAUSE).exists()))):
         try:  # chacun à part : une panne de l'un n'arrête ni les autres, ni l'état, ni la sauvegarde du soir
             fn()
         except Exception:  # noqa: BLE001 — le détail dans le journal, au tour suivant

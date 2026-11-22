@@ -131,7 +131,11 @@ def relever(aujourd_hui: date | None = None) -> tuple[list[str], list[str]]:
                                 .exclude(planifiee_le=None))
                 jours = rapport(s, d, None, aujourd_hui)
                 videos = sum(rapport(s, d, p, aujourd_hui) for p in pubs)
-                faits.append(f"{s.nom} ({d.langue}) : chaîne {jours} jour(s), {len(pubs)} vidéo(s) {videos} jour(s), portée {portee(s, d)} jour(s)")
+                try:  # l'API Reporting est à activer à part dans le projet Google : sans elle, RT saisit la portée, le reste du relevé compte
+                    lue = f"{portee(s, d)} jour(s)"
+                except Exception as e:  # noqa: BLE001 — une note, ni alerte ni nouvel essai du relevé
+                    lue = f"non lue ({e})"
+                faits.append(f"{s.nom} ({d.langue}) : chaîne {jours} jour(s), {len(pubs)} vidéo(s) {videos} jour(s), portée {lue}")
             except Exception as e:  # noqa: BLE001 — quota, réseau, jeton : les autres destinations continuent, réessai dans une heure
                 (log.warning if isinstance(e, (Refus, youtube.ErreurYoutube, OSError, ValueError, KeyError)) else log.exception)("relevé %s (%s) : %s", s.nom, d.langue, e)
                 alertes.append(f"relevé des statistiques de {s.nom} ({d.langue}) reporté : {e}")

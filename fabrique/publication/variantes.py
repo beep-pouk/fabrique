@@ -102,7 +102,8 @@ def preparer(s: Session, pub: m.Publication, d: Path):
     except Exception as e:  # noqa: BLE001 — un outil d'image en panne : la miniature du format reste seule
         noter("noyau", "variantes", session=s.id, publication=pub.pk, erreur=str(e)[:300])
         images = []
-    paires = [(pub.titre, pub.miniature)] + [((autres_titres[i] if i < len(autres_titres) else pub.titre), f.name) for i, f in enumerate(images)]
+    paires = [(pub.titre, pub.miniature)] + [(autres_titres[i] if i < len(autres_titres) else pub.titre, images[i].name if i < len(images) else pub.miniature)
+                                             for i in range(max(len(images), len(autres_titres)))]  # un titre sans miniature de rechange garde celle du format
     pub.variantes = []
     for titre, mini in paires:
         try:
@@ -143,7 +144,7 @@ def proposition(pub: m.Publication) -> dict | None:
               for i, c in [portee(p, None)] if i >= MIN_IMPRESSIONS and c is not None]
     if impressions < MIN_IMPRESSIONS or ctr is None or not autres or ctr >= median(autres):
         return None
-    restantes = [(x["note"] or 0, k) for k, x in enumerate(pub.variantes) if k != pub.variante and not x.get("depuis")]
+    restantes = [(x["note"] or 0, k) for k, x in enumerate(pub.variantes) if k != pub.variante and not x.get("depuis") and not x.get("jusqu_a")]  # jamais une variante déjà essayée
     if not restantes:
         return None
     k = max(restantes)[1]
@@ -167,6 +168,7 @@ def choisir(s: Session, pk: int, k: int, acteur: str) -> str:
     """RT choisit une variante : avant la publication, elle devient le titre (version suivante) et la miniature du brouillon ; après, elle
     part chez YouTube (miniature, puis titre s'il change) et sa portée se mesure depuis aujourd'hui (celle d'avant est gardée)."""
     from fabrique.publication import publication
+    from fabrique.publication.youtube import ErreurYoutube
 
     with routeur.session(s):
         pub = publication._pub(pk)
@@ -179,11 +181,14 @@ def choisir(s: Session, pk: int, k: int, acteur: str) -> str:
         if not en_ligne:
             publication.modifiable(pub)
         if en_ligne:
-            pub.miniature = x["miniature"]
-            if x["miniature"]:
-                publication._miniature(s, pub)
-            if x["titre"] != pub.titre:
-                titre_youtube(s, pub, x["titre"])
+            try:  # rejouable : un refus en route laisse la base sur l'ancienne variante, le clic suivant refait les deux appels
+                if x["titre"] != pub.titre:
+                    titre_youtube(s, pub, x["titre"])
+                pub.miniature = x["miniature"]
+                if x["miniature"]:
+                    publication._miniature(s, pub)
+            except ErreurYoutube as e:
+                raise Refus(f"YouTube a refusé le changement ({e}) : rien n'est noté, réessayer plus tard") from None
             aujourdhui = timezone.localdate()
             ancienne = pub.variantes[pub.variante]
             ancienne["portee"] = dict(zip(("impressions", "ctr"), portee(pub, debut(pub))))

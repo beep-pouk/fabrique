@@ -303,12 +303,14 @@ def j3(dire, publier: bool = False) -> list[tuple[bool, str]]:
 
 YOUTUBE_TXT = "TITRE :\nHistoire factice de la recette {n}\n\nDESCRIPTION :\nUne histoire factice.\n\n00:00 Début\n00:15 Milieu\n00:30 Fin\n\nCrédits : factices.\n\nTAGS :\nrecette, histoire factice\n"
 VIDEOS_J4 = ((1, "2099-12-01-s1e01", 70), (2, "2099-12-02-s1e02", 40))  # 70 s : trop longue pour Snapchat (60 s) ; 40 s : tous les réseaux
+VIDEOS_J11 = ((1, "2099-12-01-s1e01", 20), (2, "2099-12-02-s1e02", 20), (3, "2099-12-03-s1e03", 20))
 HOTE_TS = "recette.tailnet-factice.ts.net"
 
 
-def preparer_j4():
+def preparer_j4(j11: bool = False):
     """Dans un sous-processus (FABRIQUE_RACINE posée) : une session réelle, deux vidéos finies avec leurs fichiers finaux (vraie vidéo 16:9
-    à silences, miniature, youtube.txt, sous-titres) ; écrit {session, videos} sur la sortie."""
+    à silences, miniature, youtube.txt, sous-titres) ; écrit {session, videos} sur la sortie. J11 : trois vidéos F4 (miniatures de rechange
+    tirées de la vidéo), deux autres titres dans le script, une demi-heure de carte chacune."""
     import os
 
     import django
@@ -326,10 +328,14 @@ def preparer_j4():
     ids = []
     with routeur.session(s):
         m.Langue.objects.create(code="en", nom="Anglais")
-        for n, nom, secondes in VIDEOS_J4:
-            v = m.Video.objects.create(titre=f"Histoire factice {n}", nom=nom, script={"title": f"Histoire factice {n}", "language": "en"},
-                                       recette={"id": "F1", "version": 2, "reglages": {"langues": ["en"]}, "etapes": []})
+        for n, nom, secondes in VIDEOS_J11 if j11 else VIDEOS_J4:
+            v = m.Video.objects.create(titre=f"Histoire factice {n}", nom=nom, script={"title": f"Histoire factice {n}", "language": "en",
+                                                                                      **({"titres": [f"Autre titre factice {n}", f"Titre factice bis {n}"]} if j11 else {})},
+                                       recette={"id": "F4", "version": 1, "script": "voix-off", "reglages": {"langues": ["en"]}, "etapes": []} if j11
+                                       else {"id": "F1", "version": 2, "reglages": {"langues": ["en"]}, "etapes": []})
             m.Morceau.objects.create(video=v, etape="montage", brique="montage", unite="", langue="", ordre=0, outil="f1_montage", etat="fini")
+            if j11:
+                m.Morceau.objects.create(video=v, etape="images", brique="images", unite="", langue="", ordre=1, outil="f1_images", etat="fini", secondes=1800)
             d = settings.SESSIONS / s.dossier / "videos" / v.id / "commun" / "atelier" / nom / "final"
             d.mkdir(parents=True)
             lancer(exe("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc2=s=1280x720:r=25:d={secondes}", "-f", "lavfi",
@@ -338,6 +344,11 @@ def preparer_j4():
             lancer(exe("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=orange:s=1280x720", "-frames:v", "1", d / "miniature.jpg")
             (d / "youtube.txt").write_bytes(YOUTUBE_TXT.format(n=n).encode("utf-8"))
             (d / "sous_titres.srt").write_bytes(b"1\n00:00:00,000 --> 00:00:02,000\nUne phrase factice.\n")
+            if j11:  # hors F1, la vidéo finale est le résultat du morceau de montage (execution.finale)
+                mo = settings.SESSIONS / s.dossier / "videos" / v.id / "commun" / "montage" / "video"
+                mo.mkdir(parents=True)
+                shutil.copy(d / f"{nom}.mp4", mo / f"{nom}.mp4")
+                (mo / "resultat.json").write_text(json.dumps({"fichiers": [f"{nom}.mp4"]}), encoding="utf-8")
             ids.append(v.id)
     print(json.dumps({"session": s.id, "videos": ids}))
 
@@ -1416,7 +1427,8 @@ def en_vrai_j10() -> list[tuple[bool, str]]:
     return [(bool(fait), "F6 présentateur en vrai (session Essais, recette livrée, Qwen-Image-Edit pour le cadrage, LongCat-Video-Avatar 1.5) : "
              + (f"fait (vidéo {fait[0]}), {fait[2].get('duree_s', 0):.0f} s, {len(fait[1])} plan(s) face caméra (mouvement {min(i['mouvement'] for i in fait[1]):.2f} "
                 f"au moins), {len(fait[2]['defauts'])} défaut(s), aucun bloquant" if fait else "PAS ENCORE — essai de nuit après ceux de J8 et J9 (egalite\\de_nuit_chaine.py)")),
-            (False, "banc du présentateur : PAS ENCORE — réponse de la supervision attendue (QUESTIONS 18/11 18 h 20)")]
+            (True, "banc du présentateur : reporté à la veille du mois (réponse A de la supervision, 21/11 15 h 10) ; défaut de la brique lèvres = "
+                   "LongCat-Video-Avatar 1.5 (déjà en service pour Bramble)")]
 
 
 def j10(dire, publier: bool = False) -> list[tuple[bool, str]]:
@@ -1425,7 +1437,128 @@ def j10(dire, publier: bool = False) -> list[tuple[bool, str]]:
     avant = bramble_avant(dire)
     return formats_j10(dire) + en_vrai_j10() + construction(dire, publier) + bramble_points(avant)
 
-JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7, "J8": j8, "J9": j9, "J10": j10}
+
+def statistiques_j11(dire) -> list[tuple[bool, str]]:
+    """En vrais processus, en simulation, sur un dossier temporaire, chiffres rejoués par le faux YouTube (démarré ici pour lui donner la
+    portée de chaque vidéo) : trois vidéos F4 approuvées (trois variantes notées) et publiées, reculées de 10 jours, deux relevés (le premier
+    crée le travail « reach ») → Statistiques (vues, heures, carte, portée), « quoi fabriquer ensuite » classé, proposition de variante pour la
+    vidéo sous la médiane, posée chez YouTube ; l'assistant (faux moteur) : plan chiffré, brouillons seulement après « D'accord », aucun geste."""
+    import os
+    import socket
+    import tempfile
+    import urllib.request
+
+    from fabrique.fenetre.client import Client, ErreurApi
+    from fabrique.publication import faux_youtube
+
+    tmp = Path(tempfile.mkdtemp(prefix="fabrique_j11_"))
+    racine, points = tmp / "FABRIQUE", []
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    faux = faux_youtube.Faux(port + 2).demarrer()  # avant le noyau : il le trouve déjà lancé (Distant) et c'est ce processus qui sert les chiffres
+    env = {**os.environ, "FABRIQUE_RACINE": str(racine), "FABRIQUE_PORT": str(port), "PYTHONIOENCODING": "utf-8"}
+    r = subprocess.run([sys.executable, "-c", "import verifier; verifier.preparer_j4(j11=True)"], cwd=DEPOT / "outils_dev", env=env, capture_output=True,
+                       text=True, encoding="utf-8", timeout=300)
+    if r.returncode:
+        faux.arreter()
+        return [(False, f"recette J11 : préparation ratée — {r.stderr.strip()[-300:]}")]
+    prep = json.loads(r.stdout.strip().splitlines()[-1])
+    sid, vids = prep["session"], prep["videos"]
+    noyau = subprocess.Popen([sys.executable, "-m", "fabrique", "noyau"], cwd=DEPOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+    f = Client("fenetre", port=port, donnees=racine / "donnees")
+
+    def releve():
+        subprocess.run([sys.executable, "-m", "fabrique", "executer", "releve"], cwd=DEPOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
+
+    def gestes() -> list[dict]:
+        with closing(sqlite3.connect(f"file:{racine / 'donnees' / 'noyau.sqlite3'}?mode=ro", uri=True)) as b:
+            return [json.loads(x) for (x,) in b.execute("SELECT detail FROM noyau_journal WHERE action = 'geste'")]
+
+    try:
+        banc.attendre(f.repond, 60, "le noyau répond")
+        with urllib.request.urlopen(f.appeler("relier", id=sid, langue="en")["url"], timeout=30) as page:
+            page.read()
+        dire("trois vidéos approuvées (variantes notées) puis publiées…")
+        variantes = []
+        for v in vids:
+            f.appeler("approuver", id=sid, video=v)
+            p = f.appeler("publications", id=sid, video=v)[0]
+            variantes.append(p["variantes"])
+            f.appeler("publier", id=sid, pub=p["id"], action="publier")
+        for v in vids:
+            banc.attendre(lambda: f.appeler("publications", id=sid, video=v)[0]["statut"] in ("non_repertoriee", "planifiee"), 180, f"l'envoi de {v}")
+        points.append((all(len(x) == 3 and all(y["note"] is not None for y in x) for x in variantes),
+                       "titres et miniatures : 3 variantes notées par vidéo à l'approbation — " + " ; ".join(
+                           ", ".join(f"« {y['titre']} » {y['note']}" for y in x) for x in variantes[:1])))
+        dossier = next(p for p in (racine / "sessions").iterdir() if (p / "session.sqlite3").is_file() and p.name != "essais")
+        with closing(sqlite3.connect(dossier / "session.sqlite3")) as b, b:  # chiffres rejoués : publiées il y a 10 jours
+            b.execute("UPDATE session_publication SET planifiee_le = datetime('now', '-10 days')")
+            yt = dict(b.execute("SELECT video_id, identifiant_youtube FROM session_publication").fetchall())
+        faux.portee.update({yt[vids[0]]: (1500, 0.02), yt[vids[1]]: (1500, 0.06), yt[vids[2]]: (1500, 0.08)})
+        dire("relevés (statistiques, puis rapports « reach »)…")
+        releve()
+        releve()
+        st = f.appeler("statistiques_session", id=sid)
+        sv = {x["id"]: x for x in st["videos"]}
+        points.append((all(sv[v]["carte_h"] > 0 and sv[v]["impressions"] > 0 for v in vids) and all(sv[v]["vues"] > 0 and sv[v]["heures"] > 0 for v in vids[1:]),
+                       "écran Statistiques (chiffres rejoués ; la 1re, non répertoriée, n'est jamais relevée) : " + " ; ".join(f"{sv[v]['titre']} : {sv[v]['vues']} vues, {sv[v]['heures']} h vues, carte {sv[v]['carte_h']} h, "
+                                                                      f"{sv[v]['impressions']} impressions à {sv[v]['ctr']} %" for v in vids if v in sv)))
+        ens = f.appeler("statistiques")["ensuite"]
+        g = next((x for x in ens if x["session_id"] == sid), None)
+        points.append((bool(g) and g["assez"] and g["par_heure_carte"] is not None,
+                       f"quoi fabriquer ensuite : {len(ens)} groupe(s) ; le premier : {g and (g['session'], g['format'], g['langue'], g['videos'], g['par_heure_carte'], g['assez'])}"
+                       " (session, format, chaîne, vidéos, heures vues par heure de carte, classé)"))
+        p = f.appeler("publications", id=sid, video=vids[0])[0]
+        prop = p.get("proposition")
+        msg = f.appeler("choisir", {"variante": prop["variante"]}, id=sid, pub=p["id"])["message"] if prop else ""
+        apres = f.appeler("publications", id=sid, video=vids[0])[0]
+        points.append((bool(prop) and "chez YouTube" in msg and apres["variante"] == prop["variante"] and apres["titre"] == apres["variantes"][prop["variante"]]["titre"],
+                       f"proposition sous la médiane : {prop and prop['raison']} → « {msg} », titre en ligne « {apres['titre']} »"))
+        dire("assistant (faux moteur) : plan chiffré, puis brouillons après accord…")
+        avant = len(gestes())
+        plan = f.appeler("assistant", {"demande": "Combien coûteraient trois vidéos F4 de plus ?"})
+        b_session = f.appeler("assistant", {"demande": "Prépare une nouvelle session.", "historique": plan["historique"], "accord": True})
+        b_video = f.appeler("assistant", {"demande": "Ajoute une idée de vidéo.", "accord": True})
+        sessions = [x["nom"] for x in f.appeler("sessions")]
+        apres_g = gestes()
+        points.append(("h de carte" in plan["message"] and not plan["brouillons"] and b_session["brouillons"] == ["brouillon_session"]
+                       and b_video["brouillons"] == ["brouillon_video"] and "Brouillon de l'assistant" in sessions
+                       and len(apres_g) == avant and not [x for x in apres_g if x.get("appelant") == "assistant"],
+                       f"assistant : « {plan['message']} » (outils {', '.join(x['outil'] for x in plan['outils'])}, aucun brouillon sans accord) ; après « D'accord » : "
+                       f"« {b_session['message']} », « {b_video['message']} » ; gestes journalisés : {len(apres_g) - avant} de plus"))
+    except (AssertionError, ErreurApi, OSError, KeyError, ValueError, TypeError, StopIteration, sqlite3.Error) as e:
+        points.append((False, f"recette J11 interrompue : {type(e).__name__} : {e}"))
+    finally:
+        subprocess.run([sys.executable, "-m", "fabrique", "arreter"], cwd=DEPOT, env=env, capture_output=True, timeout=120)
+        noyau.kill()
+        faux.arreter()
+        shutil.rmtree(tmp, ignore_errors=True)
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "fabrique/tests/test_statistiques.py", "fabrique/tests/test_assistant.py", "fabrique/tests/test_publication.py",
+                        "fabrique/tests/test_api.py", "fabrique/tests/test_fenetre.py"], cwd=DEPOT, capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    points.append((r.returncode == 0, "tests des statistiques (pas assez de chiffres, temps de RT, portée, proposition), de l'assistant (ses outils balayés : jamais un "
+                                      f"des trois gestes ; pendant un rendu, ni carte ni mémoire), de la publication, de l'API et de la fenêtre — {dernier(r)}"))
+    return points
+
+
+def j11(dire, publier: bool = False) -> list[tuple[bool, str]]:
+    """J11 (plan § 7.1) : statistiques, « quoi fabriquer ensuite », titres et miniatures, assistant, en vrais processus sur des chiffres
+    rejoués ; l'assistant en vrai (gpt-oss) ; la construction et l'installation, Bramble Studio intact."""
+    avant = bramble_avant(dire)
+    preuve = SORTIE / "egalite" / "ESSAI_ASSISTANT.json"
+    try:
+        e = json.loads(preuve.read_text(encoding="utf-8"))
+        vrai = (e.get("ok") is True, f"assistant en vrai (gpt-oss-120b, {e.get('date')}) : {e.get('resume')}")
+    except (OSError, ValueError):
+        vrai = (False, "assistant en vrai (gpt-oss-120b, trois demandes d'essai) : PAS ENCORE — de nuit, carte libre")
+    return (statistiques_j11(dire) + [vrai, (True, "banc du moteur de l'assistant : reporté à la veille du mois (réponse B de la supervision, 21/11 15 h 10) ; "
+                                                  "défaut = gpt-oss-120b en local, carte libre seulement")]
+            + construction(dire, publier) + bramble_points(avant))
+
+
+JALONS = {"J1": j1, "J2": j2, "J3": j3, "J4": j4, "J5": j5, "J6": j6, "J7": j7, "J8": j8, "J9": j9, "J10": j10, "J11": j11}
 
 
 def main(argv=None) -> int:

@@ -9,17 +9,18 @@ from django.test import Client as Navigateur
 from fabrique.noyau import api, assistant, bases, jetons
 from fabrique.noyau.api import DROITS, GESTES
 from fabrique.noyau.models import Journal, Session
-from fabrique.tests.test_statistiques import video
+from fabrique.tests.test_statistiques import delier, video  # noqa: F401 — delier : fixture autouse (chaînes factices déliées après chaque test)
 
 
 def test_aucun_outil_de_l_assistant_ne_mene_a_un_geste():
     appelees = set(re.findall(r"api\.(\w+)\(_Appel\(\)", inspect.getsource(assistant)))
-    assert appelees == {"sessions", "formats", "statistiques", "estimer", "brouillon_session", "brouillon_video"}
+    assert appelees == {"sessions", "formats", "calendrier_", "statistiques", "estimer", "brouillon_session", "brouillon_video"}
     for nom in appelees:
         assert getattr(api, nom).droit in DROITS["assistant"] and getattr(api, nom).droit not in GESTES, nom
     assert {o["function"]["name"] for o in assistant.offerts(False)} & assistant.BROUILLONS == set()  # sans accord : lecture seule
     assert assistant.outil("brouillon_session", {"nom": "Refusée"}, accord=False) == "outil refusé : brouillon_session"
     assert assistant.outil("publier", {}, accord=True) == "outil refusé : publier"
+    assert assistant.outil("calendrier", {"debut": "2099-01-01", "fin": "2099-01-31"}, accord=False).startswith("[")  # voir : le calendrier
 
 
 def test_plan_chiffre_puis_brouillon_apres_accord(request):
@@ -49,3 +50,25 @@ def test_routes_de_l_assistant():
     assert r.status_code == 403
     e = api.estimer(assistant._Appel(), api.schemas.Estimer(format="F9", videos=2))
     assert e["connues"] == 0 and "pas encore de vidéo F9 finie" in e["texte"]
+
+
+def test_ranger_arrete_l_orphelin_et_cede_la_carte_a_bramble(monkeypatch):
+    """Le llama-server d'un noyau précédent est arrêté au premier tour (son numéro gardé dans donnees) ; celui qui tourne s'arrête dès que
+    Bramble Studio fabrique."""
+    import subprocess
+    import sys
+    import time
+
+    from fabrique.moteur import carte
+
+    assistant._pid().write_text("999999", encoding="utf-8")
+    assistant.ranger()
+    assert not assistant._pid().exists()
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    monkeypatch.setitem(assistant._serveur, "processus", p)
+    monkeypatch.setitem(assistant._serveur, "vu", time.monotonic())
+    assistant.ranger()
+    assert p.poll() is None  # carte libre, pas encore inactif : il reste
+    monkeypatch.setattr(carte, "bramble", lambda maintenant: "Bramble Studio fabrique (un épisode)")
+    assistant.ranger()
+    assert p.wait(10) is not None and assistant._serveur["processus"] is None

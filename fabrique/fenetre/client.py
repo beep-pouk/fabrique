@@ -117,7 +117,7 @@ class Client:
 
     def _http(self, methode: str, chemin: str, corps=None):
         try:
-            with urllib.request.urlopen(self._requete(methode, chemin, corps), timeout=120) as r:
+            with urllib.request.urlopen(self._requete(methode, chemin, corps), timeout=900 if chemin == "/api/assistant" else 120) as r:  # gpt-oss : chargement et tours
                 return json.loads(r.read() or b"null")
         except urllib.error.HTTPError as e:
             try:

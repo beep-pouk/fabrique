@@ -216,7 +216,7 @@ class Requete(BaseHTTPRequestHandler):
         s["recu"] += self.rfile.read(min(n, max(coupure - recu, 0)) if coupe else n)
         if len(s["recu"]) >= s["taille"]:
             ident = secrets.token_urlsafe(8)[:11]
-            ressource = {"kind": "youtube#video", "id": ident, "snippet": {**s["meta"]["snippet"], "channelId": CHAINE[0]},
+            ressource = {"kind": "youtube#video", "id": ident, "snippet": {"categoryId": "22", **s["meta"]["snippet"], "channelId": CHAINE[0]},  # 22 : catégorie donnée par YouTube
                          "status": {**s["meta"]["status"], "uploadStatus": "uploaded"}}
             with self.server.verrou:
                 self.server.videos[ident] = {"ressource": ressource, "empreinte": hashlib.sha256(s["recu"]).hexdigest(), "taille": len(s["recu"])}
@@ -361,6 +361,9 @@ class Requete(BaseHTTPRequestHandler):
             return self._rapports_portee(chemin.split("/")[3])
         if chemin.startswith("/v1/media/"):
             return self._csv_portee(chemin.rsplit("/", 1)[1])
+        if chemin == "/youtube/v3/videos":  # videos.list (part=snippet) : ce que l'API rend pour les vidéos connues
+            return self._repondre(200, {"kind": "youtube#videoListResponse", "items": [self.server.videos[i]["ressource"] for i in p.get("id", "").split(",")
+                                                                                        if i in self.server.videos]})
         self._erreur(404, "notFound", "Not Found")
 
     def do_POST(self):
@@ -391,6 +394,16 @@ class Requete(BaseHTTPRequestHandler):
             return
         if chemin == "/upload/youtube/v3/videos":
             return self._envoi(p)
+        if chemin == "/youtube/v3/videos" and p.get("part") == "snippet":  # videos.update : le snippet entier remplace l'ancien (catégorie obligatoire)
+            corps = json.loads(self._corps() or b"{}")
+            v = self.server.videos.get(corps.get("id", ""))
+            if v is None:
+                return self._erreur(404, "videoNotFound", "Video not found")
+            if not corps.get("snippet", {}).get("categoryId"):
+                return self._erreur(400, "invalidCategoryId", "snippet.categoryId obligatoire")
+            with self.server.verrou:
+                v["ressource"]["snippet"] = {**corps["snippet"], "channelId": CHAINE[0]}
+            return self._repondre(200, v["ressource"])
         self._corps()
         self._erreur(404, "notFound", "Not Found")
 

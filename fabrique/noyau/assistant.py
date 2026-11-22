@@ -11,7 +11,6 @@ import time
 import urllib.request
 from pathlib import Path
 
-from ninja.errors import HttpError
 
 from fabrique import dossiers, garde
 from fabrique.garde import Refus
@@ -40,6 +39,9 @@ def _vues():
     return {
         "sessions": (lambda a: api.sessions(_Appel()), "Les sessions (nom, id, état, langues).", {}),
         "formats": (lambda a: api.formats(_Appel()), "Les formats du catalogue (F1 à F6 : forme, durée).", {}),
+        "calendrier": (lambda a: api.calendrier_(_Appel(), **{k: str(a[k]) for k in ("debut", "fin", "session") if k in a}),
+                       "Le calendrier (vidéos datées, statut) entre deux jours AAAA-MM-JJ, d'une session ou de toutes.",
+                       {"debut": {"type": "string"}, "fin": {"type": "string"}, "session": {"type": "string"}}),
         "statistiques": (lambda a: api.statistiques(_Appel()), "Ce qui rend le mieux (« quoi fabriquer ensuite »), par session et par chaîne.", {}),
         "estimer": (lambda a: api.estimer(_Appel(), schemas.Estimer(**a)), "Durée de fabrication, heures de carte et coût de n vidéos d'un format, "
                     "d'après les vidéos déjà faites.", {"format": {"type": "string"}, "videos": {"type": "integer"}}),
@@ -65,9 +67,17 @@ def outil(nom: str, arguments: dict, accord: bool) -> str:
         return f"outil refusé : {nom}"
     try:
         r = _vues()[nom][0](dict(arguments))
-    except (HttpError, Refus, TypeError, ValueError) as e:
+    except Exception as e:  # noqa: BLE001 — argument manquant, refus, base illisible : toujours au moteur en texte
         return f"refusé : {e}"
-    return json.dumps(r, ensure_ascii=False, default=lambda o: o.model_dump() if hasattr(o, "model_dump") else str(o))[:6000]
+    texte = _json(r)
+    while len(texte) > 6000 and isinstance(r, list) and len(r) > 1:  # une liste trop longue : ses premiers éléments, en JSON valide
+        r = r[: len(r) // 2]
+        texte = _json(r)
+    return texte[:6000]
+
+
+def _json(r) -> str:
+    return json.dumps(r, ensure_ascii=False, default=lambda o: o.model_dump() if hasattr(o, "model_dump") else str(o))
 
 
 def faux(messages: list[dict], outils_: list[dict]) -> dict:
@@ -77,14 +87,15 @@ def faux(messages: list[dict], outils_: list[dict]) -> dict:
     demande = next(m["content"] for m in reversed(messages) if m["role"] == "user")
     if "formats" not in faits:
         return {"role": "assistant", "content": "", "tool_calls": [_appel("sessions", {}), _appel("formats", {})]}
-    format_ = next((f["id"] for f in json.loads(faits["formats"]) if f["id"] == "F1"), "F1")
+    format_ = next((f["id"] for f in json.loads(faits["formats"]) if f["id"] in demande), "F1")  # le format nommé dans la demande
     if "estimer" not in faits:
         return {"role": "assistant", "content": "", "tool_calls": [_appel("estimer", {"format": format_, "videos": 3})]}
     if BROUILLONS & noms and not BROUILLONS & set(faits):
         sessions = json.loads(faits["sessions"])
         if "session" in demande.lower() or not sessions:
             return {"role": "assistant", "content": "", "tool_calls": [_appel("brouillon_session", {"nom": "Brouillon de l'assistant", "langues": [{"code": "en", "nom": "Anglais"}]})]}
-        return {"role": "assistant", "content": "", "tool_calls": [_appel("brouillon_video", {"session": sessions[0]["id"], "titre": "Idée de l'assistant"})]}
+        return {"role": "assistant", "content": "", "tool_calls": [_appel("brouillon_video", {"session": next((x["id"] for x in sessions if not x.get("essais")), sessions[0]["id"]),
+                                                                                           "titre": "Idée de l'assistant"})]}
     e = json.loads(faits["estimer"]) if faits["estimer"].startswith("{") else {}
     texte = (f"Plan : 3 vidéos {format_}, {e.get('texte', 'pas encore de chiffres')}." if not BROUILLONS & set(faits)
              else "Brouillon prêt : " + next(faits[n] for n in BROUILLONS if n in faits))
@@ -100,9 +111,14 @@ _serveur: dict = {"processus": None, "vu": 0.0}
 
 def _llama(messages: list[dict], outils_: list[dict]) -> dict:
     """gpt-oss par llama-server, démarré s'il ne tourne pas (carte libre seulement : jamais pendant un rendu)."""
+    from datetime import datetime
+
     from fabrique.moteur import carte
 
     p = _serveur["processus"]
+    if p is not None and p.poll() is None and (raison := carte.bramble(datetime.now())):  # un rendu de Bramble a commencé depuis
+        ranger(True)
+        raise Refus(f"la carte est prise ({raison}) : l'assistant répondra après")
     if p is None or p.poll() is not None:
         if raison := carte.occupee():
             raise Refus(f"la carte est prise ({raison}) : l'assistant répondra après")
@@ -112,6 +128,7 @@ def _llama(messages: list[dict], outils_: list[dict]) -> dict:
         journal = (dossiers.donnees() / "journaux" / "assistant.log").open("ab")
         p = _serveur["processus"] = subprocess.Popen([str(exe), "-m", str(MODELE), "--port", str(PORT), "-c", "32000", "--jinja", "-fa", "on"],
                                                       stdout=journal, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
+        _pid().write_text(str(p.pid), encoding="utf-8")  # un noyau qui redémarre arrête celui-ci (orphelin) : il tient la carte et ~60 Go
         for _ in range(300):  # le 120b se charge en une à deux minutes
             try:
                 if json.loads(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=5).read()).get("status") == "ok":
@@ -128,12 +145,26 @@ def _llama(messages: list[dict], outils_: list[dict]) -> dict:
         return json.loads(r.read())["choices"][0]["message"]
 
 
+def _pid() -> Path:
+    return dossiers.donnees() / "assistant.pid"
+
+
 def ranger(file_veut_la_carte: bool = False):
-    """Boucle du noyau : llama-server arrêté après INACTIF, ou tout de suite quand la file attend la carte (les rendus passent avant)."""
+    """Boucle du noyau : llama-server arrêté après INACTIF, ou tout de suite quand la file attend la carte ou que Bramble Studio fabrique (les
+    rendus passent avant) ; celui d'un noyau précédent (orphelin) arrêté au premier tour."""
+    from datetime import datetime
+
+    from fabrique.moteur import carte
+
     p = _serveur["processus"]
-    if p is not None and p.poll() is None and (file_veut_la_carte or time.monotonic() - _serveur["vu"] > INACTIF):
+    if p is None and _pid().is_file():
+        subprocess.run(["taskkill", "/PID", _pid().read_text(encoding="utf-8").strip(), "/FI", "IMAGENAME eq llama-server.exe", "/T", "/F"], capture_output=True,
+                       creationflags=subprocess.CREATE_NO_WINDOW)  # le filtre : jamais un autre programme qui aurait repris ce numéro
+        _pid().unlink(missing_ok=True)
+    if p is not None and p.poll() is None and (file_veut_la_carte or time.monotonic() - _serveur["vu"] > INACTIF or carte.bramble(datetime.now())):
         p.terminate()
         _serveur["processus"] = None
+        _pid().unlink(missing_ok=True)
 
 
 def demander(demande: str, historique: list[dict], accord: bool) -> dict:
@@ -152,9 +183,12 @@ def demander(demande: str, historique: list[dict], accord: bool) -> dict:
                 arguments = json.loads(c["function"].get("arguments") or "{}")
             except ValueError:
                 arguments = {}
-            resultat = outil(c["function"]["name"], arguments, accord)
+            faits = [j["outil"] for j in joues if j["outil"] in BROUILLONS and not j["resultat"].startswith(("refusé", "outil refusé"))]
+            resultat = outil(c["function"]["name"], arguments, accord and not faits)  # un seul brouillon par « D'accord »
             joues.append({"outil": c["function"]["name"], "resultat": resultat[:300]})
             messages.append({"role": "tool", "tool_call_id": c.get("id", ""), "name": c["function"]["name"], "content": resultat})
-    reponse = messages[-1]["content"] if messages[-1]["role"] == "assistant" and messages[-1]["content"] else "Je n'ai pas fini : reformulez la demande."
-    return {"message": reponse, "outils": joues, "brouillons": [j["outil"] for j in joues if j["outil"] in BROUILLONS and not j["resultat"].startswith(("refusé", "outil refusé"))],
+    faits = [j["outil"] for j in joues if j["outil"] in BROUILLONS and not j["resultat"].startswith(("refusé", "outil refusé"))]
+    reponse = (messages[-1]["content"] if messages[-1]["role"] == "assistant" and messages[-1]["content"]
+               else "Je n'ai pas fini : reformulez la demande." + (" Brouillon déjà fait." if faits else ""))
+    return {"message": reponse, "outils": joues, "brouillons": faits,
             "historique": [*historique, {"role": "user", "content": demande}, {"role": "assistant", "content": reponse}]}

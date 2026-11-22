@@ -771,3 +771,23 @@ def test_refaire_les_paquets_pendant_leur_travail(session, faux, envois, monkeyp
     monkeypatch.setattr(paquets, "faire_reseau", vrai)
     assert paquets.suivante(set()) == (session, pk) and paquets.executer() == 0
     assert {r: x["etat"] for r, x in lire(session, pk).paquets.items() if r != "fini"} == {"large": "fait", "autre": "fait"}
+
+
+def test_variante_choisie_apres_publication_change_le_titre_chez_youtube(session, faux, monkeypatch):
+    """J11 : une vidéo en ligne → videos.update (snippet entier, catégorie comprise) ; un refus de YouTube est dit en clair, rien n'est noté,
+    et le clic suivant refait le changement."""
+    from fabrique.publication import variantes
+
+    relier(session)
+    faux.videos["vidFaux1"] = {"ressource": {"kind": "youtube#video", "id": "vidFaux1", "snippet": {"title": "Titre A", "categoryId": "22"}}}
+    pub = publiee(session, titre="Titre A", variantes=[{"titre": "Titre A", "miniature": "", "note": 5.0, "raisons": [], "depuis": None, "portee": None},
+                                                       {"titre": "Titre B", "miniature": "", "note": 7.0, "raisons": [], "depuis": None, "portee": None}])
+    with monkeypatch.context() as mp:
+        mp.setattr(youtube, "appeler", lambda *a, **k: (_ for _ in ()).throw(youtube.ErreurYoutube(403, "quotaExceeded")))
+        with pytest.raises(Refus, match="YouTube a refusé"):
+            variantes.choisir(session, pub.pk, 1, "rt")
+    assert faux.videos["vidFaux1"]["ressource"]["snippet"]["title"] == "Titre A" and lire(session, pub.pk).variante == 0
+    assert variantes.choisir(session, pub.pk, 1, "rt").startswith("variante 2 posée chez YouTube")
+    p = lire(session, pub.pk)
+    assert faux.videos["vidFaux1"]["ressource"]["snippet"] == {"title": "Titre B", "categoryId": "22", "channelId": faux_youtube.CHAINE[0]}
+    assert (p.titre, p.variante, p.variantes[1]["depuis"], p.variantes[0]["jusqu_a"]) == ("Titre B", 1, f"{timezone.localdate()}", f"{timezone.localdate()}")

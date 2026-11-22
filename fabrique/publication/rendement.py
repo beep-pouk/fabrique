@@ -99,7 +99,7 @@ def session(s: Session) -> dict:
 
     depenses = depenses_par_video(s)
     with routeur.session(s):
-        videos = [video(v, depenses) for v in m.Video.objects.exclude(nom__endswith=f"-{reglages.PILOTE}").exclude(essai=True).order_by("-cree")]
+        videos = [video(v, depenses) for v in m.Video.objects.exclude(nom__endswith=f"-{reglages.PILOTE}").exclude(essai=True).order_by("-cree", "-nom")]  # nom daté : départage deux vidéos créées dans la même milliseconde
     return {"videos": videos, "destinations": destinations(s)}
 
 

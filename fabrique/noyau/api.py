@@ -131,12 +131,15 @@ def estimer(request, corps: schemas.Estimer):
 
     from fabrique.noyau.models import Depense
     from fabrique.publication import rendement
+    from fabrique.session import reglages
 
     faites = []
     for s in Session.objects.all():
         try:
             with routeur.session(s):
-                for v in m.Video.objects.filter(recette__id=corps.format).prefetch_related("morceaux"):
+                if s.essais:  # essais de construction : jamais une durée de vraie vidéo
+                    continue
+                for v in m.Video.objects.filter(recette__id=corps.format, essai=False).exclude(nom__endswith=f"-{reglages.PILOTE}").prefetch_related("morceaux"):
                     ms = list(v.morceaux.all())
                     if ms and all(x.etat == "fini" for x in ms):
                         faites.append((sum(x.secondes or 0 for x in ms) / 3600, rendement.carte_s(v) / 3600,
@@ -166,7 +169,9 @@ def brouillon_video(request, id: str, corps: schemas.NouvelleIdee):
     """J11, assistant (après l'accord de RT) : une idée au calendrier de la session ; RT en fait un script, puis la fabrique."""
     from fabrique.session import calendrier
 
-    return {"message": calendrier.ajouter_idee(session_(id), corps.titre, corps.resume, "assistant", ACTEURS[request.auth])}
+    if (s := session_(id)).essais or s.archivee:
+        raise HttpError(409, f"« {s.nom} » est la session Essais ou est rangée : choisir une session en service")
+    return {"message": calendrier.ajouter_idee(s, corps.titre, corps.resume, "assistant", ACTEURS[request.auth])}
 
 
 @api.post("/assistant", response=schemas.ReponseAssistant)
