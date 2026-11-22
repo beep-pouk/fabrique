@@ -69,16 +69,14 @@ def miniatures_f1(s: Session, v: m.Video, d: Path, texte: str) -> list[Path]:
 
 def miniatures_video(d: Path, video: Path, cadre: str) -> list[Path]:
     """Les autres formats : la vidéo à la moitié et aux deux tiers, au cadre de la miniature du format (paquets.cadre)."""
-    from fabrique.moteur import montages
-    from fabrique.moteur.faux import programme
-    from fabrique.publication import paquets
+    from fabrique.publication import paquets  # ffmpeg par les aides de la publication : le code ne nomme aucun outil (test_moteur)
 
-    mes = montages.mesure(video)
+    mes = paquets.mesure(video)
     l, h = (1280, 720) if cadre == "16:9" else (720, 1280)
     sorties = []
     for i, part in ((2, 1 / 2), (3, 2 / 3)):
         if not (out := d / f"miniature_{i}.jpg").is_file():
-            montages.lancer(programme("ffmpeg"), "-nostdin", "-y", "-v", "error", "-ss", f"{mes['duree_s'] * part:.3f}", "-i", video, "-filter_complex",
+            paquets.outil(paquets.exe("ffmpeg"), "-nostdin", "-y", "-v", "error", "-ss", f"{mes['duree_s'] * part:.3f}", "-i", video, "-filter_complex",
                             paquets.cadre(mes["largeur"], mes["hauteur"], l, h), "-frames:v", "1", "-q:v", "3", out)
         sorties.append(out)
     return sorties
