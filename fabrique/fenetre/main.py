@@ -206,6 +206,7 @@ def lancer(fond: bool = False) -> int:
     except OSError:  # une fenêtre de cette installation tourne : elle revient (sauf --fond, démarrage de Windows)
         from fabrique.fenetre.client import sonner
 
+        log.info("une fenêtre tourne déjà (port %d pris)%s", port + 1, " : démarrage de Windows sans effet" if fond else " : elle revient")
         if not fond:
             sonner("montrer", port)
         return 0

@@ -4,7 +4,7 @@ attend d'elle-même un rendu de Bramble Studio). Dans la session « Essais » de
 vrais processus (noyau, file, exécuteur détaché), FABRIQUE_REEL=1 et le réglage « simulation » à non. Pour chaque « <recette> <script.json> »
 donné, dans l'ordre : « moteur » (la porte de Claude), suivi jusqu'à la fin, puis la vidéo finale de chaque langue mesurée (durée, cadre, son),
 le contrôle lu (défauts minutés, aucun « forte » attendu), les chronos par étape. Refus de partir si un essai d'avant est encore dans la file de
-la session Essais (jamais deux essais en même temps, jamais une tâche d'un autre annulée). Rapport : ESSAI_FORMATS.json (et .log), toujours
+la session Essais (jamais deux essais en même temps, jamais une tâche d'un autre annulée ; le même essai coupé par une extinction : annulé puis refait). Rapport : ESSAI_FORMATS.json (et .log), toujours
 écrit (erreur comprise), avec le commit essayé. Outil de développement : jamais livré.
 python outils_dev\\essai_formats.py F4 <script.json> [F3s <script.json> …]"""
 import json
@@ -15,6 +15,7 @@ import sys
 import time
 from contextlib import closing
 from datetime import datetime
+from pathlib import Path
 
 import essai_long as el  # même racine de travail, même préparation de la session Essais, même port tiré au hasard
 
@@ -61,7 +62,12 @@ def main(argv=None) -> int:
                                  creationflags=subprocess.CREATE_NO_WINDOW)
         el.banc.attendre(claude.repond, 60, "le noyau répond")
         assert claude.appeler("sante")["mode"] == "réel", "la racine de travail est restée en simulation"
-        if actives := [t for t in claude.appeler("file") if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause")]:
+        actives = [t for t in claude.appeler("file") if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause", "erreur")]
+        titres = {json.loads(Path(s).read_text(encoding="utf-8")).get("titre") for s in args[1::2]}
+        for t in [t for t in actives if t["titre"] in titres]:  # le même essai coupé (PC éteint) : annulé puis refait ; un autre essai : refus
+            dire(f"tâche {t['id']} du même essai coupé : {Client('fenetre', port=el.PORT, donnees=el.RACINE / 'donnees').appeler('agir_file', id=t['id'], action='annuler')['message']}")
+            actives.remove(t)
+        if actives := [t for t in actives if t["etat"] != "erreur"]:
             raise AssertionError(f"un essai d'avant est encore dans la file (tâche {actives[0]['id']}, « {actives[0]['titre']} ») : rien lancé")
         for recette, script in zip(args[::2], args[1::2]):
             r = subprocess.run([sys.executable, "-m", "fabrique", "moteur", recette, script], cwd=el.DEPOT, capture_output=True, text=True, encoding="utf-8", timeout=300)
