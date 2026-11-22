@@ -5,6 +5,7 @@ lu par verifier.py --jalon J11. Outil de développement : jamais livré.
 python outils_dev\\essai_assistant.py"""
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -15,6 +16,7 @@ DEPOT = Path(__file__).resolve().parents[1]
 RAPPORT = DEPOT.parent / "fabrique_construction" / "egalite" / "ESSAI_ASSISTANT.json"
 DEMANDES = ["Combien de temps et de carte pour trois vidéos F1 de plus ?", "Quelles sessions ai-je, et que fabriquer ensuite ?",
             "Prépare-moi un plan pour deux chansons F5 ce mois-ci."]
+PLANS = (DEMANDES[0], DEMANDES[2])  # des plans chiffrés : l'estimation est appelée
 
 
 def main() -> int:
@@ -23,9 +25,11 @@ def main() -> int:
     import django
 
     django.setup()
+    from fabrique import dossiers
     from fabrique.noyau import assistant, bases
     from fabrique.noyau.models import Parametre
 
+    (dossiers.donnees() / "journaux").mkdir(parents=True, exist_ok=True)  # le noyau le crée ; ici, sans noyau
     bases.migrer()
     Parametre.ecrire("simulation", "non")
     essais, ok = [], True
@@ -34,7 +38,10 @@ def main() -> int:
             t = time.monotonic()
             try:
                 r = assistant.demander(d, [], accord=False)
-                bon = not r["message"].startswith("Je n'ai pas fini") and "estimer" in [o["outil"] for o in r["outils"]] and not r["brouillons"]
+                outils = [o["outil"] for o in r["outils"]]
+                inconnu = any(o["outil"] == "estimer" and "pas encore" in o["resultat"] for o in r["outils"])
+                bon = (not r["message"].startswith("Je n'ai pas fini") and not r["brouillons"] and (d not in PLANS or "estimer" in outils)
+                       and not (inconnu and re.search(r"\d\s*(€|h\b)", r["message"])))  # estimation inconnue : aucun chiffre inventé
                 essais.append({"demande": d, "secondes": round(time.monotonic() - t), "message": r["message"][:600], "outils": [o["outil"] for o in r["outils"]], "ok": bon})
             except Exception as e:  # noqa: BLE001 — écrit dans le rapport
                 bon = False

@@ -23,7 +23,8 @@ TOURS = 8  # appels d'outils au plus par demande
 MODELE = Path(r"C:\StudioKids\modeles\llm\gpt-oss-120b-MXFP4.gguf")  # shortcut: le 120b en dur (banc du moteur en attente, QUESTIONS 20/11 23 h 35) ; une fiche d'outil quand le banc aura tranché
 CONSIGNE = ("Tu es l'assistant de Fabrique, l'atelier vidéo de RT. Réponds en français, court. À une demande, consulte les sessions, les formats "
             "et les estimations, puis propose un plan chiffré (vidéos, format, durée de fabrication, heures de carte, coût). Tu ne fabriques, "
-            "n'approuves et ne publies jamais : RT le fait. Les brouillons (session ou vidéo) ne se préparent qu'après son accord.")
+            "n'approuves et ne publies jamais : RT le fait. Les brouillons (session ou vidéo) ne se préparent qu'après son accord. "
+            "Chaque durée, heure de carte ou coût vient d'un outil (estimer) : jamais un chiffre inventé ; s'il est inconnu, dis-le.")
 
 
 class _Appel:
