@@ -1,4 +1,9 @@
 {
+ "0.11.0": [
+  "Titres et miniatures : à « Approuver », trois variantes notées (lisibles à la taille d'un téléphone) ; RT choisit, avant ou après la publication ; quand une vidéo reste sous le taux de clic habituel de la chaîne après 1 000 impressions, Fabrique propose la variante suivante.",
+  "Statistiques : impressions et taux de clic lus chez YouTube chaque jour (ou saisis à la main).",
+  "Assistant (Ctrl+0) : une demande écrite devient un plan chiffré (durée, carte, coût) ; après « D'accord », un brouillon de session ou une idée au calendrier. Il ne fabrique, n'approuve ni ne publie jamais, et ne prend pas la carte pendant un rendu."
+ ],
  "0.10.0": [
   "F1 refait les vidéos longues comme Bramble Studio (voix, images, animation, lèvres, musique, montage, miniature, revue), avec les mêmes outils et les mêmes réglages.",
   "Publication : relier une chaîne YouTube, Approuver puis Publier (non répertorié d'abord, créneau, miniature, playlist, sous-titres), paquets prêts à poster pour les autres réseaux, page iPhone, relevé des chiffres chaque jour.",
