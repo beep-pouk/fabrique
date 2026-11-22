@@ -5,6 +5,16 @@ Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et doc
 
 **À reprendre (22/11, 21 h 20)** : (1) J12 (plan § 7.1, ligne J12) : plan en tête de cette REPRISE, puis code ; (2) lire au matin `OUTILS\fabrique_construction\egalite\de_nuit_chaine.log` (formats F4/F3s, F5, F6 en vrai, puis essai long) et rejouer `verifier.py --jalon J8`, `J9`, `J10` pour passer leurs points « en vrai » au vert ; (3) le veilleur s'arrête si le PC s'éteint : le réarmer (caché, détaché : `pythonw.exe de_nuit_chaine.py` dans `egalite`), une étape réussie n'est pas refaite.
 
+## J12 (recette « fini ») — plan (sur `main` : plus de branche, chaque étape recettée part en version) ; écrit le 22/11 à 21 h 30
+
+1. **`outils_dev\recette_finale.py`** : les 12 critères du cahier (§ 12), chacun relié à ses preuves : parties « simulation » rejouées en vrais processus (fonctions de `verifier.py` J2 → J11, sans reconstruire à chaque tour), preuves « en vrai » lues (racine des essais, `ESSAI_*.json`, installation réelle de RT pour ses gestes) ; rapport `docs\VERIF_FINI_PC.md`, un critère par ligne, sa preuve et sa date. `--fois 10` : la partie automatique jouée 10 fois de suite (critère 12), une seule construction.
+2. **Critère 7, coupure pendant un rendu** : en simulation, noyau et exécuteur tués en plein morceau, relance, la tâche reprend au premier morceau non fini (déjà vrai depuis J2 : le prouver dans la recette finale) ; en vrai, la reprise de l'essai long après extinction (`ESSAI_LONG_ETAT.json`) lue.
+3. **Critère 3, 2e session par l'assistant** : en simulation dans la recette (demande écrite → brouillon de session → « Terminer » pas à pas → vidéo pilote par la file) ; en vrai, **geste de RT** (§ 7.3) : il demande à l'assistant, termine la session, clique « Fabriquer » sur la pilote → QCM dans QUESTIONS quand le reste est vert.
+4. **Critère 6, 10 langues** : lire les langues de la session Bramble importée ; essai de nuit F1 en 10 langues (carte libre, jamais pendant un rendu) si la session en a 10, sinon question ; envoi réel d'une langue = geste de J4 déjà attendu.
+5. **Guide de RT** (`docs\GUIDE_RT.md`, court, en français, captures de la suite) et **DEMARRAGE** de Fabrique (`docs\DEMARRAGE.md`) ; la supervision le recopie dans `PROJET\notes` (interdit d'y écrire d'ici).
+- Repris : `outils_dev\recette_finale.py` de Bramble Studio (`OUTILS\app`, lecture seule) pour la forme du rapport et la boucle « 10 fois » ; rien à installer.
+- Preuve : `recette_finale.py --fois 10` tout vert hors gestes de RT ; version publiée ; puis les gestes de RT (§ 7.3) et « fini » constaté.
+
 ## 22/11/2026, 20 h 15 → 21 h 20 — PRIORITÉ 1 tenue : 0.10.0 puis 0.11.0 publiées (J11 fini)
 
 - **Fait, vérifié** : recettes rejouées sur `main`, carte libre : J10 (avec publication de la **0.10.0**), J5 **tout vert**, J8, J9 : seuls rouges = points « en vrai » (essais de nuit). Cause des rouges du 21/11 (F5/F6 « toujours pas après 300 s », recette d'installation « attente ») : la file attendait la carte (Bramble ou le veilleur l'occupait) ; carte libre, tout passe. Une construction ratée une fois à J9 (passagère, verte à J5, J10, J11).
