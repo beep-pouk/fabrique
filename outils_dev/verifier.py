@@ -42,7 +42,7 @@ sys.path.insert(0, str(DEPOT))
 from fabrique import garde  # noqa: E402
 
 SORTIE = DEPOT.parent / "fabrique_construction"
-VIVANTS = ("etat.json", "etat.txt", "studio.db", "studio.db-wal", "studio.db-shm", "journaux/*", "arriere_plan/*", "webview/*")  # ce que Bramble Studio réécrit seul
+VIVANTS = ("etat.json", "etat.txt", "studio.db", "studio.db-wal", "studio.db-shm", "journaux/*", "arriere_plan/*", "webview/*", "fenetre_page.txt", "usage.json")  # ce que Bramble Studio réécrit seul (core/fenetre.py, core/usage.py)
 
 
 def bramble_tourne(studio: Path) -> bool:
