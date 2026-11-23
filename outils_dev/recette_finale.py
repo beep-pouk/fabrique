@@ -160,7 +160,7 @@ def en_vrai() -> dict[int, list[tuple[bool, str]]]:
     j3 = v.preuves_j3()  # égalité étape par étape, puis l'essai pleine longueur (F1, coupure)
     gestes = v.gestes_j4()
     return {1: [j3[0], importee()], 2: j3[1:] + v.en_vrai_j7() + v.en_vrai_j8() + v.en_vrai_j9() + v.en_vrai_j10(), 3: [deuxieme_reelle()],
-            4: [(ok and "PAS ENCORE" not in t, t) for ok, t in v.cle_en_ligne_j6()], 5: gestes, 6: [dix_langues(), *(gestes[1:2] or gestes[:1])], 7: [p for p in j3 if p[1].startswith("repris après une coupure")] or [(False, "coupure en vrai : pas de rapport complet de l'essai long")], 10: [v.assistant_en_vrai()]}
+            4: [(ok, t + (" ; accepté sans clé (réponse B de la supervision, 23/11)" if "PAS ENCORE" in t else "")) for ok, t in v.cle_en_ligne_j6()], 5: gestes, 6: [dix_langues(), *(gestes[1:2] or gestes[:1])], 7: [p for p in j3 if p[1].startswith("repris après une coupure")] or [(False, "coupure en vrai : pas de rapport complet de l'essai long")], 10: [v.assistant_en_vrai()]}
 
 
 def carte_prise() -> str:
