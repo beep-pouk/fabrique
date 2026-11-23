@@ -59,7 +59,7 @@ def bramble_avant(dire) -> tuple:
 def bramble_points(avant: tuple) -> list[tuple[bool, str]]:
     """Le dossier « Bramble Studio » et « DONNEES » identiques avant et après (hors ce que Bramble Studio, s'il tourne, réécrit lui-même)."""
     studio, lieux, avant, tourne = avant
-    apres, tourne = {n: banc.empreinte(d) for n, d in lieux.items()}, tourne and bramble_tourne(studio)
+    apres, tourne = {n: banc.empreinte(d) for n, d in lieux.items()}, tourne or bramble_tourne(studio)  # ouvert en route : ses fichiers vivants aussi
     d = banc.differences(avant["Bramble Studio"], apres["Bramble Studio"])
     points = [(not d, "dossier « Bramble Studio » identique avant et après" + ("" if not d else " : " + ", ".join(d[:10])))]
     d = banc.differences(avant["DONNEES"], apres["DONNEES"])
@@ -247,7 +247,7 @@ def preuves_j3() -> list[tuple[bool, str]]:
         points.append((r["reglages_identiques"] and not manque and all(e[x]["egal"] for x in EGALES),
                        f"égalité de F1 v1 avec le moteur de Bramble Studio, étape par étape (rendu {r['rendu']}) : réglages "
                        f"{'identiques' if r['reglages_identiques'] else 'DIFFÉRENTS'} ; " + " ; ".join(
-                           f"{x} {'égal' if e[x]['egal'] else 'DIFFÉRENT ' + str(e[x].get('differents'))} ({e[x].get('fichiers', 0)} fichiers, {e[x]['date'][:16]})"
+                           f"{x} {('égal au bruit de la carte près (Bramble diffère de lui-même sur ' + str(len(e[x]['temoin_differents'])) + ' fichiers)' if e[x].get('au_bruit_pres') else 'égal') if e[x]['egal'] else 'DIFFÉRENT ' + str(e[x].get('differents'))} ({e[x].get('fichiers', 0)} fichiers, {e[x]['date'][:16]})"
                            for x in EGALES if x in e) + (f" ; MANQUE : {', '.join(manque)}" if manque else "")))
     except (OSError, ValueError, KeyError) as x:
         points.append((False, f"égalité étape par étape : pas de rapport lisible ({x})"))
@@ -522,7 +522,9 @@ def gestes_j4() -> list[tuple[bool, str]]:
     return [(bool(reliees), f"geste de RT : chaînes reliées dans Fabrique (réel) : {', '.join(reliees) or 'AUCUNE ENCORE'}"),
             (bool(non_rep) and {"fenetre", "iphone"} <= depuis,
              f"geste de RT : vidéo d'essai publiée en non répertorié sur une chaîne reliée ({len(non_rep)} non répertoriée(s)), depuis : "
-             f"{', '.join(sorted(depuis)) or 'NI LE PC NI L’IPHONE ENCORE'} (le PC puis l'iPhone attendus)")]
+             f"{', '.join(sorted(depuis)) or 'NI LE PC NI L’IPHONE ENCORE'} (le PC puis l'iPhone attendus)"),
+            (any(s == "planifiee" for *_, s in publiees), f"geste de RT : une vidéo programmée sur une chaîne reliée (cahier § 12, critère 5) : "
+                                                         f"{sum(s == 'planifiee' for *_, s in publiees) or 'PAS ENCORE'}")]
 
 
 def j4(dire, publier: bool = False) -> list[tuple[bool, str]]:
@@ -557,6 +559,43 @@ def comparer_j5(a: str, b: str):
                       "videos": sum(k.startswith("videos/") for k in fa), "differentes": sorted(k for k in ta if ta[k] != tb.get(k))[:5]}))
 
 
+def terminer_session(f, sid: str, tmp: Path) -> tuple[str, dict, dict]:
+    """Les étapes 3 à 6 de la nouvelle session, comme la fenêtre (format d'essai, univers : personnage, lieu, image de référence importée et
+    validée, droits, style ; règles), « Terminer » essayé d'abord sans ce qui rend chaque vidéo différente ; rend (cette réponse, réglages, univers)."""
+    from fabrique.fenetre.client import ErreurApi
+
+    f.appeler("ecrire_reglages", {"formats": ["essai"], "assistant": "3"}, id=sid)
+    f.appeler("ajouter_element", {"type": "personnage", "nom": "Ami Factice", "role": "ami", "description": "un renard factice"}, id=sid)
+    f.appeler("ajouter_element", {"type": "lieu", "nom": "Clairière factice", "description": "", "role": ""}, id=sid)
+    image = tmp / "Image de référence.png"
+    image.write_bytes((DEPOT / "fabrique" / "tests" / "reference_factice.png").read_bytes())
+    perso = f.appeler("univers", id=sid)["personnages"][0]
+    f.appeler("importer_reference", {"fichier": str(image), "vue": "face"}, id=sid, pk=perso["id"])
+    ref = f.appeler("univers", id=sid)["personnages"][0]["references"][0]
+    f.appeler("valider_reference", {"validee": True}, id=sid, pk=ref["id"])
+    f.appeler("ecrire_droits", {"licence": "image générée", "credit": "Fabrique (recette)"}, id=sid, type="personnage", pk=perso["id"])
+    f.appeler("ecrire_reglages", {"style": "aquarelle factice", "assistant": "4"}, id=sid)
+    f.appeler("ecrire_reglages", {"assistant": "5"}, id=sid)  # destinations : rien à relier en recette (une langue sans chaîne est fabriquée, pas envoyée)
+    try:
+        f.appeler("finir_session", id=sid)
+        sans_difference = "acceptée"
+    except ErreurApi as e:
+        sans_difference = str(e)
+    f.appeler("ecrire_reglages", {"difference": "un animal et un lieu différents à chaque vidéo", "duree_min": 3, "duree_max": 8, "assistant": "6"}, id=sid)
+    f.appeler("ecrire_reglages", {"objectif": "une vidéo pilote", "arret": "après la recette", "plafond_eur": 0}, id=sid)
+    f.appeler("finir_session", id=sid)
+    return sans_difference, f.appeler("reglages", id=sid), f.appeler("univers", id=sid)
+
+
+def pilote(f, sid: str, nom: str, delai: float = 240) -> tuple[dict, dict, dict]:
+    """« Vidéo pilote » de la session, fabriquée par la file (simulation) ; rend (sa tâche, sa ligne, son détail)."""
+    f.appeler("pilote", id=sid)
+    v = banc.attendre(lambda: (x := f.appeler("videos", id=sid)) and x[0]["progression"].split("/")[0] == x[0]["progression"].split("/")[1] and x[0], delai,
+                      "la vidéo pilote finie")
+    banc.attendre(lambda: next(x for x in f.appeler("file") if x["session"] == nom)["etat"] in ("finie", "erreur"), 60, "la tâche de la pilote close")
+    return next(x for x in f.appeler("file") if x["session"] == nom), v, f.appeler("video", id=sid, video=v["id"])
+
+
 def sessions_j5(dire) -> list[tuple[bool, str]]:
     """En vrais processus, en simulation, sur un dossier temporaire, par les appels de la fenêtre : nouvelle session de zéro (7 étapes),
     univers (personnage, lieu, image de référence importée et validée, droits, style), règles et garde-fou, vidéo pilote fabriquée par la file,
@@ -582,28 +621,7 @@ def sessions_j5(dire) -> list[tuple[bool, str]]:
         sid = f.appeler("nouvelle_session", {"nom": "Session de la recette J5", "langues": [{"code": "en", "nom": "Anglais"}, {"code": "fr", "nom": "Français"}],
                                              "public": "enfants factices", "promesse": "une histoire calme et factice"})["id"]
         en_pause = next(x for x in f.appeler("sessions") if x["id"] == sid)["pause"]
-        f.appeler("ecrire_reglages", {"formats": ["essai"], "assistant": "3"}, id=sid)
-        f.appeler("ajouter_element", {"type": "personnage", "nom": "Ami Factice", "role": "ami", "description": "un renard factice"}, id=sid)
-        f.appeler("ajouter_element", {"type": "lieu", "nom": "Clairière factice", "description": "", "role": ""}, id=sid)
-        image = tmp / "Image de référence.png"
-        image.write_bytes((DEPOT / "fabrique" / "tests" / "reference_factice.png").read_bytes())
-        perso = f.appeler("univers", id=sid)["personnages"][0]
-        f.appeler("importer_reference", {"fichier": str(image), "vue": "face"}, id=sid, pk=perso["id"])
-        ref = f.appeler("univers", id=sid)["personnages"][0]["references"][0]
-        f.appeler("valider_reference", {"validee": True}, id=sid, pk=ref["id"])
-        f.appeler("ecrire_droits", {"licence": "image générée", "credit": "Fabrique (recette)"}, id=sid, type="personnage", pk=perso["id"])
-        f.appeler("ecrire_reglages", {"style": "aquarelle factice", "assistant": "4"}, id=sid)
-        f.appeler("ecrire_reglages", {"assistant": "5"}, id=sid)  # destinations : rien à relier en recette (une langue sans chaîne est fabriquée, pas envoyée)
-        try:
-            f.appeler("finir_session", id=sid)
-            sans_difference = "acceptée"
-        except ErreurApi as e:
-            sans_difference = str(e)
-        f.appeler("ecrire_reglages", {"difference": "un animal et un lieu différents à chaque vidéo", "duree_min": 3, "duree_max": 8, "assistant": "6"}, id=sid)
-        f.appeler("ecrire_reglages", {"objectif": "une vidéo pilote", "arret": "après la recette", "plafond_eur": 0}, id=sid)
-        f.appeler("finir_session", id=sid)
-        r = f.appeler("reglages", id=sid)
-        u = f.appeler("univers", id=sid)
+        sans_difference, r, u = terminer_session(f, sid, tmp)
         points.append((en_pause and "il manque encore" in sans_difference and not r["pause"] and r["assistant"] == "fini" and r["formats"] == ["essai"]
                        and [l["code"] for l in r["langues"]] == ["en", "fr"] and u["personnages"][0]["references"][0]["validee"]
                        and u["personnages"][0]["licence"] == "image générée" and u["style"] == "aquarelle factice" and len(u["lieux"]) == 1,
@@ -611,11 +629,7 @@ def sessions_j5(dire) -> list[tuple[bool, str]]:
                        f"vidéo différente : {sans_difference}) ; format {r['format']}, langues {', '.join(l['code'] for l in r['langues'])}, univers : "
                        f"{len(u['personnages'])} personnage (image copiée, validée, droits), {len(u['lieux'])} lieu, style"))
         dire("vidéo pilote en simulation, par la file…")
-        f.appeler("pilote", id=sid)
-        v = banc.attendre(lambda: (x := f.appeler("videos", id=sid)) and x[0]["progression"].split("/")[0] == x[0]["progression"].split("/")[1] and x[0], 240,
-                          "la vidéo pilote finie")
-        tache = next(x for x in f.appeler("file") if x["session"] == "Session de la recette J5")
-        d = f.appeler("video", id=sid, video=v["id"])
+        tache, v, d = pilote(f, sid, "Session de la recette J5")
         points.append((tache["etat"] == "finie" and v["erreurs"] == 0 and all(e["finis"] == e["total"] for e in d["etapes"])
                        and all(o.startswith("faux_") for e in d["etapes"] for o in e["outils"]),
                        f"vidéo pilote fabriquée en simulation par la file (tâche {tache['etat']}, {v['progression']} morceaux, outils : "
@@ -1159,7 +1173,7 @@ def en_vrai_j8() -> list[tuple[bool, str]]:
     except (sqlite3.Error, OSError, ValueError):
         pass
     try:
-        essai = json.loads((egalite / "ESSAI_FORMATS.json").read_text(encoding="utf-8"))
+        essai = json.loads((egalite / "ESSAI_FORMATS_J8.json").read_text(encoding="utf-8"))  # copié par le veilleur (ESSAI_FORMATS.json : le dernier essai, J12 compris)
     except (OSError, ValueError):
         essai = {}
     carte = essai.get("carte_apres")
@@ -1543,17 +1557,20 @@ def statistiques_j11(dire) -> list[tuple[bool, str]]:
     return points
 
 
+def assistant_en_vrai() -> tuple[bool, str]:
+    """Le rapport de outils_dev/essai_assistant.py (gpt-oss, trois demandes d'essai, carte libre)."""
+    try:
+        e = json.loads((SORTIE / "egalite" / "ESSAI_ASSISTANT.json").read_text(encoding="utf-8"))
+        return e.get("ok") is True, f"assistant en vrai (gpt-oss-120b, {e.get('date')}) : {e.get('resume')}"
+    except (OSError, ValueError):
+        return False, "assistant en vrai (gpt-oss-120b, trois demandes d'essai) : PAS ENCORE — de nuit, carte libre"
+
+
 def j11(dire, publier: bool = False) -> list[tuple[bool, str]]:
     """J11 (plan § 7.1) : statistiques, « quoi fabriquer ensuite », titres et miniatures, assistant, en vrais processus sur des chiffres
     rejoués ; l'assistant en vrai (gpt-oss) ; la construction et l'installation, Bramble Studio intact."""
     avant = bramble_avant(dire)
-    preuve = SORTIE / "egalite" / "ESSAI_ASSISTANT.json"
-    try:
-        e = json.loads(preuve.read_text(encoding="utf-8"))
-        vrai = (e.get("ok") is True, f"assistant en vrai (gpt-oss-120b, {e.get('date')}) : {e.get('resume')}")
-    except (OSError, ValueError):
-        vrai = (False, "assistant en vrai (gpt-oss-120b, trois demandes d'essai) : PAS ENCORE — de nuit, carte libre")
-    return (statistiques_j11(dire) + [vrai, (True, "banc du moteur de l'assistant : reporté à la veille du mois (réponse B de la supervision, 21/11 15 h 10) ; "
+    return (statistiques_j11(dire) + [assistant_en_vrai(), (True,"banc du moteur de l'assistant : reporté à la veille du mois (réponse B de la supervision, 21/11 15 h 10) ; "
                                                   "défaut = gpt-oss-120b en local, carte libre seulement")]
             + construction(dire, publier) + bramble_points(avant))
 

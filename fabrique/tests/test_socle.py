@@ -102,7 +102,7 @@ def test_variables_d_un_parent_python_effacees(monkeypatch, tmp_path):
     for v in programme.HERITEES:
         monkeypatch.setenv(v, str(tmp_path))
     programme.environnement()
-    assert os.environ["DJANGO_SETTINGS_MODULE"] == "fabrique.settings" and not set(programme.HERITEES) & set(os.environ)
+    assert os.environ["DJANGO_SETTINGS_MODULE"] == "fabrique.settings" and not {v.upper() for v in programme.HERITEES} & {k.upper() for k in os.environ}
 
 
 def test_une_seule_fabrique_de_lignes_de_commande():

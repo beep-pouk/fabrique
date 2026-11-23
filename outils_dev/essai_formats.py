@@ -1,4 +1,4 @@
-"""Essais en vrai des formats par plan (J8 : F4 voix off + images, F3 créée seule ; plan § 7.1 ; de nuit, carte libre : la file de Fabrique
+"""Essais en vrai des formats par plan (J8 : F4 voix off + images, F3 créée seule ; J12 : F1 en 10 langues ; plan § 7.1 ; de nuit, carte libre : la file de Fabrique
 attend d'elle-même un rendu de Bramble Studio). Dans la session « Essais » de la racine de travail des essais réels
 (OUTILS\\fabrique_construction\\egalite\\FABRIQUE, où Bramble Studio est importé : son univers et ses réglages y sont copiés), jamais publiés, en
 vrais processus (noyau, file, exécuteur détaché), FABRIQUE_REEL=1 et le réglage « simulation » à non. Pour chaque « <recette> <script.json> »
@@ -63,7 +63,7 @@ def main(argv=None) -> int:
         el.banc.attendre(claude.repond, 60, "le noyau répond")
         assert claude.appeler("sante")["mode"] == "réel", "la racine de travail est restée en simulation"
         actives = [t for t in claude.appeler("file") if t["session"] == "Essais" and t["etat"] in ("attente", "en_cours", "pause", "erreur")]
-        titres = {json.loads(Path(s).read_text(encoding="utf-8")).get("titre") for s in args[1::2]}
+        titres = {(d := json.loads(Path(s).read_text(encoding="utf-8"))).get("titre") or d.get("title") for s in args[1::2]}  # F1 : « title »
         for t in [t for t in actives if t["titre"] in titres]:  # le même essai coupé (PC éteint) : annulé puis refait ; un autre essai : refus
             dire(f"tâche {t['id']} du même essai coupé : {Client('fenetre', port=el.PORT, donnees=el.RACINE / 'donnees').appeler('agir_file', id=t['id'], action='annuler')['message']}")
             actives.remove(t)

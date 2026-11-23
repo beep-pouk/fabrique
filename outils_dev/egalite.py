@@ -7,7 +7,9 @@ images au niveau des consignes (ComfyUI simulé, juge factice : consignes et ré
 carte libre, jamais pendant un rendu : vérifié avant chaque moteur) : voix (3 scènes), images (3 plans), anim (2 plans), lèvres (1 plan), musique
 (3 scènes), version de langue (une scène d'image et une de Bramble, phrases d'essai en français, sur les visuels du rendu), pour de vrai,
 le même pilote de ComfyUI (celui de Fabrique) et le juge des images coupé des deux côtés. Rapport (cumulé) : egalite\\RAPPORT.json.
-python outils_dev\\egalite.py [--etapes montage,miniature,revue,images] [--carte voix,images,anim,bramble,musique,langue [--relire]]"""
+Avec --temoin (réponse A de la supervision, 21/11) : Bramble Studio joue aussi une 2e fois la même étape ; si Fabrique ne diffère de lui que
+sur des fichiers où Bramble diffère de lui-même, l'étape est « égale au bruit de la carte près ».
+python outils_dev\\egalite.py [--etapes montage,miniature,revue,images] [--carte voix,images,anim,bramble,musique,langue [--relire] [--temoin]]"""
 import argparse
 import hashlib
 import json
@@ -175,7 +177,7 @@ def comparer(etape: str, b: Path, f: Path, avant: set[str], dossiers: list[tuple
     # deux fichiers identiques octet pour octet sont égaux (une entrée copiée porte le chemin de Bramble : il n'est remplacé que d'un côté)
     diff = sorted(k for k in pb.keys() | pf.keys() if pb.get(k) != pf.get(k) and not (k in pb and k in pf and md5(b / k) == md5(f / k)))
     return {"egal": bool(pb.keys() - avant) and not diff and journal(b) == journal(f), "fichiers": len(pb.keys() - avant), "differents": diff[:20],
-            "journal_identique": journal(b) == journal(f),
+            "tous_differents": diff, "produits": sorted(pb.keys() - avant), "journal_identique": journal(b) == journal(f),
             "ecarts_son": {k: ecart_son(b / k, f / k) for k in diff if k.endswith(".wav") and k in pb and k in pf}}
 
 
@@ -184,6 +186,7 @@ def main(argv=None) -> int:
     p.add_argument("--etapes", default="montage,miniature,revue,images")
     p.add_argument("--carte", default="", help="étapes jouées pour de vrai sur la carte : voix,images,anim,bramble (de nuit)")
     p.add_argument("--relire", action="store_true", help="avec --carte : refaire seulement la comparaison des passages déjà joués")
+    p.add_argument("--temoin", action="store_true", help="avec --carte : Bramble Studio joue l'étape deux fois (son bruit de carte, mesuré)")
     a = p.parse_args(argv)
     import django
 
@@ -283,12 +286,17 @@ def main(argv=None) -> int:
                 scen, rb, rf, avant = preparer(etape, studio, ids, entrees, nom=f"carte_{etape}")
             if etape == "langue" and not a.relire:
                 scen = langue_essai(scen, rendu, ids, (rb, rf))
-            for qui, moteur, lieu, cfg, run in (("bramble", b_etape, studio, cfg_b, rb), ("fabrique", f_etape, lieux, cfg_f, rf)) if not a.relire else ():
+            rt = SORTIE / f"carte_{etape}" / "temoin" / SCENARIO  # le double de Bramble : ses entrées (et son « anglais ») copiées avant tout passage
+            if a.temoin and not a.relire:
+                shutil.rmtree(rt.parent, ignore_errors=True)
+                shutil.copytree(rb.parent, rt.parent)
+            for qui, moteur, lieu, cfg, run in ((("bramble", b_etape, studio, cfg_b, rb), ("fabrique", f_etape, lieux, cfg_f, rf))
+                                                + ((("temoin", b_etape, studio, cfg_b, rt),) if a.temoin else ())) if not a.relire else ():
                 if raison := carte.occupee():
                     raise SystemExit(f"carte prise avant le moteur {qui} ({etape}) : {raison} — rien n'est lancé")
                 if etape != "langue":
                     moteur.jouer(lieu, scen, etape, sans_juge(cfg), dossier=run, ecran=lambda *x: None, fond=lambda *x: False)
-                elif qui == "bramble":  # son anglais est lu sous PROJET\rendus : ici, la copie à côté (un chemin absolu gagne dans une jointure)
+                elif qui != "fabrique":  # son anglais est lu sous PROJET\rendus : ici, la copie à côté (un chemin absolu gagne dans une jointure)
                     b_langue.anglais = lambda sc, en=run.parent / "anglais": types.SimpleNamespace(stem=str(en))
                     b_langue.faire(studio, scen, sans_juge(cfg), francais, cfg["voix"]["ref_audio"], ecran=lambda *x: None, dossier=run)
                 else:
@@ -296,7 +304,15 @@ def main(argv=None) -> int:
                     f_langue.faire(lieux, scen, c, francais, c["voix"]["ref_audio"], ecran=lambda *x: None, dossier=run, anglais_run=run.parent / "anglais")
             paires = [(studio / "PROJET" / d, session / "univers" / d) for d in ("voix", "personnages")] + [(rb.parent / "anglais", rf.parent / "anglais")]
             jouee = datetime.fromtimestamp(max(r.joinpath("journal.txt").stat().st_mtime for r in (rb, rf))) if a.relire else datetime.now()
-            rapport["etapes"][f"carte_{etape}"] = {**comparer(etape, rb, rf, avant, paires), "scenes": ids, "date": jouee.isoformat(timespec="seconds")}
+            rapport["etapes"][f"carte_{etape}"] = r = {**comparer(etape, rb, rf, avant, paires), "scenes": ids, "date": jouee.isoformat(timespec="seconds")}
+            if a.temoin and rt.is_dir():
+                t = comparer(etape, rb, rt, avant, [(rb.parent / "anglais", rt.parent / "anglais")])
+                r["temoin_differents"] = t["differents"]
+                son = all(r["ecarts_son"].get(k) is not None and t["ecarts_son"].get(k) is not None and r["ecarts_son"][k] <= max(10 * t["ecarts_son"][k], 1e-4)
+                          for k in r["tous_differents"] if k.endswith(".wav"))  # « du même ordre » : un son de Fabrique pas plus loin que 10 fois le bruit de Bramble
+                r["au_bruit_pres"] = (not r["egal"] and r["journal_identique"] and t["journal_identique"] and t["produits"] == r["produits"]
+                                      and set(r["tous_differents"]) <= set(t["tous_differents"]) and son)
+                r["egal"] |= r["au_bruit_pres"]
             print(f"  {etape} : {'ÉGAL' if rapport['etapes'][f'carte_{etape}']['egal'] else 'DIFFÉRENT'} {rapport['etapes'][f'carte_{etape}']}", flush=True)
     (SORTIE / "RAPPORT.json").write_text(json.dumps(rapport, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0 if rapport["reglages_identiques"] and all(e["egal"] for e in rapport["etapes"].values()) else 1
