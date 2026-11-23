@@ -23,7 +23,7 @@
 ## Les trois gestes (à vous seul)
 1. **Fabriquer** : sur un script prêt (Session → Scripts ou Calendrier). Fabrique vérifie la carte : jamais pendant un rendu de Bramble Studio ; la vidéo attend son tour dans la File. Coupure de courant : elle reprend seule là où elle s'était arrêtée.
 2. **Approuver** : Vidéo → Vérification ([capture](../fabrique/tests/captures/video.png)) : regarder, lire les défauts minutés ; un plan raté se coche puis **Refaire**. Tout va bien : **Approuver**, puis choisir parmi les trois titres et miniatures notés.
-3. **Publier** : Vidéo → Publication ([capture](../fabrique/tests/captures/publication.png)) : non répertorié d'abord, créneau, miniature, playlist ; **Publier**. Pour les autres réseaux, un paquet prêt à poster. Depuis l'iPhone : la page de Fabrique (code à 6 chiffres) montre les vidéos à voir, approuver, publier.
+3. **Publier** : une fois pour toutes, Session → Destinations → **Relier** chaque chaîne (page de Google dans le navigateur). Puis Vidéo → Publication ([capture](../fabrique/tests/captures/publication.png)) : non répertorié d'abord, créneau, miniature, playlist ; **Publier**. Pour les autres réseaux, un paquet prêt à poster. Depuis l'iPhone : la page de Fabrique (code à 6 chiffres) montre les vidéos à voir, approuver, publier.
 
 ## Une nouvelle session
 - Accueil → **Nouvelle session**, ou demandez-la à l'assistant (Ctrl+0) puis dites « D'accord » : un brouillon arrive, en pause.

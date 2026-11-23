@@ -3,7 +3,13 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
-**À reprendre (23/11, 8 h 30)** : (1) lire au matin `OUTILS\fabrique_construction\egalite\de_nuit_chaine.log` et `docs\VERIF_FINI_PC.md` (écrit par la recette finale du veilleur) ; corriger chaque rouge qui vient du code ; « 0.11.1 prête » dans QUESTIONS si `FABRIQUE\versions` l'a ; (2) le veilleur meurt avec le PC : le réarmer (caché, détaché : `pythonw.exe de_nuit_chaine.py` dans `egalite`), une étape réussie (« code 0 ») n'est pas refaite ; (3) de jour, Bramble rend souvent : aucune recette ne peut partir (la file attend la carte) ; (4) réponses attendues dans QUESTIONS : critère 4 en ligne (QCM du 23/11), gestes de RT de J4 ; geste J12 (2e session) à demander quand le reste est vert.
+**À reprendre (23/11, 11 h 20)** : (1) au matin du 24/11, lire `OUTILSabrique_construction\egalite\de_nuit_chaine.log` et `docs\VERIF_FINI_PC.md` (écrit par la recette finale du veilleur) ; corriger chaque rouge qui vient du code ; « 0.11.1 prête » dans QUESTIONS si `FABRIQUEersions` l'a ; (2) le veilleur (pid 16596, vivant à 11 h) meurt avec le PC : le réarmer (caché, détaché : `pythonw.exe de_nuit_chaine.py` dans `egalite`), une étape réussie (« code 0 ») n'est pas refaite ; (3) Bramble rend (s1e01 espagnol, 5 reprises en file) : aucune recette de jour ; (4) quand le reste est vert : QCM des gestes de RT (J4 : relier, publier PC puis iPhone, programmer ; J12 : 2e session par l'assistant, vidéo pilote).
+
+## 23/11/2026, 11 h → 11 h 20 — critère 4 accepté sans clé
+
+- **Fait, vérifié** : réponse B de la supervision (23/11 11 h) appliquée : la recette finale met le critère 4 « en ligne » au vert sur la preuve du faux service payant (`2f5cdcc`) ; un essai réel au-delà du plafond resterait rouge. Suite verte (233). Guide de RT : « Relier » chaque chaîne (Session → Destinations) avant de publier.
+- **Constaté** : Fabrique 0.11.0 a démarré seule à l'ouverture de session ce matin (7 h 27, cachée) : le raté du 22/11 23 h 06 ne s'est pas reproduit.
+- **Non vérifié** : rien de la recette finale (carte prise toute la journée).
 
 ## 23/11/2026, 7 h 55 → 8 h 30 — J12 : recette « fini » écrite, veilleur chargé de la jouer
 
