@@ -1,6 +1,7 @@
 {
  "0.11.1": [
-  "Correctif : lancée depuis certains programmes, Fabrique n'arrivait plus à analyser une vidéo finie (les scripts de l'analyse n'étaient plus trouvés) ; elle ne garde plus ce réglage hérité."
+  "Correctif : lancée depuis certains programmes, Fabrique n'arrivait plus à analyser une vidéo finie (les scripts de l'analyse n'étaient plus trouvés) ; elle ne garde plus ce réglage hérité.",
+  "Si des fichiers du programme ont été effacés (désinstallation interrompue…), Fabrique le dit à l'ouverture et propose de se réparer avec le dernier installateur du dossier « versions » ; vos sessions et vos données sont gardées."
  ],
  "0.11.0": [
   "Titres et miniatures : à « Approuver », trois variantes notées (lisibles à la taille d'un téléphone) ; RT choisit, avant ou après la publication ; quand une vidéo reste sous le taux de clic habituel de la chaîne après 1 000 impressions, Fabrique propose la variante suivante.",

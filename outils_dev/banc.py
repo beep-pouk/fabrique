@@ -69,6 +69,18 @@ def fermer_fenetre(poignee: int):
     ctypes.windll.user32.PostMessageW(poignee, 0x0010, 0, 0)  # WM_CLOSE : comme la croix
 
 
+def boite(pid: int, delai: float = 30) -> tuple[int, str]:
+    """(poignée, texte) de la boîte de message Windows (classe #32770) ouverte par le processus `pid`."""
+    h = attendre(lambda: next((f[0] for f in fenetres() if f[2] == "#32770" and f[3] == pid), 0), delai, f"une boîte de message du processus {pid}")
+    texte = ctypes.create_unicode_buffer(2000)
+    ctypes.windll.user32.GetDlgItemTextW(h, 0xFFFF, texte, 2000)  # le texte d'une MessageBox : contrôle statique d'identifiant -1
+    return h, texte.value
+
+
+def repondre(poignee: int, bouton: int):
+    ctypes.windll.user32.PostMessageW(poignee, 0x0111, bouton, 0)  # WM_COMMAND : IDYES 6, IDNO 7 ; le seul bouton d'une boîte MB_OK répond à 2
+
+
 def attendre(condition, delai: float, quoi: str, pas: float = 0.3):
     fin = time.monotonic() + delai
     while time.monotonic() < fin:

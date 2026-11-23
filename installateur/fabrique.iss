@@ -36,6 +36,8 @@ MinVersion=10.0
 WizardStyle=modern
 ShowLanguageDialog=no
 CloseApplications=no
+; lu par le lanceur : pendant une installation, des fichiers manquent pour de bon (il ne propose pas de réparer)
+SetupMutex=StudioKids.Fabrique.Installation
 SetupIconFile={#ICONE}
 UninstallDisplayIcon={app}\programme\{#EXE}
 UninstallDisplayName={#NOM}
@@ -147,7 +149,9 @@ begin
      ((S <> '') and (Dans(D, AddBackslash(S) + 'Bramble Studio') or Dans(D, AddBackslash(S) + 'DONNEES') or Dans(D, AddBackslash(S) + 'DEPOT') or
                      Dans(D, AddBackslash(S) + 'PROJET') or (Lowercase(AddBackslash(D)) = Lowercase(AddBackslash(S))))) then
     Result := 'Ce dossier appartient à Bramble Studio : Fabrique s''installe à côté, dans son propre dossier (par exemple « FABRIQUE » dans le dossier du studio).'
-  else if DirExists(D) and ((not SeulementFabrique(D)) or (DirExists(AddBackslash(D) + 'programme') and not FileExists(AddBackslash(D) + 'programme\{#MARQUE}'))) then
+  else if DirExists(D) and ((not SeulementFabrique(D)) or (DirExists(AddBackslash(D) + 'programme') and not FileExists(AddBackslash(D) + 'programme\{#MARQUE}')
+                                                   and not FileExists(AddBackslash(D) + 'programme\fichiers.txt') and not FileExists(AddBackslash(D) + 'programme\{#EXE}'))) then
+    // un programme abîmé (marque effacée avec d'autres fichiers) reste le nôtre : la réparation proposée par le lanceur passe
     Result := 'Ce dossier contient déjà autre chose que Fabrique.' + #13#10#13#10 + 'Choisissez un dossier vide ou nouveau.';
 end;
 

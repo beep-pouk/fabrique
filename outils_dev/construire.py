@@ -104,7 +104,7 @@ def lanceur(prog: Path, travail: Path):
     (travail / "version.h").write_text(f'#define VERSION_N {",".join((v.split(".") + ["0"])[:4])}\n#define VERSION_T "{v}"\n', encoding="ascii")
     run = lambda exe, *c: lancer([shutil.which(exe, path=chemins), *c], cwd=travail, env=env, capture_output=True)  # noqa: E731
     run("rc", "/nologo", "/fo", "lanceur.res", "lanceur.rc")
-    run("cl", "/nologo", "/O1", "/GS-", "/W4", "/WX", "/c", "lanceur.c")
+    run("cl", "/nologo", "/utf-8", "/O1", "/GS-", "/W4", "/WX", "/c", "lanceur.c")
     run("link", "/nologo", "/NODEFAULTLIB", "/ENTRY:entree", "/SUBSYSTEM:WINDOWS", "/MANIFEST:NO", f"/OUT:{EXE}", "lanceur.obj", "lanceur.res", "kernel32.lib", "user32.lib", "shell32.lib")
     shutil.copy(travail / EXE, prog / EXE)
     dire(f"lanceur signé ({signer.signer(prog / EXE)})")
@@ -160,6 +160,8 @@ def assembler(prog: Path):
     lancer([*compiler, prog / "app"], capture_output=True)
     subprocess.run([str(c) for c in [*compiler, rt / "Lib"]], capture_output=True)  # quelques fichiers d'essai de paquets tiers ne se compilent pas : sans gravité
     lanceur(prog, SORTIE / "travail" / "lanceur")
+    # lue par le lanceur quand RT ouvre Fabrique : un fichier effacé → réparation proposée (programme à moitié vidé le 22/11)
+    (prog / "fichiers.txt").write_text("\n".join(sorted(str(f.relative_to(prog)) for f in prog.rglob("*") if f.is_file())), encoding="utf-16-le")
     dire(f"assemblé : {prog} ({sum(f.stat().st_size for f in prog.rglob('*') if f.is_file()) / 1e6:.0f} Mo)")
 
 

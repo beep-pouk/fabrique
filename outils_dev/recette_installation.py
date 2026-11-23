@@ -142,6 +142,24 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         taille = sum(f.stat().st_size for f in prog.rglob("*") if f.is_file()) / 2**20
         point(f"installée comme RT la première fois (installateur publié dans le dossier versions, lancé de là) : entrée « {NOM} » {v0} (StudioKids) dans Windows, 3 raccourcis à l'identité de l'app, programme ({taille:.0f} Mio), "
               "installateur et désinstallateur signés ; Fabrique.exe est un programme fenêtré (jamais de console)")
+
+        # 1 bis. programme abîmé (fichiers effacés, 22/11) : le lanceur le dit et propose le dernier installateur du dossier versions
+        effaces = (prog / "runtime" / "Lib" / "csv.py", prog / construire.MARQUE)  # la marque aussi : l'installateur ne doit pas refuser le dossier
+        for f in effaces:
+            f.unlink()
+        p = None
+        try:
+            p = subprocess.Popen([str(exe)], env=env, cwd=str(prog))
+            h, texte = banc.boite(p.pid, 30)
+            banc.repondre(h, 7)  # « Non » (« Oui » lance ce même installateur, joué ici en silence)
+            assert p.wait(30) == 1 and "csv.py" in texte and i0.name in texte, texte
+        finally:
+            if p and p.poll() is None:  # pas de boîte : il démarrait comme si de rien n'était
+                p.kill()
+        r = lancer(racine / "versions" / i0.name, *SILENCE, f"/DIR={racine}", f"/LOG={bac / 'reparation.log'}", env=env, timeout=600)
+        assert r.returncode == 0 and all(f.is_file() for f in effaces), f"réparation : code {r.returncode} (journal : {bac / 'reparation.log'})"
+        point(f"programme abîmé (fichiers effacés) : Fabrique le dit au lancement et propose « {i0.name} » du dossier versions ; « Non » : rien ne démarre ; "
+              "l'installateur proposé répare (fichiers revenus)")
         installe = banc.empreinte(prog)
 
         # 2. lancer comme un clic : la fenêtre démarre le noyau
