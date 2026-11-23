@@ -16,7 +16,8 @@ SANS_CONSOLE = False  # posé par __main__ : lancée sans console (raccourci, d�
 
 
 HERITEES = ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONEXECUTABLE", "PYTHONSAFEPATH", "PYTHONINSPECT", "VIRTUAL_ENV",
-            "CONDA_PREFIX", "CONDA_DEFAULT_ENV")
+            "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
+            "NoDefaultCurrentDirectoryInExePath")  # posée par Claude Code (veilleur de nuit, 23/11) : cmd ne trouvait plus ANALYSER_QWEN.bat
 
 
 def environnement():
