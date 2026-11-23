@@ -3,7 +3,7 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
-**À reprendre (23/11, 11 h 20)** : (1) au matin du 24/11, lire `OUTILSabrique_construction\egalite\de_nuit_chaine.log` et `docs\VERIF_FINI_PC.md` (écrit par la recette finale du veilleur) ; corriger chaque rouge qui vient du code ; « 0.11.1 prête » dans QUESTIONS si `FABRIQUEersions` l'a ; (2) le veilleur (pid 16596, vivant à 11 h) meurt avec le PC : le réarmer (caché, détaché : `pythonw.exe de_nuit_chaine.py` dans `egalite`), une étape réussie (« code 0 ») n'est pas refaite ; (3) Bramble rend (s1e01 espagnol, 5 reprises en file) : aucune recette de jour ; (4) quand le reste est vert : QCM des gestes de RT (J4 : relier, publier PC puis iPhone, programmer ; J12 : 2e session par l'assistant, vidéo pilote).
+**À reprendre (23/11, 11 h 20)** : (1) au matin du 24/11, lire `OUTILS\fabrique_construction\egalite\de_nuit_chaine.log` et `docs\VERIF_FINI_PC.md` (écrit par la recette finale du veilleur) ; corriger chaque rouge qui vient du code ; « 0.11.1 prête » dans QUESTIONS si `FABRIQUE\versions` l'a ; (2) le veilleur (pid 16596, vivant à 11 h) meurt avec le PC : le réarmer (caché, détaché : `pythonw.exe de_nuit_chaine.py` dans `egalite`), une étape réussie (« code 0 ») n'est pas refaite ; (3) Bramble rend (s1e01 espagnol, 5 reprises en file) : aucune recette de jour ; (4) quand le reste est vert : QCM des gestes de RT (J4 : relier, publier PC puis iPhone, programmer ; J12 : 2e session par l'assistant, vidéo pilote).
 
 ## 23/11/2026, 11 h → 11 h 20 — critère 4 accepté sans clé
 
