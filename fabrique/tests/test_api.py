@@ -101,7 +101,8 @@ def test_la_fenetre_et_le_noyau_parlent_le_meme_contrat():
         assert ("items" in reponse) == hasattr(schema, "__args__"), nom
     corps = doc["paths"]["/api/cles/{nom}"]["post"]["requestBody"]["content"]["application/json"]["schema"]
     assert corps == {"$ref": "#/components/schemas/Valeur"}
-    clients = {(m, c) for m, c, _ in cl.APPELS.values()} | {("GET", "/api/evenements"), ("GET", "/api/sessions/{id}/publications/{pub}/paquets/{reseau}/{nom}")}  # fichier : l'iPhone
+    clients = {(m, c) for m, c, _ in cl.APPELS.values()} | {("GET", "/api/evenements"), ("GET", "/api/sessions/{id}/publications/{pub}/paquets/{reseau}/{nom}"),
+                                                                                ("GET", "/api/fichier")}  # fichiers : l'iPhone, l'interface
     clients |= {("POST", "/api/estimation"), ("POST", "/api/brouillons/session"), ("POST", "/api/sessions/{id}/brouillons/video")}  # les outils de l'assistant (noyau)
     assert {(m.upper(), c) for c, ops in doc["paths"].items() for m in ops} == clients  # aucune route que la fenêtre ignore
 

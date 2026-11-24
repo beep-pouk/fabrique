@@ -5,6 +5,7 @@ et empreintes de la source avant et après (elle n'a pas bougé) et des copies (
 la session d'avant part dans donnees\\_old. Pas importés : la connexion YouTube (RT la refait), les rendus d'essai, les secrets."""
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -249,3 +250,28 @@ def vraiment(d: dict, fichiers: dict[str, Path], s0: Path, acteur: str) -> tuple
         raise
     noter(acteur, "import_bramble", session=s.id, fichiers=len(fichiers), remplace=bool(ancienne))
     return s, empreinte({rel: racine / rel for rel in fichiers}), remarques
+
+
+def rendus_bramble() -> Path | None:
+    """Le dossier des rendus de Bramble Studio (lecture seule : l'interface y montre ses images et ses vidéos), None sans Bramble."""
+    s = garde.studio_bramble()
+    return s / "PROJET" / "rendus" if s and (s / "PROJET" / "rendus").is_dir() else None
+
+
+def rendus(code: str) -> dict:
+    """Ce que Bramble a rendu pour ce script, toutes langues et reprises : {"images": {n: chemin}, "videos": [{langue, chemin}]}.
+    Image du plan n : plan_NNN.png (n = première scène du plan), la plus récente ; vidéo : la plus récente de final par langue."""
+    r = rendus_bramble()
+    dossiers_ = [d for d in r.iterdir() if d.is_dir() and re.fullmatch(rf"\d{{4}}-\d\d-\d\d-{re.escape(code)}([._].+)?", d.name)] if r else []
+    images: dict[int, Path] = {}
+    videos: dict[str, Path] = {}
+    for d in dossiers_:
+        for f in (d / "images").glob("plan_[0-9][0-9][0-9].png"):
+            n = int(f.stem[5:])
+            if n not in images or f.stat().st_mtime > images[n].stat().st_mtime:
+                images[n] = f
+        langue = m_[1] if (m_ := re.search(r"\.([A-Za-z-]+)$", d.name)) else "en"
+        for f in (d / "final").glob("*.mp4"):
+            if langue not in videos or f.stat().st_mtime > videos[langue].stat().st_mtime:
+                videos[langue] = f
+    return {"images": {n: str(f) for n, f in sorted(images.items())}, "videos": [{"langue": l, "chemin": str(f)} for l, f in sorted(videos.items())]}

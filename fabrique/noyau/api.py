@@ -20,7 +20,7 @@ from ninja.security import APIKeyCookie, HttpBearer
 from fabrique import journaux, programme
 from fabrique.garde import Refus
 from fabrique.moteur import file
-from fabrique.noyau import cles, echange, etat, evenements, jetons, routeur, sauvegarde, schemas, taches, telephone, versions
+from fabrique.noyau import cles, echange, etat, evenements, interface, jetons, routeur, sauvegarde, schemas, taches, telephone, versions
 from fabrique.noyau.models import Session, noter
 from fabrique.session import models as m
 from fabrique.session.models import Fiche
@@ -54,7 +54,15 @@ class Iphone(APIKeyCookie):
         return None
 
 
-api = NinjaAPI(title=programme.NOM, version=settings.VERSION, auth=[Jeton(), Iphone(csrf=False)], docs_url=None)
+class Fenetre(APIKeyCookie):
+    """L'interface de la fenêtre (noyau/interface.py) : le jeton de la fenêtre en cookie, l'en-tête X-Fabrique pour une écriture."""
+    param_name = interface.COOKIE
+
+    def authenticate(self, request, key):
+        return interface.appelant(request)
+
+
+api = NinjaAPI(title=programme.NOM, version=settings.VERSION, auth=[Jeton(), Iphone(csrf=False), Fenetre(csrf=False)], docs_url=None)
 
 
 def droit(nom: str):
@@ -304,6 +312,30 @@ def script_(request, id: str, code: str):
             "versions": [{"numero": v.numero, "auteur": v.auteur, "date": v.date.isoformat(timespec="minutes"), "validee": v.validee} for v in versions],
             "contenu": contenu, "regles": versions[0].regles if versions else {}, "plans": plans, "estimation": estimation, "traductions": traductions,
             "citees": citees}
+
+
+@api.get("/sessions/{id}/scripts/{code}/bramble", response=schemas.RendusBramble)
+@droit("voir")
+def rendus_bramble(request, id: str, code: str):
+    """Ce que Bramble Studio a rendu pour ce script (images des plans, vidéos finies par langue), lu chez lui sans rien toucher."""
+    from fabrique.session import bramble
+
+    session_(id)
+    return bramble.rendus(code)
+
+
+@api.get("/fichier", openapi_extra={"responses": {200: {"description": "le fichier"}}})
+@droit("voir")
+def fichier(request, chemin: str, largeur: int = 0):
+    """Une image (réduite à `largeur`), un son ou une vidéo d'une session ou des rendus de Bramble ; rien d'autre sur le disque."""
+    from fabrique.session import bramble
+
+    f = Path(chemin).resolve()
+    if not any(r and f.is_relative_to(r.resolve()) for r in (settings.SESSIONS, bramble.rendus_bramble())):
+        raise HttpError(403, "fichier hors des sessions et des rendus")
+    if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+        return interface.image(f, largeur or None)
+    return interface.media(request, f)
 
 
 @api.post("/sessions/{id}/scripts/{code}/controler", response=schemas.Regles)

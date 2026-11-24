@@ -277,6 +277,16 @@ class ScriptDetail(BaseModel):
     citees: list[dict] = []  # une compilation, un extrait : [{id, titre}] des vidéos citées, dans l'ordre
 
 
+class RenduBramble(BaseModel):
+    langue: str
+    chemin: str
+
+
+class RendusBramble(BaseModel):
+    images: dict[int, str]  # plan (première scène) -> image rendue par Bramble
+    videos: list[RenduBramble]  # la vidéo finie la plus récente par langue
+
+
 class Reference(BaseModel):
     id: int
     chemin: str  # le fichier, chemin complet sur ce PC
