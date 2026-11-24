@@ -8,9 +8,6 @@ import pytest
 
 RACINE = Path(tempfile.mkdtemp(prefix="fabrique_tests_"))
 os.environ["FABRIQUE_RACINE"] = str(RACINE)
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-os.environ["QT_QUICK_BACKEND"] = "software"  # rendu par le processeur : captures identiques d'une fois à l'autre
-os.environ["QT_QPA_FONTDIR"] = os.path.join(os.environ["WINDIR"], "Fonts")  # sans fenêtre, Qt ne trouve pas seul les polices de Windows
 from fabrique import programme  # noqa: E402
 
 programme.environnement()  # comme le programme : ni le DJANGO_SETTINGS_MODULE ni le PYTHONPATH d'un parent

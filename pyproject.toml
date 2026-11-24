@@ -1,19 +1,19 @@
 [project]
 name = "fabrique"
-version = "0.11.1"
+version = "0.12.0"
 description = "Fabrique : application de production StudioKids"
 requires-python = "==3.12.*"
 dependencies = [
     "django>=5.2,<5.3",
     "django-ninja>=1.4",
     "waitress>=3.0",
-    "PySide6-Essentials>=6.12,<6.13",  # LGPL v3 : bibliothèques livrées à part, non modifiées
+    "pywebview==6.2.1",  # BSD-3 (pythonnet MIT, clr-loader MIT, bottle MIT, proxy-tools MIT) : la fenêtre WebView2, comme Bramble Studio
+    "pystray>=0.19",  # LGPL v3 (six MIT) : l'icône près de l'horloge et ses notifications
     "pillow==13.0.0",  # F1 : celle de Bramble Studio (mêmes pixels pour la miniature et le grain du montage)
-    "PySide6-Addons>=6.12,<6.13",  # le lecteur de Vérification (Qt Multimedia, moteur FFmpeg : choix du banc du 16/11) ; LGPL v3, comme Essentials
 ]
 
 [dependency-groups]
-dev = ["pytest>=9", "pytest-qt>=4.5"]
+dev = ["pytest>=9"]
 
 [tool.uv]
 python-preference = "only-managed"
@@ -21,5 +21,4 @@ python-preference = "only-managed"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["fabrique/tests"]
-qt_api = "pyside6"
 addopts = "-p no:cacheprovider"

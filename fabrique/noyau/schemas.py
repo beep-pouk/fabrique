@@ -254,6 +254,8 @@ class Script(BaseModel):
     versions: int
     validee: bool  # la dernière version est validée
     format: str = ""  # le sien ; vide : celui de la session
+    vignette: int = 0  # la scène de sa miniature (0 : aucune)
+    personnages: list[str] = []  # sa distribution (le héros d'abord), pour une vignette avant toute image rendue
 
 
 class VersionScript(BaseModel):
@@ -285,6 +287,19 @@ class RenduBramble(BaseModel):
 class RendusBramble(BaseModel):
     images: dict[int, str]  # plan (première scène) -> image rendue par Bramble
     videos: list[RenduBramble]  # la vidéo finie la plus récente par langue
+    langues: list[str] = []  # celles qui ont des voix
+    voix: dict[int, str] = {}  # scène -> sa voix dans la langue demandée
+    durees: dict[int, float] = {}  # scène -> secondes de sa voix
+
+
+class BrambleEnCours(BaseModel):
+    actif: bool  # faux : Bramble Studio ne fabrique rien
+    code: str = ""  # le script
+    langue: str = ""
+    etape: str = ""  # voix, images, anim…
+    reste_min: float | None = None
+    total_min: float | None = None
+    image: str = ""  # l'image du plan qu'il traite
 
 
 class Reference(BaseModel):
@@ -306,6 +321,7 @@ class Personnage(BaseModel):
     licence: str
     credit: str
     references: list[Reference]  # les validées d'abord
+    voix: list[dict] = []  # [{langue, chemin}] : ce qu'on peut écouter de sa voix (vide : il ne parle pas)
 
 
 class Lieu(BaseModel):

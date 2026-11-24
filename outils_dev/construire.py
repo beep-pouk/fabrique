@@ -1,7 +1,8 @@
 """Construit Fabrique — UNE commande : python outils_dev\\construire.py [--publier] (repris de Bramble Studio, outils_dev\\construire.py)
   1. exige la suite verte et un dépôt sans modification en attente : on livre exactement ce qui est testé ;
   2. assemble <sortie>\\programme : lanceur natif signé (lanceur\\, identité StudioKids.Fabrique), runtime (le vrai Python 3.12 d'uv, jamais sa
-     jonction, + paquets de uv.lock sans le groupe dev, PySide6 compris), app (fabrique\\ suivi par git, sans les tests), le tout précompilé ;
+     jonction, + paquets de uv.lock sans le groupe dev, pywebview compris), app (fabrique\\ suivi par git, sans les tests, + l'interface
+     construite par npm dans fenetre\\web), le tout précompilé ;
   3. compile l'installateur signé « Fabrique <version> - Installation.exe » (installateur\\fabrique.iss, Inno Setup de OUTILS\\innosetup) ;
   4. recette d'installation dans le bac à sable (outils_dev\\recette_installation.py), avec un installateur d'essai qui ne touche jamais à
      l'installation de RT.
@@ -35,8 +36,7 @@ MARQUE = "construit_par_construire.txt"
 ICONE = DEPOT / "fabrique" / "fenetre" / "icone.ico"
 PTH = "Lib\nDLLs\nLib\\site-packages\n..\\app\n"  # les chemins de Python : jamais PYTHONHOME ni PYTHONPATH (les outils lancés en hériteraient)
 GIT = OUTILS / "git" / "cmd" / "git.exe"
-INUTILES = ["opengl32sw.dll", "Qt6Quick3D*.dll", "Qt63D*.dll", "Qt6Charts*.dll", "Qt6Graphs*.dll", "Qt6DataVisualization*.dll", "Qt6Location*.dll",
-            "Qt6Designer*.dll", "designer.exe"]  # modules de Qt jamais chargés par Fabrique (liste de la maquette du banc, + Designer) : ~ 60 Mo de moins
+NODE = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs"  # outil de construction de l'interface, jamais livré
 
 
 def dire(texte: str):
@@ -125,9 +125,17 @@ def paquets(python: Path, cible: Path, travail: Path):
     except SystemExit:
         uv(*installer)
     shutil.rmtree(cible / "bin", ignore_errors=True)
-    for motif in INUTILES:
-        for f in (cible / "PySide6").glob(motif):
-            f.unlink()
+
+
+def interface(cible: Path):
+    """L'interface (interface\\) construite par Vite dans `cible` ; npm ci : exactement les paquets de package-lock.json."""
+    dossier, env = DEPOT / "interface", {**os.environ, "PATH": f"{NODE};{os.environ.get('PATH', '')}"}  # npm relance node par le PATH
+    npm = [NODE / "node.exe", NODE / "node_modules" / "npm" / "bin" / "npm-cli.js"]
+    lancer([*npm, "ci", "--prefer-offline", "--no-fund", "--no-audit"], cwd=dossier, env=env, capture_output=True)
+    lancer([*npm, "run", "build"], cwd=dossier, env=env, capture_output=True)
+    shutil.copytree(dossier / "dist", cible)
+    if (dossier / "NOTICE.md").is_file():
+        shutil.copy(dossier / "NOTICE.md", cible / "NOTICE.md")
 
 
 def assembler(prog: Path):
@@ -153,6 +161,8 @@ def assembler(prog: Path):
     for f in ["pyproject.toml", *(f for f in suivis("fabrique") if not f.startswith("fabrique/tests/"))]:
         (prog / "app" / f).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(DEPOT / f, prog / "app" / f)
+    dire("interface (npm ci, puis Vite)…")
+    interface(prog / "app" / "fabrique" / "fenetre" / "web")
     (prog / "construction.json").write_text(json.dumps({"version": version(), "date": f"{date.today():%d/%m/%Y}", "licences": licences(prog)}, ensure_ascii=False, indent=1), encoding="utf-8")
     dire("précompilation…")
     # -f : les .pyc déjà écrits par le Python du runtime (installation des paquets) seraient gardés horodatés, et réécrits une fois installés
@@ -166,7 +176,7 @@ def assembler(prog: Path):
 
 
 def licences(prog: Path) -> list[dict]:
-    """Ce qui est livré et sa licence (Qt et PySide6 : LGPL v3, bibliothèques livrées à part, non modifiées)."""
+    """Ce qui est livré et sa licence (pystray : LGPL v3, livré à part, non modifié ; l'interface : fenetre\\web\\NOTICE.md)."""
     lues = [{"nom": "Python", "version": platform.python_version(), "licence": "PSF-2.0"}]
     for meta in sorted((prog / "runtime" / "Lib" / "site-packages").glob("*.dist-info/METADATA"), key=lambda m: m.parent.name.lower()):
         h = HeaderParser().parsestr(meta.read_text(encoding="utf-8", errors="replace"))

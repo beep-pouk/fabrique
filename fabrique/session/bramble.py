@@ -10,7 +10,7 @@ import shutil
 import sqlite3
 import tempfile
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from django.conf import settings
@@ -258,20 +258,69 @@ def rendus_bramble() -> Path | None:
     return s / "PROJET" / "rendus" if s and (s / "PROJET" / "rendus").is_dir() else None
 
 
-def rendus(code: str) -> dict:
-    """Ce que Bramble a rendu pour ce script, toutes langues et reprises : {"images": {n: chemin}, "videos": [{langue, chemin}]}.
-    Image du plan n : plan_NNN.png (n = première scène du plan), la plus récente ; vidéo : la plus récente de final par langue."""
+def duree_wav(f: Path) -> float:
+    """Secondes d'un .wav, PCM ou flottant (le module wave refuse le flottant des voix de Bramble) ; 0 s'il est illisible."""
+    try:
+        with f.open("rb") as h:
+            if h.read(12)[8:] != b"WAVE":
+                return 0.0
+            debit = 0
+            while len(t := h.read(8)) == 8:
+                nom, taille = t[:4], int.from_bytes(t[4:], "little")
+                if nom == b"data":
+                    return round(taille / debit, 2) if debit else 0.0
+                bloc = h.read(taille + (taille & 1))
+                if nom == b"fmt ":
+                    debit = int.from_bytes(bloc[8:12], "little")  # octets par seconde
+    except OSError:
+        pass
+    return 0.0
+
+
+def rendus(code: str, langue: str = "en") -> dict:
+    """Ce que Bramble a rendu pour ce script, toutes langues et reprises : images des plans, vidéos finies, et la voix de `langue` scène par
+    scène. Image du plan n : plan_NNN.png (n = première scène du plan), la plus récente ; vidéo : la plus récente de final par langue ;
+    voix : voix\\sNNN.wav la plus récente, et sa durée (le vrai rythme des plans) ; langues : celles qui ont des voix."""
     r = rendus_bramble()
     dossiers_ = [d for d in r.iterdir() if d.is_dir() and re.fullmatch(rf"\d{{4}}-\d\d-\d\d-{re.escape(code)}([._].+)?", d.name)] if r else []
     images: dict[int, Path] = {}
     videos: dict[str, Path] = {}
+    voix: dict[int, Path] = {}
+    langues: set[str] = set()
+    plus_recent = lambda f, g: g is None or f.stat().st_mtime > g.stat().st_mtime  # noqa: E731
     for d in dossiers_:
         for f in (d / "images").glob("plan_[0-9][0-9][0-9].png"):
-            n = int(f.stem[5:])
-            if n not in images or f.stat().st_mtime > images[n].stat().st_mtime:
+            if plus_recent(f, images.get(n := int(f.stem[5:]))):
                 images[n] = f
-        langue = m_[1] if (m_ := re.search(r"\.([A-Za-z-]+)$", d.name)) else "en"
+        l = m_[1] if (m_ := re.search(r"\.([A-Za-z-]+)$", d.name)) else "en"
         for f in (d / "final").glob("*.mp4"):
-            if langue not in videos or f.stat().st_mtime > videos[langue].stat().st_mtime:
-                videos[langue] = f
-    return {"images": {n: str(f) for n, f in sorted(images.items())}, "videos": [{"langue": l, "chemin": str(f)} for l, f in sorted(videos.items())]}
+            if plus_recent(f, videos.get(l)):
+                videos[l] = f
+        for f in (d / "voix").glob("s[0-9][0-9][0-9].wav"):
+            langues.add(l)
+            if l == langue and plus_recent(f, voix.get(n := int(f.stem[1:]))):
+                voix[n] = f
+    return {"images": {n: str(f) for n, f in sorted(images.items())}, "videos": [{"langue": l, "chemin": str(f)} for l, f in sorted(videos.items())],
+            "langues": sorted(langues), "voix": {n: str(f) for n, f in sorted(voix.items())}, "durees": {n: duree_wav(f) for n, f in sorted(voix.items())}}
+
+
+def en_cours(maintenant: datetime | None = None) -> dict | None:
+    """Ce que Bramble Studio fabrique en ce moment (son DONNEES\etat.json, lu seulement ; plus de 15 min : arrêté) : script, langue, étape,
+    minutes restantes et totales, et l'image du plan qu'il traite (celle que nomme la dernière ligne de son journal, sinon la plus récente)."""
+    s = garde.studio_bramble()
+    try:
+        e = json.loads((s / "DONNEES" / "etat.json").read_text(encoding="utf-8-sig")) if s else {}
+        if (maintenant or datetime.now()) - datetime.fromisoformat(e["heure"]) > timedelta(minutes=15):
+            return None
+        ep = e.get("episode") or {}
+        nom = str(ep["nom"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    images = s / "PROJET" / "rendus" / nom / "images"
+    n = re.search(r"plan_(\d{3})", str(ep.get("journal_derniere", "")))
+    image = images / f"plan_{n[1]}.png" if n else None
+    if not (image and image.is_file()):
+        image = max(images.glob("plan_[0-9][0-9][0-9].png"), key=lambda f: f.stat().st_mtime, default=None)
+    code = m_[1] if (m_ := re.fullmatch(r"\d{4}-\d\d-\d\d-([^._]+).*", nom)) else nom
+    return {"code": code, "langue": m_[1] if (m_ := re.search(r"\.([A-Za-z-]+)$", nom)) else "en", "etape": str(ep.get("etape", "")),
+            "reste_min": ep.get("reste_min"), "total_min": ep.get("total_min"), "image": str(image) if image else ""}

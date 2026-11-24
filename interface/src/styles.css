@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Système de design de Fabrique : studio sombre, une seule couleur vive (l'ambre de l'icône), images au premier plan. */
+@theme {
+  --font-sans: "Inter Variable", "Segoe UI Variable", system-ui, sans-serif;
+  --color-fond: #0b0d10;
+  --color-panneau: #101318;
+  --color-carte: #151920;
+  --color-carte-2: #1b2029;
+  --color-survol: #222833;
+  --color-ligne: #252b35;
+  --color-ligne-forte: #333b48;
+  --color-texte: #eef0f3;
+  --color-doux: #a6aeb9;
+  --color-pale: #6f7784;
+  --color-ambre: #f0a93c;
+  --color-ambre-vif: #ffc163;
+  --color-ambre-sombre: #3a2a12;
+  --color-vert: #4cc38a;
+  --color-vert-sombre: #12301f;
+  --color-rouge: #f26d6d;
+  --color-rouge-sombre: #3a1717;
+  --color-bleu: #73a7ff;
+  --color-bleu-sombre: #15233b;
+  --radius-carte: 14px;
+  --shadow-haut: 0 24px 60px -24px rgb(0 0 0 / 0.65);
+  --animate-entree: entree 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes entree {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes reflet {
+  from {
+    background-position: -400px 0;
+  }
+  to {
+    background-position: 400px 0;
+  }
+}
+
+html,
+body,
+#racine {
+  height: 100%;
+}
+
+body {
+  background: var(--color-fond);
+  color: var(--color-texte);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* une application, pas une page : rien ne se sélectionne par mégarde, sauf les champs et les textes à copier */
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea,
+.copiable {
+  user-select: text;
+}
+
+img {
+  -webkit-user-drag: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ambre);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a313c;
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #3a4350;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.attente {
+  background: linear-gradient(90deg, #151920 0, #1d222b 50%, #151920 100%);
+  background-size: 800px 100%;
+  animation: reflet 1.4s linear infinite;
+}
+
+.titre-image {
+  text-shadow: 0 2px 18px rgb(0 0 0 / 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

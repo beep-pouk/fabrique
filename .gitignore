@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 dev/
 docs/VERIF_*_PC.md
+fabrique/fenetre/web/
+interface/node_modules/
+interface/dist/
+interface/*.tsbuildinfo

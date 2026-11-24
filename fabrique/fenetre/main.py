@@ -1,158 +1,87 @@
-"""La fenêtre (« Fabrique.exe », « --fond » : cachée près de l'horloge) : Qt Quick (Main.qml) piloté en Python. Aucune règle ici : elle ne parle
-qu'à l'API du noyau (client.py). Instance unique par sa sonnette (port de l'API + 1) : un 2e lancement fait revenir la fenêtre. Elle démarre le
-noyau s'il ne répond pas, et le relance s'il ne répond plus (toutes les 30 s). Fermer la fenêtre ne l'arrête pas (icône près de l'horloge,
-notifications) ; « Quitter » arrête la fenêtre seulement, jamais le noyau. Pièges de Qt repris de la maquette du banc (NOTES.md) : raccourcis
-par un filtre d'événements sur la fenêtre (pas Shortcut), une touche tenue n'est jamais rejouée."""
+"""La fenêtre (« Fabrique.exe », « --fond » : cachée près de l'horloge) : l'interface web (interface\\, servie par le noyau) dans une fenêtre
+WebView2 (pywebview, comme Bramble Studio : le moteur de Qt ne lit pas le H.264). Aucune règle ici. Instance unique par sa sonnette (port de
+l'API + 1) : un 2e lancement fait revenir la fenêtre. Elle démarre le noyau s'il ne répond pas, et le relance s'il ne répond plus (toutes les
+30 s) ; la page, refusée (401) par un noyau relancé, redemande l'entrée (Api.entrer). Fermer la fenêtre la cache (icône près de l'horloge,
+notifications) ; « Quitter » arrête la fenêtre seulement, jamais le noyau. pywebview et pystray ne sont importés qu'au lancement."""
 import logging
 import os
 import socket
-import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+import webbrowser
 from pathlib import Path
-
-from PySide6.QtCore import Property, QEvent, QObject, Qt, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QIcon, QWindow
-from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtQuick import QQuickWindow  # noqa: F401 — importé : la fenêtre racine arrive en QQuickWindow (grabWindow)
-from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from urllib.parse import quote, urlsplit
 
 from fabrique import dossiers, programme
-from fabrique.fenetre.client import Client, ErreurApi
+from fabrique.fenetre.client import Client
+from fabrique.noyau import jetons
 
 log = logging.getLogger(__name__)
 ICI = Path(__file__).resolve().parent
-GARDE_MS = 30_000
-CREATIONS = {"nouvelle_session", "relier", "code_telephone"}  # des lectures qui font quelque chose : leur refus est dit à RT
-VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_9 = 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x39  # touches du haut du clavier, quelle que soit la disposition (AZERTY : « & », « é »…)
-INACTIF_S = 120  # J11 : au-delà, RT n'est plus devant le PC ; sa minute n'est pas comptée
+GARDE_S = 30
+FOND = "#0B0D10"  # celui de l'interface (interface\\index.html) : aucun éclair blanc à l'ouverture
 
 
-def inactif_s() -> float:
-    """Secondes depuis le dernier appui de touche ou mouvement de souris sur ce PC (GetLastInputInfo de Windows) ; 0 si illisible."""
+def entree(vers: str = "/") -> str:
+    """L'adresse qui pose le jeton de la fenêtre en cookie puis ouvre l'interface (noyau/interface.py) ; relu à chaque fois (noyau relancé)."""
+    return f"http://127.0.0.1:{dossiers.port()}/fenetre/entree?j={jetons.lire(dossiers.donnees(), 'fenetre')}&vers={quote(vers, safe='')}"
+
+
+class Api:
+    """window.pywebview.api : la seule porte de la page vers le PC (jamais un fichier ni un programme)."""
+
+    def __init__(self):
+        self.vue = None
+
+    def entrer(self, vers: str = "/"):
+        """Le noyau a été relancé (jeton changé) : la page rouvre l'entrée, sur l'écran où elle était."""
+        if self.vue and isinstance(vers, str) and vers.startswith("/") and not vers.startswith("//"):
+            self.vue.load_url(entree(vers))
+
+    def ouvrir(self, adresse):
+        """Un lien d'un autre site (YouTube…) part dans le navigateur de RT."""
+        if urlsplit(str(adresse)).scheme not in ("http", "https"):
+            return False
+        webbrowser.open(str(adresse))
+        return True
+
+    def plein_ecran(self):
+        if self.vue:
+            self.vue.toggle_fullscreen()
+
+
+def fenetre_windows(titre: str):
+    """La fenêtre native par son titre (0 si absente)."""
+    import ctypes
+    from ctypes import wintypes as w
+
+    u = ctypes.windll.user32
+    u.FindWindowW.restype, u.FindWindowW.argtypes = w.HWND, [w.LPCWSTR, w.LPCWSTR]
+    return u.FindWindowW(None, titre) or 0
+
+
+def barre_sombre(h):
+    """Barre de titre sombre (DWMWA_USE_IMMERSIVE_DARK_MODE, Windows 10 20H1 et suivants)."""
     import ctypes
 
-    class Lii(ctypes.Structure):
-        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
-
-    li = Lii(ctypes.sizeof(Lii), 0)
-    if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(li)):
-        return 0.0
-    return ((ctypes.windll.kernel32.GetTickCount() - li.dwTime) & 0xFFFFFFFF) / 1000
+    oui = ctypes.c_int(1)
+    ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(h), 20, ctypes.byref(oui), ctypes.sizeof(oui))
 
 
-class Pont(QObject):
-    """Ce que le QML demande au noyau (en fond : la fenêtre ne gèle jamais) et ce qui lui revient."""
+def devant(h) -> bool:
+    """Au premier plan par l'API de Windows (leçon de Bramble Studio, 11/11 : jamais `on_top` de pywebview, qui figeait la fenêtre)."""
+    import ctypes
+    from ctypes import wintypes as w
 
-    recu = Signal(str, "QVariant")  # nom de l'appel, réponse
-    fait = Signal(str, str, bool)  # nom de l'action, message pour RT, réussie
-    aller = Signal(str)  # écran demandé au clavier ; vide : actualiser
-    evenement = Signal(str, "QVariant")  # flux du noyau
-
-    def __init__(self, client: Client, notifier=None):
-        super().__init__()
-        self.client, self.fond, self.tenues = client, ThreadPoolExecutor(4), set()
-        self.notifier = notifier or (lambda titre, texte, grave=False: None)
-        self.evenement.connect(self._evenement)
-
-    @Property(str, constant=True)
-    def titre(self):
-        return programme.titre()
-
-    @Slot(str)
-    def charger(self, nom: str):
-        self.fond.submit(self._lire, nom)
-
-    @Slot(str, "QVariantMap")
-    def lire(self, nom: str, params):
-        """Une lecture avec ses paramètres (la session choisie) ; la réponse revient sous son nom."""
-        self.fond.submit(self._lire, nom, dict(params))
-
-    def _lire(self, nom: str, params: dict | None = None):
-        params = params or {}
-        try:
-            self.recu.emit(nom, self.client.appeler(nom, params.pop("corps", None), **params))  # corps : les règles d'un brouillon, une nouvelle session
-        except ErreurApi as e:  # le refus d'une lecture qui crée (nouvelle session : nom pris…) est dit à RT ; les autres seulement journalisés
-            log.warning("lecture %s : %s", nom, e)
-            if nom in CREATIONS:
-                self.fait.emit(nom, str(e)[:1].upper() + str(e)[1:] + ".", False)
-        except OSError as e:
-            log.warning("lecture %s : %s", nom, e)
-
-    @Slot(str, str)
-    def compter(self, session: str, cle: str):
-        """Une minute de RT sur une vidéo ou un script (J11) : comptée seulement fenêtre au premier plan et PC utilisé ; envoyée sans bruit."""
-        if self.active() and inactif_s() < INACTIF_S:
-            self.fond.submit(self._compter, session, cle)
-
-    def active(self) -> bool:
-        return QApplication.applicationState() == Qt.ApplicationState.ApplicationActive
-
-    def _compter(self, session: str, cle: str):
-        try:
-            self.client.appeler("temps_rt", {"cle": cle, "secondes": 60}, id=session)
-        except (ErreurApi, OSError) as e:  # une minute perdue n'est pas une erreur pour RT
-            log.warning("temps de RT : %s", e)
-
-    @Slot(str, "QVariantMap")
-    def agir(self, nom: str, params):
-        self.fond.submit(self._agir, nom, dict(params))
-
-    def _agir(self, nom: str, params: dict):
-        corps = params.pop("corps", None) or ({"valeur": params.pop("valeur")} if "valeur" in params else None)
-        try:
-            self.fait.emit(nom, self.client.appeler(nom, corps, **params)["message"], True)
-        except ErreurApi as e:
-            self.fait.emit(nom, str(e)[:1].upper() + str(e)[1:] + ".", False)
-        except OSError:
-            self.fait.emit(nom, "Le noyau ne répond pas : il redémarre tout seul dans un instant.", False)
-        except Exception:  # noqa: BLE001 — un fil de fond ne doit rien perdre en silence
-            log.exception("action %s", nom)
-            self.fait.emit(nom, "Erreur inattendue : le détail est dans le journal (Système).", False)
-
-    def _evenement(self, type_: str, d):
-        if type_ == "sauvegarde" and d.get("etat") == "faite":
-            self.notifier("Sauvegarde faite", d.get("fichier", ""))
-        elif type_ == "sauvegarde" and d.get("etat") == "erreur":
-            self.notifier("La sauvegarde a raté", d.get("message", ""), True)
-        elif type_ == "noyau":
-            self.notifier("Le noyau de Fabrique ne démarre pas", d.get("message", ""), True)
-        elif type_ == "alerte":
-            self.notifier(d.get("titre", "Fabrique"), d.get("message", ""), True)
-        elif type_ == "info":
-            self.notifier(d.get("titre", "Fabrique"), d.get("message", ""))
-
-    def eventFilter(self, _, e):
-        if e.type() == QEvent.Type.KeyPress:
-            # sous Windows, la répétition d'une touche tenue arrive comme un appui neuf quand un modificateur change (maquette du banc)
-            repetee = e.isAutoRepeat() or e.key() in self.tenues
-            self.tenues.add(e.key())
-            ctrl = bool(e.modifiers() & Qt.KeyboardModifier.ControlModifier)
-            touche = next((ecran for vk, ecran in ((VK_1, "accueil"), (VK_2, "sessions"), (VK_3, "file"), (VK_4, "outils"), (VK_5, "banc"),
-                                                   (VK_6, "statistiques"), (VK_9, "systeme"))
-                           if ctrl and vk in (e.key(), e.nativeVirtualKey())), None)
-            ecran = touche or ("" if e.key() == Qt.Key.Key_F5 else None)
-            if ecran is not None:
-                if not repetee:
-                    self.aller.emit(ecran)
-                return True
-        elif e.type() == QEvent.Type.KeyRelease and not e.isAutoRepeat():
-            self.tenues.discard(e.key())
+    if not h:
         return False
-
-
-def ouvrir(client: Client, notifier=None):
-    """La fenêtre chargée (cachée) sur ce client : (moteur QML, pont, fenêtre). Une QApplication doit exister."""
-    moteur = QQmlApplicationEngine()
-    pont = Pont(client, notifier)
-    moteur.rootContext().setContextProperty("pont", pont)
-    moteur.load(QUrl.fromLocalFile(str(ICI / "Main.qml")))
-    if not moteur.rootObjects():
-        raise RuntimeError("Main.qml n'a pas pu être chargé (voir le journal)")
-    fenetre = moteur.rootObjects()[0]
-    fenetre.installEventFilter(pont)
-    return moteur, pont, fenetre
+    u = ctypes.windll.user32
+    u.SetWindowPos.argtypes = [w.HWND, w.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, w.UINT]
+    u.SetForegroundWindow.argtypes = [w.HWND]
+    for rang in (-1, -2):  # HWND_TOPMOST puis HWND_NOTOPMOST ; ni déplacée, ni redimensionnée, ni activée ici
+        u.SetWindowPos(h, w.HWND(rang), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+    u.SetForegroundWindow(h)
+    return True
 
 
 def demarrer_noyau(client: Client, attente: float = 0) -> bool:
@@ -163,40 +92,50 @@ def demarrer_noyau(client: Client, attente: float = 0) -> bool:
     return client.repond()
 
 
-def ecouter(sonnette: socket.socket, recue: Signal):
+def ecouter(sonnette: socket.socket, agir):
     sonnette.listen(5)
     while True:
-        c, _ = sonnette.accept()
+        try:
+            c, _ = sonnette.accept()
+        except OSError:
+            return
         with c:
             c.settimeout(2)
             try:
-                recue.emit(c.recv(64).decode(errors="replace").strip())
+                message = c.recv(64).decode(errors="replace").strip()
             except OSError:
-                pass
+                continue
+        try:
+            agir(message)
+        except Exception:  # noqa: BLE001 — la sonnette doit survivre à une fenêtre pas encore prête
+            log.exception("sonnette : %s", message)
 
 
-def suivre(client: Client, pont: Pont):
+NOTIFIEES = {"sauvegarde", "noyau", "alerte", "info"}
+
+
+def notification(type_: str, d: dict) -> tuple[str, str] | None:
+    """Ce que le flux du noyau dit à RT par une notification de Windows : (titre, texte), ou None."""
+    if type_ == "sauvegarde" and d.get("etat") == "faite":
+        return "Sauvegarde faite", d.get("fichier", "")
+    if type_ == "sauvegarde" and d.get("etat") == "erreur":
+        return "La sauvegarde a raté", d.get("message", "")
+    if type_ == "noyau":
+        return "Fabrique ne démarre pas", d.get("message", "")
+    if type_ in ("alerte", "info"):
+        return d.get("titre", programme.NOM), d.get("message", "")
+    return None
+
+
+def suivre(client: Client, notifier):
     while True:  # le flux tombe quand le noyau s'arrête : on se rebranche (le jeton est relu à chaque fois)
         try:
             for type_, d in client.evenements():
-                pont.evenement.emit(type_, d)
+                if n := notification(type_, d if isinstance(d, dict) else {}):
+                    notifier(*n)
         except (OSError, ValueError):
             pass
         time.sleep(2)
-
-
-class Sonnette(QObject):
-    """Reçue dans le fil de la sonnette, traitée dans celui de la fenêtre (méthode d'un objet de ce fil : connexion différée par Qt)."""
-    recue = Signal(str)
-
-    def __init__(self, montrer, quitter):
-        super().__init__()
-        self.montrer, self.quitter = montrer, quitter
-        self.recue.connect(self.agir)
-
-    @Slot(str)
-    def agir(self, message: str):
-        self.quitter() if message == "quitter" else self.montrer()
 
 
 def lancer(fond: bool = False) -> int:
@@ -210,60 +149,76 @@ def lancer(fond: bool = False) -> int:
         if not fond:
             sonner("montrer", port)
         return 0
-    if os.name == "nt":  # avant toute fenêtre : fenêtre, icône et notifications portent l'identité de l'app
-        import ctypes
+    import ctypes
 
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(programme.identite())
-    os.environ["QML_DISABLE_DISK_CACHE"] = "1"  # rien n'est écrit hors du dossier de Fabrique (cache de Qt dans le profil)
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_DisableShaderDiskCache)
-    app = QApplication(sys.argv[:1])
-    app.setQuitOnLastWindowClosed(False)
-    app.styleHints().setColorScheme(Qt.ColorScheme.Dark)  # barre de titre sombre
-    icone = QIcon(str(ICI / "icone.ico"))
-    app.setWindowIcon(icone)
+    import pystray
+    import webview
+    from PIL import Image
+
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(programme.identite())  # fenêtre, icône et notifications à l'identité de l'app
     client = Client()
     if not client.repond() and not demarrer_noyau(client, 30):
         programme.boite(f"{programme.titre()} : le noyau n'a pas démarré (journal : {dossiers.donnees() / 'journaux'}).")
-    barre = QSystemTrayIcon(icone)
-    moteur, pont, fenetre = ouvrir(client, lambda titre, texte, grave=False: barre.showMessage(
-        titre, texte, QSystemTrayIcon.MessageIcon.Critical if grave else QSystemTrayIcon.MessageIcon.Information))
+    titre = programme.titre()
+    api = Api()
+    vue = webview.create_window(titre, entree(), js_api=api, width=1440, height=900, min_size=(1100, 700), hidden=True, maximized=True,
+                                background_color=FOND, text_select=True)
+    api.vue = vue
     pid = dossiers.donnees() / "fenetre.pid"
     pid.write_text(str(os.getpid()), encoding="ascii")
-    app.aboutToQuit.connect(lambda: pid.unlink(missing_ok=True))
+    icone = pystray.Icon(programme.identite(), Image.open(ICI / "icone.ico"), titre)
+
+    reduite = threading.Event()
+    vue.events.minimized += reduite.set
+    vue.events.restored += reduite.clear
+    vue.events.maximized += reduite.clear
 
     def montrer():
-        fenetre.showNormal() if fenetre.visibility() == QWindow.Visibility.Minimized else fenetre.show()
-        fenetre.raise_()
-        fenetre.requestActivate()
+        vue.show()
+        if reduite.is_set():
+            vue.restore()
+        devant(fenetre_windows(titre))
 
-    menu = QMenu()
-    menu.addAction("Ouvrir Fabrique", montrer)
-    menu.addAction("Quitter la fenêtre (le noyau continue)", app.quit)
-    barre.setContextMenu(menu)
-    barre.setToolTip(programme.titre())
-    barre.activated.connect(lambda raison: montrer() if raison == QSystemTrayIcon.ActivationReason.Trigger else None)
-    barre.show()
-    recue = Sonnette(montrer, app.quit)
-    threading.Thread(target=ecouter, args=(sonnette, recue.recue), name="sonnette", daemon=True).start()
-    threading.Thread(target=suivre, args=(client, pont), name="flux du noyau", daemon=True).start()
+    def quitter():
+        icone.stop()
+        vue.destroy()
 
-    rates = 0
+    def fermer():
+        threading.Thread(target=vue.hide, daemon=True).start()
+        return False  # la fermeture est annulée : la fenêtre se cache près de l'horloge
+
+    vue.events.closing += fermer
+    icone.menu = pystray.Menu(pystray.MenuItem("Ouvrir Fabrique", lambda: montrer(), default=True),
+                              pystray.MenuItem("Quitter la fenêtre (Fabrique continue en fond)", lambda: quitter()))
+    notifier = lambda t, x: icone.notify(x or " ", t)  # noqa: E731
+    threading.Thread(target=icone.run, name="icône", daemon=True).start()
+    threading.Thread(target=ecouter, args=(sonnette, lambda m: quitter() if m == "quitter" else montrer()), name="sonnette", daemon=True).start()
+    threading.Thread(target=suivre, args=(client, notifier), name="flux du noyau", daemon=True).start()
 
     def veiller():
-        nonlocal rates
-        if client.repond():
-            rates = 0
-            return
-        rates += 1
-        log.warning("le noyau ne répond plus : relancé (%d fois de suite)", rates)
-        if rates == 3:  # une seule alerte : il meurt sans doute au démarrage, la fenêtre seule ne peut rien y faire
-            pont.evenement.emit("noyau", {"message": f"Relancé sans succès depuis 1 min 30 ; le détail est dans {dossiers.donnees() / 'journaux'}."})
-        demarrer_noyau(client)
+        rates = 0
+        while True:
+            time.sleep(GARDE_S)
+            if client.repond():
+                rates = 0
+                continue
+            rates += 1
+            log.warning("le noyau ne répond plus : relancé (%d fois de suite)", rates)
+            if rates == 3:  # une seule alerte : il meurt sans doute au démarrage, la fenêtre seule ne peut rien y faire
+                notifier("Fabrique ne démarre pas", f"Relancé sans succès depuis 1 min 30 ; le détail est dans {dossiers.donnees() / 'journaux'}.")
+            demarrer_noyau(client)
 
-    garde = QTimer(interval=GARDE_MS)
-    garde.timeout.connect(lambda: pont.fond.submit(veiller))
-    garde.start()
-    if not fond:
-        montrer()
-    log.info("fenêtre ouverte (%s)", "cachée" if fond else "visible")
-    return app.exec()
+    threading.Thread(target=veiller, name="garde du noyau", daemon=True).start()
+
+    def pret():
+        barre_sombre(fenetre_windows(titre))
+        if not fond:
+            montrer()
+        log.info("fenêtre ouverte (%s)", "cachée" if fond else "visible")
+
+    try:
+        webview.start(pret, icon=str(ICI / "icone.ico"), private_mode=False, storage_path=str(dossiers.donnees() / "webview"))
+    finally:
+        icone.stop()
+        pid.unlink(missing_ok=True)
+    return 0

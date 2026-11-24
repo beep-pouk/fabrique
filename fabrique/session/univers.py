@@ -2,6 +2,7 @@
 par Claude), lieux, musiques et voix, style ; droits et crédits de chaque élément ; historique des changements (journal du noyau) ; partage
 d'un élément avec une autre session, au clic de RT seulement (rien ne passe d'une session à l'autre sans qu'il le demande). Un fichier importé
 est copié, jamais déplacé."""
+import json
 import re
 import shutil
 import unicodedata
@@ -32,17 +33,42 @@ def droits(o) -> dict:
     return {"licence": o.details.get("licence", ""), "credit": o.details.get("credit", "")}
 
 
+def images_du_dossier(r: Path, nom: str) -> list[dict]:
+    """Un personnage repris de Bramble Studio sans référence en base : les images de son dossier (univers\\personnages\\<nom>), son portrait
+    choisi (reference.png, validé) d'abord, puis celles que son catalogue garde. Rien n'est écrit en base (id 0)."""
+    d = r / "univers" / "personnages" / nom.lower()
+    vues = [("reference.png", "portrait", True)]
+    try:
+        vues += [(i["fichier"], i.get("vue", ""), False) for i in json.loads((d / "catalogue.json").read_text(encoding="utf-8")).get("images", [])
+                 if i.get("statut") == "garde"]
+    except (OSError, ValueError, KeyError, AttributeError):
+        pass
+    return [{"id": 0, "chemin": str(d / f), "vue": v, "source": "Bramble Studio", "validee": ok, "licence": "", "credit": ""} for f, v, ok in vues if (d / f).is_file()]
+
+
+def voix(r: Path, nom: str, langues: list) -> list[dict]:
+    """Ce qu'on peut écouter de la voix d'un personnage : univers\\voix\\<nom>_exemple.wav (1re langue), puis la référence de voix de
+    chaque langue qui en a une ; rien pour un personnage sans exemple (il ne parle pas)."""
+    exemple = r / "univers" / "voix" / f"{nom.lower()}_exemple.wav"
+    if not exemple.is_file() or not langues:
+        return []
+    autres = [{"langue": l.code, "chemin": str(r / l.reglages_voix["ref"])} for l in langues[1:] if l.reglages_voix.get("ref")]
+    return [{"langue": langues[0].code, "chemin": str(exemple)}, *(v for v in autres if Path(v["chemin"]).is_file())]
+
+
 def lire(s: Session) -> dict:
     r = racine(s)
     with routeur.session(s):
+        langues = list(m.Langue.objects.order_by("ordre", "code"))
         return {
             "personnages": [{"id": p.id, "nom": p.nom, "role": p.role, "statut": p.statut, "description": p.details.get("description", ""), **droits(p),
                              "references": [{"id": x.id, "chemin": str(r / x.fichier), "vue": x.vue, "source": x.source, "validee": x.validee, **droits(x)}
-                                            for x in p.references.order_by("-validee", "id")]}
+                                            for x in p.references.order_by("-validee", "id")] or images_du_dossier(r, p.nom),
+                             "voix": voix(r, p.nom, langues)}
                             for p in m.Personnage.objects.order_by("nom", "id")],
             "lieux": [{"id": l.id, "nom": l.nom, "description": l.description, **droits(l)} for l in m.Lieu.objects.order_by("nom")],
             "ressources": [{"id": x.id, "type": x.type, "nom": x.nom, "outil": x.outil, **droits(x)} for x in m.Ressource.objects.order_by("type", "nom")],
-            "langues": [{"code": l.code, "nom": l.nom, "outil_voix": l.outil_voix, "voix_validee": l.voix_validee} for l in m.Langue.objects.order_by("ordre", "code")],
+            "langues": [{"code": l.code, "nom": l.nom, "outil_voix": l.outil_voix, "voix_validee": l.voix_validee} for l in langues],
             "style": m.Reglage.objects.filter(cle="style").values_list("valeur", flat=True).first() or "",
         }
 

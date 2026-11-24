@@ -276,7 +276,8 @@ def session_(id: str) -> Session:
 def scripts(request, id: str):
     with routeur.session(session_(id)):
         return [{"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""), "versions": sc.versions.count(),
-                 "validee": bool((v := sc.versions.order_by("-numero").first()) and v.validee), "format": sc.details.get("format", "")}
+                 "validee": bool((v := sc.versions.order_by("-numero").first()) and v.validee), "format": sc.details.get("format", ""),
+                 "vignette": int((v.contenu if v else {}).get("thumbnail_scene") or 0), "personnages": list((v.contenu if v else {}).get("cast") or {})}
                 for sc in m.Script.objects.order_by("date_prevue", "code")]
 
 
@@ -316,12 +317,22 @@ def script_(request, id: str, code: str):
 
 @api.get("/sessions/{id}/scripts/{code}/bramble", response=schemas.RendusBramble)
 @droit("voir")
-def rendus_bramble(request, id: str, code: str):
-    """Ce que Bramble Studio a rendu pour ce script (images des plans, vidéos finies par langue), lu chez lui sans rien toucher."""
+def rendus_bramble(request, id: str, code: str, langue: str = "en"):
+    """Ce que Bramble Studio a rendu pour ce script (images des plans, vidéos finies, voix de `langue` par scène), lu chez lui sans rien toucher."""
     from fabrique.session import bramble
 
     session_(id)
-    return bramble.rendus(code)
+    return bramble.rendus(code, langue)
+
+
+@api.get("/bramble/en-cours", response=schemas.BrambleEnCours)
+@droit("voir")
+def bramble_en_cours(request):
+    """Ce que Bramble Studio fabrique en ce moment, pour l'écran Fabrication (il a la carte : Fabrique attend son tour)."""
+    from fabrique.session import bramble
+
+    e = bramble.en_cours()
+    return {"actif": bool(e), **(e or {})}
 
 
 @api.get("/fichier", openapi_extra={"responses": {200: {"description": "le fichier"}}})

@@ -31,19 +31,10 @@ GARDES = ("SystemRoot", "SystemDrive", "windir", "TEMP", "TMP", "USERPROFILE", "
 
 BRAMBLE = {"DJANGO_SETTINGS_MODULE": "config.settings", "PYTHONPATH": r"C:\absent\studio", "PYTHONHOME": r"C:\absent\runtime", "VIRTUAL_ENV": r"C:\absent\.venv"}
 # ce qu'un processus de Bramble Studio (ou la supervision lancée par lui) transmet à Fabrique : 17/11, noyau mort au démarrage chez RT
-LECTURE = """import os, sys
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-from PySide6.QtCore import QTimer, QUrl
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtMultimedia import QMediaPlayer
-app = QGuiApplication([])
-p = QMediaPlayer()
-p.durationChanged.connect(lambda d: d > 0 and app.quit())
-QTimer.singleShot(20000, app.quit)
-p.setSource(QUrl.fromLocalFile(sys.argv[1]))
-app.exec()
-print(p.duration())
-"""  # le lecteur de Vérification dans le Python installé : un module de Qt retiré à tort par la construction se verrait ici
+LECTURE = """import webview
+from webview.platforms import winforms
+print("ok")
+"""  # la fenêtre WebView2 dans le Python installé : un fichier de pywebview ou de pythonnet oublié par la construction se verrait ici
 
 
 def env_reduit() -> dict:
@@ -223,17 +214,13 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
                           f"l'essai est fabriqué ({client.appeler('file')})", pas=1)
         assert t["etat"] == "finie" and t["progression"] == "15/15", t
         point(f"essai de recette par le programme installé : « moteur essai » puis le noyau et son exécuteur (Fabrique.exe), faux outils, {t['progression']} morceaux")
-        from fabrique.moteur import faux
-
-        film = bac / "lecture.mp4"
-        lancer(faux.programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=160x90:d=6:r=25", "-pix_fmt", "yuv420p", film, creationflags=subprocess.CREATE_NO_WINDOW)
         hors_guet.set()
         try:
-            r = lancer(prog / "runtime" / "python.exe", "-B", "-c", LECTURE, film, env=env, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
+            r = lancer(prog / "runtime" / "python.exe", "-B", "-c", LECTURE, env=env, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
         finally:
             hors_guet.clear()
-        assert r.stdout.strip().isdigit() and int(r.stdout.strip()) > 5000, f"le Python installé ne lit pas une vidéo : {r.stdout} {r.stderr[-800:]}"
-        point(f"le lecteur de Vérification marche dans le programme installé (Qt Multimedia et son FFmpeg : vidéo d'essai de {int(r.stdout) / 1000:.1f} s lue)")
+        assert r.stdout.strip() == "ok", f"le Python installé ne charge pas la fenêtre WebView2 : {r.stdout} {r.stderr[-800:]}"
+        point("la fenêtre WebView2 se charge dans le programme installé (pywebview, pythonnet)")
 
         # 7. le noyau ne bat plus : la fenêtre le relance
         ancien = int((donnees / "noyau.pid").read_text())

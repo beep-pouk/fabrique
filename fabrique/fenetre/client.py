@@ -34,6 +34,7 @@ APPELS = {  # nom -> (méthode, chemin, schéma de la réponse)
     "scripts": ("GET", "/api/sessions/{id}/scripts", list[s.Script]),
     "script": ("GET", "/api/sessions/{id}/scripts/{code}", s.ScriptDetail),
     "rendus_bramble": ("GET", "/api/sessions/{id}/scripts/{code}/bramble", s.RendusBramble),
+    "bramble_en_cours": ("GET", "/api/bramble/en-cours", s.BrambleEnCours),
     "univers": ("GET", "/api/sessions/{id}/univers", s.Univers),
     "videos": ("GET", "/api/sessions/{id}/videos", list[s.VideoListe]),
     "fabriquer": ("POST", "/api/sessions/{id}/scripts/{code}/fabriquer", s.Message),

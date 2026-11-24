@@ -1,4 +1,10 @@
 {
+ "0.12.0": [
+  "Nouvelle interface : une vraie application de studio, sombre et en images. Accueil avec le prochain épisode et ce qui se fabrique en direct ; épisodes en vignettes ; personnages en fiches illustrées, avec la voix du narrateur à écouter dans chaque langue.",
+  "Épisode : planche illustrée plan par plan (image, texte dit, durée réelle de la voix, personnages), rythme de tout l'épisode d'un coup d'œil, et chaque image qui reste plus de 15 s signalée ; la vidéo de Bramble Studio à regarder dans chaque langue.",
+  "Fabrication : l'image du plan que Bramble Studio est en train de faire, l'étape et l'heure de fin ; Fabrique lui laisse la carte graphique et attend son tour.",
+  "Raccourcis : Ctrl+1 à Ctrl+5 pour les écrans, F11 pour le plein écran."
+ ],
  "0.11.1": [
   "Correctif : lancée depuis certains programmes, Fabrique n'arrivait plus à analyser une vidéo finie (les scripts de l'analyse n'étaient plus trouvés) ; elle ne garde plus ce réglage hérité.",
   "Si des fichiers du programme ont été effacés (désinstallation interrompue…), Fabrique le dit à l'ouverture et propose de se réparer avec le dernier installateur du dossier « versions » ; vos sessions et vos données sont gardées."
