@@ -277,7 +277,7 @@ def scripts(request, id: str):
     with routeur.session(session_(id)):
         return [{"code": sc.code, "titre": sc.titre, "statut": sc.statut, "date_prevue": str(sc.date_prevue or ""), "versions": sc.versions.count(),
                  "validee": bool((v := sc.versions.order_by("-numero").first()) and v.validee), "format": sc.details.get("format", ""),
-                 "vignette": int((v.contenu if v else {}).get("thumbnail_scene") or 0), "personnages": list((v.contenu if v else {}).get("cast") or {})}
+                 "vignette": t if isinstance(t := (v.contenu if v else {}).get("thumbnail_scene"), int) else 0, "personnages": list((v.contenu if v else {}).get("cast") or {})}
                 for sc in m.Script.objects.order_by("date_prevue", "code")]
 
 

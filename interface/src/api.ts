@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 declare global {
   interface Window {
     pywebview?: { api: { entrer(vers: string): void; ouvrir(adresse: string): Promise<boolean>; plein_ecran(): void } };
+    fabriqueCachee?: () => void; // appelée par la fenêtre quand elle se cache
   }
 }
 
@@ -41,15 +42,24 @@ async function reponse<T>(r: Response): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+const INJOIGNABLE = "Fabrique ne répond pas pour l'instant : nouvel essai dans un instant.";
+
+async function appel(chemin: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`/api${chemin}`, { credentials: "same-origin", ...options });
+  } catch {
+    throw new ErreurApi(0, INJOIGNABLE); // noyau en train de redémarrer (garde, mise à jour)
+  }
+}
+
 export async function lire<T>(chemin: string): Promise<T> {
-  return reponse<T>(await fetch(`/api${chemin}`, { credentials: "same-origin" }));
+  return reponse<T>(await appel(chemin, {}));
 }
 
 export async function agir<T = { message: string }>(chemin: string, corps?: unknown): Promise<T> {
   return reponse<T>(
-    await fetch(`/api${chemin}`, {
+    await appel(chemin, {
       method: "POST",
-      credentials: "same-origin",
       headers: { "X-Fabrique": "fenetre", "Content-Type": "application/json" },
       body: corps === undefined ? undefined : JSON.stringify(corps),
     }),
@@ -68,9 +78,11 @@ export function useLire<T>(chemin: string | null, intervalle = 0) {
   const [erreur, setErreur] = useState<string>("");
   const courant = useRef(chemin);
   courant.current = chemin;
+  const reessai = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const relire = useCallback(async () => {
     if (!chemin) return;
+    clearTimeout(reessai.current);
     try {
       const d = await lire<T>(chemin);
       memoire.set(chemin, d);
@@ -79,17 +91,21 @@ export function useLire<T>(chemin: string | null, intervalle = 0) {
         setErreur("");
       }
     } catch (e) {
-      if (courant.current === chemin) setErreur(e instanceof Error ? e.message : String(e));
+      if (courant.current !== chemin) return;
+      setErreur(e instanceof Error ? e.message : String(e));
+      if (!intervalle) reessai.current = setTimeout(relire, 5000); // sans relecture régulière : un nouvel essai, jusqu'à ce qu'il réponde
     }
-  }, [chemin]);
+  }, [chemin, intervalle]);
 
   useEffect(() => {
     setDonnees(chemin ? (memoire.get(chemin) as T | undefined) : undefined);
     setErreur("");
     relire();
-    if (!intervalle) return;
-    const t = setInterval(relire, intervalle);
-    return () => clearInterval(t);
+    const t = intervalle ? setInterval(relire, intervalle) : undefined;
+    return () => {
+      clearInterval(t);
+      clearTimeout(reessai.current);
+    };
   }, [chemin, intervalle, relire]);
 
   return { donnees, erreur, relire };

@@ -28,7 +28,7 @@ def test_la_page_ne_peut_ouvrir_que_des_liens_web_et_rentrer_chez_elle(monkeypat
     api = main.Api()
     assert not api.ouvrir("file:///C:/Windows/System32/cmd.exe") and not api.ouvrir("javascript:alert(1)")
     assert api.ouvrir("https://site-factice.example/video") and ouverts == ["https://site-factice.example/video"]
-    api.vue = type("Vue", (), {"load_url": lambda self, u: chargees.append(u)})()
+    api._vue = type("Vue", (), {"load_url": lambda self, u: chargees.append(u)})()
     api.entrer("//site-factice.example/")
     api.entrer("/#/file")
     assert len(chargees) == 1 and chargees[0].endswith("vers=%2F%23%2Ffile")

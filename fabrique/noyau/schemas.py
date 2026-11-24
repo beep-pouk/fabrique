@@ -297,8 +297,9 @@ class BrambleEnCours(BaseModel):
     code: str = ""  # le script
     langue: str = ""
     etape: str = ""  # voix, images, anim…
-    reste_min: float | None = None
-    total_min: float | None = None
+    reste_min: float | None = None  # toute la fabrication
+    fait: int | None = None  # plans faits de l'étape en cours
+    tout: int | None = None
     image: str = ""  # l'image du plan qu'il traite
 
 

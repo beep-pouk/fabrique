@@ -4,6 +4,7 @@ en cookie HttpOnly SameSite=Strict, puis chaque appel de l'API le porte sans que
 porte aussi l'en-tête X-Fabrique (comme l'iPhone). Images réduites gardées dans donnees\\cache ; vidéos servies par morceaux (Range : le
 lecteur peut sauter)."""
 import hashlib
+import json
 import mimetypes
 import re
 from pathlib import Path
@@ -19,6 +20,11 @@ from fabrique.noyau import jetons
 COOKIE = "fabrique_fenetre"
 LOCAL = ("127.0.0.1", "localhost")
 LARGEURS = (320, 640, 960, 1280)  # vignettes demandées par l'interface ; toute autre largeur est ramenée à la plus proche au-dessus
+PATIENCE = """<!doctype html><html lang="fr" style="background:#0b0d10;color:#6f7784;font:14px 'Segoe UI',sans-serif"><meta charset="utf-8">
+<title>Fabrique</title><body style="display:grid;place-items:center;height:100vh;margin:0">Fabrique démarre…<script>
+setInterval(function(){window.pywebview&&window.pywebview.api&&window.pywebview.api.entrer(VERS)},3000)</script></body></html>"""
+# jeton périmé (noyau relancé entre-temps, ou lent à démarrer) : la fenêtre redemande l'entrée avec le jeton du moment, sans impasse
+
 SURETE = {"X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"}
 
 
@@ -39,11 +45,13 @@ def appelant(request) -> str | None:
 @require_GET
 def entree(request):
     """Seulement en local (jamais par Tailscale) ; « vers » : un chemin de l'interface (/#/…), jamais une autre adresse."""
-    if request.get_host().split(":")[0] not in LOCAL or jetons.APPELANTS.get(request.GET.get("j", "")) != "fenetre":
-        return HttpResponse("Entrée refusée.", status=403, content_type="text/plain; charset=utf-8")
     vers = request.GET.get("vers", "/")
-    p = urlsplit(vers)
-    r = HttpResponseRedirect(vers if vers.startswith("/") and not vers.startswith("//") and not p.netloc else "/")
+    vers = vers if vers.startswith("/") and not vers.startswith("//") and not urlsplit(vers).netloc else "/"
+    if request.get_host().split(":")[0] not in LOCAL:
+        return HttpResponse("Entrée refusée.", status=403, content_type="text/plain; charset=utf-8")
+    if jetons.APPELANTS.get(request.GET.get("j", "")) != "fenetre":
+        return HttpResponse(PATIENCE.replace("VERS", json.dumps(vers).replace("<", "\\u003c")), status=403, content_type="text/html; charset=utf-8")
+    r = HttpResponseRedirect(vers)
     r.set_cookie(COOKIE, request.GET["j"], httponly=True, samesite="Strict")
     r["Cache-Control"] = "no-store"
     return r

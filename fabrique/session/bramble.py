@@ -259,8 +259,10 @@ def rendus_bramble() -> Path | None:
 
 
 def duree_wav(f: Path) -> float:
-    """Secondes d'un .wav, PCM ou flottant (le module wave refuse le flottant des voix de Bramble) ; 0 s'il est illisible."""
+    """Secondes d'un .wav, PCM ou flottant (le module wave refuse le flottant des voix de Bramble) ; 0 s'il est illisible ou vide. La taille
+    annoncée est bornée par celle du fichier : un wav tronqué ou en cours d'écriture (en-tête provisoire) ne s'allonge pas."""
     try:
+        taille_fichier = f.stat().st_size
         with f.open("rb") as h:
             if h.read(12)[8:] != b"WAVE":
                 return 0.0
@@ -268,7 +270,7 @@ def duree_wav(f: Path) -> float:
             while len(t := h.read(8)) == 8:
                 nom, taille = t[:4], int.from_bytes(t[4:], "little")
                 if nom == b"data":
-                    return round(taille / debit, 2) if debit else 0.0
+                    return round(min(taille, taille_fichier - h.tell()) / debit, 2) if debit else 0.0
                 bloc = h.read(taille + (taille & 1))
                 if nom == b"fmt ":
                     debit = int.from_bytes(bloc[8:12], "little")  # octets par seconde
@@ -306,7 +308,8 @@ def rendus(code: str, langue: str = "en") -> dict:
 
 def en_cours(maintenant: datetime | None = None) -> dict | None:
     """Ce que Bramble Studio fabrique en ce moment (son DONNEES\etat.json, lu seulement ; plus de 15 min : arrêté) : script, langue, étape,
-    minutes restantes et totales, et l'image du plan qu'il traite (celle que nomme la dernière ligne de son journal, sinon la plus récente)."""
+    minutes restantes en tout (son total_min ; son reste_min n'est que celui de l'étape), avancée de l'étape (plans faits / tous, s'il les
+    compte) et l'image du plan qu'il traite (celle que nomme la dernière ligne de son journal, sinon la plus récente)."""
     s = garde.studio_bramble()
     try:
         e = json.loads((s / "DONNEES" / "etat.json").read_text(encoding="utf-8-sig")) if s else {}
@@ -322,5 +325,7 @@ def en_cours(maintenant: datetime | None = None) -> dict | None:
     if not (image and image.is_file()):
         image = max(images.glob("plan_[0-9][0-9][0-9].png"), key=lambda f: f.stat().st_mtime, default=None)
     code = m_[1] if (m_ := re.fullmatch(r"\d{4}-\d\d-\d\d-([^._]+).*", nom)) else nom
-    return {"code": code, "langue": m_[1] if (m_ := re.search(r"\.([A-Za-z-]+)$", nom)) else "en", "etape": str(ep.get("etape", "")),
-            "reste_min": ep.get("reste_min"), "total_min": ep.get("total_min"), "image": str(image) if image else ""}
+    etape = str(ep.get("etape", ""))
+    fait, tout = {"images": ("images", "plans"), "anim": ("anim", "plans"), "bramble": ("bramble", "nbr")}.get(etape, ("", ""))
+    return {"code": code, "langue": m_[1] if (m_ := re.search(r"\.([A-Za-z-]+)$", nom)) else "en", "etape": etape,
+            "reste_min": ep.get("total_min"), "fait": ep.get(fait), "tout": ep.get(tout), "image": str(image) if image else ""}

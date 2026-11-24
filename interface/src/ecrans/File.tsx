@@ -13,8 +13,9 @@ export interface BrambleEnCours {
   code: string;
   langue: string;
   etape: string;
-  reste_min: number | null;
-  total_min: number | null;
+  reste_min: number | null; // toute la fabrication
+  fait: number | null; // plans faits de l'étape en cours
+  tout: number | null;
   image: string;
 }
 
@@ -54,7 +55,7 @@ export function CarteBramble({ etat, compacte }: { etat: BrambleEnCours; compact
   const { session } = useStudio();
   const { donnees: scripts } = useLire<Script[]>(session ? `/sessions/${session.id}/scripts` : null);
   const script = scripts?.find((s) => s.code === etat.code);
-  const fait = etat.total_min && etat.reste_min != null ? 100 * (1 - etat.reste_min / etat.total_min) : 0;
+  const avance = etat.tout ? (100 * (etat.fait ?? 0)) / etat.tout : null;
   return (
     <Carte className={cx("grid overflow-hidden", compacte ? "md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]")}>
       <div className="relative">
@@ -72,13 +73,18 @@ export function CarteBramble({ etat, compacte }: { etat: BrambleEnCours; compact
           <Pastille>{nomLangue(etat.langue)}</Pastille>
           <Pastille ton="ambre">{nomEtape(etat.etape)}</Pastille>
         </div>
-        {etat.reste_min != null && (
+        {avance != null && (
           <div className="mt-2">
-            <Barre valeur={fait} />
-            <div className="mt-2.5 flex justify-between text-[13px] text-doux">
-              <span>encore {duree(etat.reste_min * 60)}</span>
-              <span>fini {finVers(etat.reste_min)}</span>
+            <Barre valeur={avance} />
+            <div className="mt-2.5 text-[13px] text-doux">
+              {nomEtape(etat.etape)} : {etat.fait ?? 0} plans sur {etat.tout}
             </div>
+          </div>
+        )}
+        {etat.reste_min != null && etat.reste_min > 0 && (
+          <div className="flex justify-between text-[13px] text-doux">
+            <span>encore {duree(etat.reste_min * 60)} en tout</span>
+            <span>fini {finVers(etat.reste_min)}</span>
           </div>
         )}
         {!compacte && (

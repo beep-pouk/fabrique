@@ -29,11 +29,10 @@ export function Personnages() {
       {univers && !liste.length && <Vide icone={<Users className="size-5" />} titre="Aucun personnage" texte="Les personnages de la série apparaîtront ici avec leurs images." />}
 
       {vedette && (
-        <button
-          onClick={() => setOuvert(vedette)}
-          className="group mb-10 grid w-full overflow-hidden rounded-[20px] border border-ligne bg-carte text-left transition-colors hover:border-ligne-forte md:grid-cols-[minmax(280px,420px)_1fr]"
-        >
-          <Image chemin={vedette.references[0]?.chemin} largeur={960} className="aspect-square md:aspect-auto md:h-full" position="50% 35%" />
+        <div className="group mb-10 grid w-full overflow-hidden rounded-[20px] border border-ligne bg-carte text-left transition-colors hover:border-ligne-forte md:grid-cols-[minmax(280px,420px)_1fr]">
+          <button onClick={() => setOuvert(vedette)} aria-label={`Fiche de ${vedette.nom}`} className="block outline-none">
+            <Image chemin={vedette.references[0]?.chemin} largeur={960} className="aspect-square md:aspect-auto md:h-full" position="50% 35%" />
+          </button>
           <div className="flex flex-col justify-center gap-4 p-10">
             <Pastille ton="ambre" className="self-start">
               <Mic className="size-3.5" /> {role(vedette.role)}
@@ -45,8 +44,11 @@ export function Personnages() {
                 <BoutonEcoute key={v.langue} cle={`voix-${vedette.id}-${v.langue}`} sons={[v.chemin]} etiquette={nomLangue(v.langue)} />
               ))}
             </div>
+            <button onClick={() => setOuvert(vedette)} className="self-start text-[14px] font-medium text-ambre hover:text-ambre-vif">
+              Voir la fiche et les images
+            </button>
           </div>
-        </button>
+        </div>
       )}
 
       <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-6 gap-y-8">
@@ -115,7 +117,7 @@ function Fiche({ personnage: p, fermer }: { personnage: Personnage | null; ferme
                   <Dialogue.Title className="text-[28px] font-semibold tracking-[-0.02em]">{p.nom}</Dialogue.Title>
                   <div className="mt-1 text-[14px] text-doux">{role(p.role)}</div>
                 </div>
-                <Dialogue.Close className="grid size-9 place-items-center rounded-full bg-carte-2 text-doux hover:bg-survol hover:text-texte">
+                <Dialogue.Close aria-label="Fermer" className="grid size-9 place-items-center rounded-full bg-carte-2 text-doux hover:bg-survol hover:text-texte">
                   <X className="size-4" />
                 </Dialogue.Close>
               </div>

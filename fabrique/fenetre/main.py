@@ -31,12 +31,12 @@ class Api:
     """window.pywebview.api : la seule porte de la page vers le PC (jamais un fichier ni un programme)."""
 
     def __init__(self):
-        self.vue = None
+        self._vue = None  # « _ » : pywebview n'expose pas à la page ce qui commence par un souligné (sinon load_url, evaluate_js…)
 
     def entrer(self, vers: str = "/"):
         """Le noyau a été relancé (jeton changé) : la page rouvre l'entrée, sur l'écran où elle était."""
-        if self.vue and isinstance(vers, str) and vers.startswith("/") and not vers.startswith("//"):
-            self.vue.load_url(entree(vers))
+        if self._vue and isinstance(vers, str) and vers.startswith("/") and not vers.startswith("//"):
+            self._vue.load_url(entree(vers))
 
     def ouvrir(self, adresse):
         """Un lien d'un autre site (YouTube…) part dans le navigateur de RT."""
@@ -46,8 +46,8 @@ class Api:
         return True
 
     def plein_ecran(self):
-        if self.vue:
-            self.vue.toggle_fullscreen()
+        if self._vue:
+            self._vue.toggle_fullscreen()
 
 
 def fenetre_windows(titre: str):
@@ -163,7 +163,7 @@ def lancer(fond: bool = False) -> int:
     api = Api()
     vue = webview.create_window(titre, entree(), js_api=api, width=1440, height=900, min_size=(1100, 700), hidden=True, maximized=True,
                                 background_color=FOND, text_select=True)
-    api.vue = vue
+    api._vue = vue
     pid = dossiers.donnees() / "fenetre.pid"
     pid.write_text(str(os.getpid()), encoding="ascii")
     icone = pystray.Icon(programme.identite(), Image.open(ICI / "icone.ico"), titre)
@@ -179,12 +179,24 @@ def lancer(fond: bool = False) -> int:
             vue.restore()
         devant(fenetre_windows(titre))
 
+    sortie = threading.Event()
+
     def quitter():
+        sortie.set()  # destroy() passe aussi par « closing » : sans ce drapeau, fermer() l'annulerait
         icone.stop()
         vue.destroy()
 
+    def cacher():
+        try:
+            vue.evaluate_js("window.fabriqueCachee && window.fabriqueCachee()")  # sons et vidéos s'arrêtent avec la fenêtre
+        except Exception:  # noqa: BLE001 — page pas encore prête : rien ne joue
+            pass
+        vue.hide()
+
     def fermer():
-        threading.Thread(target=vue.hide, daemon=True).start()
+        if sortie.is_set():
+            return True
+        threading.Thread(target=cacher, daemon=True).start()
         return False  # la fermeture est annulée : la fenêtre se cache près de l'horloge
 
     vue.events.closing += fermer
@@ -199,14 +211,17 @@ def lancer(fond: bool = False) -> int:
         rates = 0
         while True:
             time.sleep(GARDE_S)
-            if client.repond():
-                rates = 0
-                continue
-            rates += 1
-            log.warning("le noyau ne répond plus : relancé (%d fois de suite)", rates)
-            if rates == 3:  # une seule alerte : il meurt sans doute au démarrage, la fenêtre seule ne peut rien y faire
-                notifier("Fabrique ne démarre pas", f"Relancé sans succès depuis 1 min 30 ; le détail est dans {dossiers.donnees() / 'journaux'}.")
-            demarrer_noyau(client)
+            try:  # une panne d'un tour (Popen pendant une mise à jour…) ne doit pas tuer la garde
+                if client.repond():
+                    rates = 0
+                    continue
+                rates += 1
+                log.warning("le noyau ne répond plus : relancé (%d fois de suite)", rates)
+                if rates == 3:  # une seule alerte : il meurt sans doute au démarrage, la fenêtre seule ne peut rien y faire
+                    notifier("Fabrique ne démarre pas", f"Relancé sans succès depuis 1 min 30 ; le détail est dans {dossiers.donnees() / 'journaux'}.")
+                demarrer_noyau(client)
+            except Exception:  # noqa: BLE001
+                log.exception("garde du noyau")
 
     threading.Thread(target=veiller, name="garde du noyau", daemon=True).start()
 

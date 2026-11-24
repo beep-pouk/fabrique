@@ -26,7 +26,8 @@ def entrer() -> Client:
 
 
 def test_entree_refusee_sans_le_jeton_de_la_fenetre_ou_hors_local():
-    assert Client(**LOCAL).get("/fenetre/entree", {"j": jetons.lire(settings.DONNEES, "claude")}).status_code == 403
+    r = Client(**LOCAL).get("/fenetre/entree", {"j": jetons.lire(settings.DONNEES, "claude"), "vers": "/#/x</script>"})
+    assert r.status_code == 403 and b"pywebview.api.entrer" in r.content and b"</script>\"" not in r.content  # la fenêtre redemande l'entrée, sans impasse
     assert Client(HTTP_HOST="pc-factice.tailnet-factice.ts.net").get("/fenetre/entree", {"j": jetons.lire(settings.DONNEES, "fenetre")}).status_code == 403
     r = Client(**LOCAL).get("/fenetre/entree", {"j": jetons.lire(settings.DONNEES, "fenetre"), "vers": "//site-factice.example/"})
     assert r["Location"] == "/"
@@ -105,6 +106,9 @@ def test_rendus_de_bramble_images_videos_et_voix_par_scene(tmp_path, monkeypatch
     assert bramble.rendus("x1e01", "zz")["durees"] == {1: 3.0}
     (base / "voix" / "abime.wav").write_bytes(b"RIFF")
     assert bramble.duree_wav(base / "voix" / "abime.wav") == 0.0
+    coupe = base / "voix" / "coupe.wav"
+    coupe.write_bytes((base / "voix" / "s001.wav").read_bytes()[:44 + 24000 * 4])  # copie coupée à 1 s : l'en-tête dit encore 2,5 s
+    assert bramble.duree_wav(coupe) == 1.0
 
 
 def test_personnage_repris_de_bramble_ses_images_et_sa_voix(tmp_path):
@@ -145,11 +149,13 @@ def test_ce_que_bramble_fabrique_en_ce_moment(tmp_path, monkeypatch):
         (images / f"plan_{n}.png").write_bytes(b"png")
     os.utime(images / "plan_007.png", (1, 1))
     etat = lambda heure, ligne: (tmp_path / "DONNEES" / "etat.json").write_text(json.dumps(  # noqa: E731
-        {"heure": heure, "episode": {"nom": "2026-01-01-x1e01.zz", "etape": "anim", "reste_min": 30, "total_min": 120, "journal_derniere": ligne}}), encoding="utf-8")
+        {"heure": heure, "episode": {"nom": "2026-01-01-x1e01.zz", "etape": "anim", "reste_min": 30, "total_min": 120, "plans": 40, "anim": 9,
+                                     "journal_derniere": ligne}}), encoding="utf-8")
     maintenant = datetime(2026, 1, 1, 22, 0)
     etat("2026-01-01T21:55", "calques : plan_007 fond")
     e = bramble.en_cours(maintenant)
-    assert (e["code"], e["langue"], e["etape"], e["reste_min"]) == ("x1e01", "zz", "anim", 30) and e["image"].endswith("plan_007.png")
+    assert (e["code"], e["langue"], e["etape"], e["reste_min"], e["fait"], e["tout"]) == ("x1e01", "zz", "anim", 120, 9, 40)  # le reste de tout
+    assert e["image"].endswith("plan_007.png")
     etat("2026-01-01T21:55", "montage")
     assert bramble.en_cours(maintenant)["image"].endswith("plan_009.png")  # la plus récente
     assert bramble.en_cours(maintenant + timedelta(minutes=20)) is None  # état vieux : Bramble est arrêté

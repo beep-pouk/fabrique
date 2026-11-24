@@ -28,7 +28,7 @@ export function Episode({ session, code }: { session: string; code: string }) {
   const presents = distribution.filter((n) => plans.some((p) => p.personnages.includes(n)) && n !== narrateur?.nom);
   const numero = /e(\d+)$/i.exec(code)?.[1];
 
-  if (erreur) return <Erreur texte={erreur} />;
+  if (erreur && !script) return <Erreur texte={erreur} />;
   return (
     <>
       <a href="#/episodes" className="mb-5 inline-flex items-center gap-2 text-[13px] font-medium text-doux transition-colors hover:text-texte">
@@ -229,7 +229,7 @@ function Planche({ plans, total, longs, portraits, narrateur }: { plans: PlanLu[
             <Dialogue.Content className="animate-entree fixed top-1/2 left-1/2 z-50 flex max-h-[90vh] w-[min(1180px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[18px] border border-ligne-forte bg-carte shadow-haut outline-none">
               <div className="relative">
                 <Image chemin={imagePlan(ouvert, narrateur)} largeur={1280} className="aspect-video max-h-[62vh] w-full" />
-                <Dialogue.Close className="absolute top-4 right-4 grid size-9 place-items-center rounded-full bg-black/55 text-white backdrop-blur hover:bg-black/75">
+                <Dialogue.Close aria-label="Fermer" className="absolute top-4 right-4 grid size-9 place-items-center rounded-full bg-black/55 text-white backdrop-blur hover:bg-black/75">
                   <X className="size-4" />
                 </Dialogue.Close>
                 <div className="absolute bottom-4 left-4">

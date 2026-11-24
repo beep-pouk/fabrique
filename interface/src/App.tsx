@@ -1,6 +1,6 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { Check, ChevronsUpDown, Clapperboard, Home, ListVideo, Maximize2, Settings2, Users } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { Check, ChevronsUpDown, Clapperboard, Home, ListVideo, Maximize2, Settings2, TriangleAlert, Users } from "lucide-react";
+import { Component, useEffect, useRef, type ReactNode } from "react";
 import { Accueil } from "./ecrans/Accueil";
 import { Episode } from "./ecrans/Episode";
 import { Episodes } from "./ecrans/Episodes";
@@ -9,7 +9,7 @@ import { Personnages } from "./ecrans/Personnages";
 import { Systeme } from "./ecrans/Systeme";
 import { aller, carteOccupee, useAdresse } from "./outils";
 import { useStudio } from "./studio";
-import { arreterEcoute, cx } from "./ui";
+import { arreterEcoute, cx, Vide } from "./ui";
 
 const ECRANS = [
   { id: "", nom: "Accueil", icone: Home },
@@ -31,9 +31,9 @@ export function App() {
 
   useEffect(() => {
     const touche = (e: KeyboardEvent) => {
-      if (e.ctrlKey && !e.altKey && /^[1-5]$/.test(e.key)) {
-        e.preventDefault();
-        aller(ECRANS[Number(e.key) - 1].id);
+      if (e.ctrlKey && !e.altKey && /^(Digit|Numpad)[1-5]$/.test(e.code)) {
+        e.preventDefault(); // e.code : la touche, quel que soit le clavier (« & » ou « é » sur un clavier français)
+        aller(ECRANS[Number(e.code.slice(-1)) - 1].id);
       } else if (e.key === "F11") {
         e.preventDefault();
         window.pywebview?.api.plein_ecran();
@@ -44,11 +44,20 @@ export function App() {
     const menu = (e: MouseEvent) => {
       if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault();
     };
+    // fenêtre cachée (croix : elle reste chargée près de l'horloge) : plus aucun son
+    const silence = () => {
+      arreterEcoute();
+      document.querySelectorAll("video").forEach((v) => v.pause());
+    };
+    const visibilite = () => document.hidden && silence();
+    window.fabriqueCachee = silence;
     window.addEventListener("keydown", touche);
     window.addEventListener("contextmenu", menu);
+    document.addEventListener("visibilitychange", visibilite);
     return () => {
       window.removeEventListener("keydown", touche);
       window.removeEventListener("contextmenu", menu);
+      document.removeEventListener("visibilitychange", visibilite);
     };
   }, []);
 
@@ -66,11 +75,32 @@ export function App() {
       <Barre actif={actif} />
       <main ref={zone} className="relative min-w-0 flex-1 overflow-y-auto">
         <div key={adresse.slice(0, 3).join("/")} className="animate-entree mx-auto w-full max-w-[1680px] px-10 pt-9 pb-16 2xl:px-14">
-          {contenu}
+          <Secours>{contenu}</Secours>
         </div>
       </main>
     </div>
   );
+}
+
+/** Un écran qui plante n'emporte pas toute la fenêtre : un message, et le reste de l'application marche. */
+class Secours extends Component<{ children: ReactNode }, { panne: boolean }> {
+  state = { panne: false };
+  static getDerivedStateFromError() {
+    return { panne: true };
+  }
+  componentDidCatch(e: unknown) {
+    console.error(e);
+  }
+  render() {
+    if (!this.state.panne) return this.props.children;
+    return (
+      <Vide icone={<TriangleAlert className="size-5" />} titre="Cet écran n'a pas pu s'afficher" texte="Le reste de Fabrique fonctionne. Revenez à l'accueil, puis réessayez.">
+        <a href="#/" className="mt-2 text-[14px] font-medium text-ambre hover:text-ambre-vif">
+          Retour à l'accueil
+        </a>
+      </Vide>
+    );
+  }
 }
 
 function Barre({ actif }: { actif: string }) {

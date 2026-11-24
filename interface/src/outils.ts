@@ -4,7 +4,18 @@ import type { Plan, RendusBramble, Scene } from "./api";
 // --- navigation : l'adresse après # (« /episode/<session>/<code> ») ---
 
 export function useAdresse(): string[] {
-  const lireHash = () => location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  const lireHash = () =>
+    location.hash
+      .replace(/^#\/?/, "")
+      .split("/")
+      .filter(Boolean)
+      .map((p) => {
+        try {
+          return decodeURIComponent(p);
+        } catch {
+          return p; // un % mal formé : la partie telle quelle
+        }
+      });
   const [parties, setParties] = useState(lireHash);
   useEffect(() => {
     const changer = () => setParties(lireHash());
@@ -119,7 +130,7 @@ export function lirePlanche(plans: Plan[], scenes: Scene[], rendus: RendusBrambl
     const texte = sc.map((s) => s.narration ?? "").filter(Boolean).join(" ");
     const voix = p.scenes.map((id) => rendus?.voix[id]).filter((v): v is string => !!v);
     const mesuree = p.scenes.reduce((t, id) => t + (rendus?.durees[id] ?? 0), 0);
-    const estimee = voix.length < p.scenes.length;
+    const estimee = p.scenes.some((id) => !(rendus?.durees[id] ?? 0));
     const d = estimee ? Math.max(3, texte.split(/\s+/).filter(Boolean).length / MOTS_PAR_SECONDE) : mesuree;
     const image = images[p.n] ?? (p.bramble ? undefined : derniereImage);
     if (images[p.n]) derniereImage = images[p.n];
@@ -134,12 +145,18 @@ export function lirePlanche(plans: Plan[], scenes: Scene[], rendus: RendusBrambl
       estimee,
       debut,
       bramble: p.bramble,
-      personnages: distribution.filter((nom) => new RegExp(`\\b${nom}\\b`).test(`${p.image} ${texte}`)),
+      personnages: distribution.filter((nom) => cite(nom, `${p.image} ${texte}`)),
       voix,
     };
     debut += d;
     return plan;
   });
+}
+
+/** `nom` est-il cité comme un mot entier dans `texte` (lettres accentuées comprises, aucun caractère spécial interprété) ? */
+export function cite(nom: string, texte: string): boolean {
+  const echappe = nom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${echappe}(?![\\p{L}\\p{N}])`, "u").test(texte);
 }
 
 /** L'image d'un épisode : celle du plan qui contient sa scène de miniature, sinon la première venue. */

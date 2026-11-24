@@ -47,7 +47,7 @@ function Message({ m }: { m: { texte: string; erreur?: boolean } | null }) {
 
 export function Systeme() {
   const { machine } = useStudio();
-  const { donnees: versions, relire: relireVersions } = useLire<Versions>("/versions");
+  const { donnees: versions, relire: relireVersions } = useLire<Versions>("/versions", 60000);
   const { donnees: sauvegardes, relire: relireSauvegardes } = useLire<Sauvegardes>("/sauvegardes", 10000);
   const { donnees: cles } = useLire<Cle[]>("/cles");
   const { donnees: etat } = useLire<Etat>("/etat");
@@ -76,12 +76,19 @@ export function Systeme() {
                   <Bouton genre="principal" icone={<Download className="size-4" />} charge={maj.charge} onClick={() => maj.lancer("/versions/mettre-a-jour")}>
                     Installer la {versions.proposee}
                   </Bouton>
+                ) : versions.proposee ? (
+                  <Pastille ton="ambre">Version {versions.proposee} prête</Pastille>
                 ) : (
                   <Pastille ton="vert">
                     <CircleCheck className="size-3.5" /> À jour
                   </Pastille>
                 )}
               </div>
+              {versions.proposee && versions.raison && (
+                <div className="mt-4 rounded-[10px] bg-ambre-sombre/60 px-4 py-3 text-[13px] text-ambre-vif">
+                  Elle s'installera plus tard : {versions.raison}.
+                </div>
+              )}
               {versions.proposee && versions.nouveautes.length > 0 && (
                 <ul className="mt-5 flex list-disc flex-col gap-1.5 pl-5 text-[14px] leading-relaxed text-doux">
                   {versions.nouveautes.map((n) => (
