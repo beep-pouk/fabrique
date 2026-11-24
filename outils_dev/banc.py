@@ -14,6 +14,7 @@ from pathlib import Path
 CONSOLES = {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"}  # console classique, Terminal Windows
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
 WINDOWS = os.path.normcase(os.environ.get("SystemRoot", r"C:\Windows")) + os.sep
+WEBVIEW2 = os.path.normcase("\\Microsoft\\EdgeWebView\\Application\\")  # le moteur de la fenêtre (0.12) : celui de Windows, mis à jour par lui
 
 
 class _Entree(ctypes.Structure):
@@ -125,7 +126,7 @@ def externes(pid: int, prog: Path) -> list[str]:
     le runtime C de Visual Studio pris dans Windows compte comme externe : le programme livre le sien (contrôle du banc d'interface)."""
     p = os.path.normcase(str(prog)) + os.sep
     charges, temoin = bibliotheques(pid)
-    return [m for m in charges if not (c := os.path.normcase(m)).startswith(p) and c not in temoin
+    return [m for m in charges if not (c := os.path.normcase(m)).startswith(p) and c not in temoin and WEBVIEW2 not in c
             and (not c.startswith(WINDOWS) or re.search(r"\\(msvcp|vcruntime|vcomp|concrt)\d", c))]
 
 
