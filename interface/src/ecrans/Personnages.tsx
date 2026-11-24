@@ -30,7 +30,7 @@ export function Personnages() {
 
       {vedette && (
         <div className="group mb-10 grid w-full overflow-hidden rounded-[20px] border border-ligne bg-carte text-left transition-colors hover:border-ligne-forte md:grid-cols-[minmax(280px,420px)_1fr]">
-          <button onClick={() => setOuvert(vedette)} aria-label={`Fiche de ${vedette.nom}`} className="block outline-none">
+          <button onClick={() => setOuvert(vedette)} aria-label={`Fiche de ${vedette.nom}`} className="block h-full w-full outline-none">
             <Image chemin={vedette.references[0]?.chemin} largeur={960} className="aspect-square md:aspect-auto md:h-full" position="50% 35%" />
           </button>
           <div className="flex flex-col justify-center gap-4 p-10">

@@ -143,7 +143,7 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
             p = subprocess.Popen([str(exe)], env=env, cwd=str(prog))
             h, texte = banc.boite(p.pid, 30)
             banc.repondre(h, 7)  # « Non » (« Oui » lance ce même installateur, joué ici en silence)
-            assert p.wait(30) == 1 and "csv.py" in texte and i0.name in texte, texte
+            assert p.wait(30) == 1 and f"{len(effaces)} fichier(s)" in texte and i0.name in texte, texte  # le lanceur nomme le 1er manquant (ici la marque)
         finally:
             if p and p.poll() is None:  # pas de boîte : il démarrait comme si de rien n'était
                 p.kill()
