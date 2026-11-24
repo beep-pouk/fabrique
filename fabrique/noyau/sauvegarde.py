@@ -125,7 +125,7 @@ def restaurer(nom: str, quand: datetime | None = None) -> str:
                 bases.copier(old / "_zip" / m, dest)  # dans la base vivante : le noyau la relit telle quelle
             else:
                 shutil.copy2(old / "_zip" / m, dest)
-        shutil.rmtree(old / "_zip")
+        shutil.rmtree(old / "_zip", ignore_errors=True)  # copie de travail : un fichier passager de SQLite (-shm) peut disparaître pendant le ménage
     return f"{nom} restaurée ; l'état d'avant est gardé dans {old}"
 
 
