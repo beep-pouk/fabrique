@@ -3,6 +3,8 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
+**24/11/2026, 17 h (supervision) : refonte décidée par RT — lire `docs/TACHE.md` d'abord. L'« À reprendre » du 23/11 ci-dessous est caduc : veilleur désarmé, plus aucun essai long ni recette de nuit.**
+
 **À reprendre (23/11, 13 h 30)** : (1) au matin du 24/11, lire `OUTILS\fabrique_construction\egalite\de_nuit_chaine.log` et `docs\VERIF_FINI_PC.md` (écrit par la recette finale du veilleur) ; corriger chaque rouge qui vient du code ; « 0.11.1 prête » dans QUESTIONS si `FABRIQUE\versions` l'a ; (2) le veilleur (pid 16596, vivant à 11 h) meurt avec le PC : le réarmer (caché, détaché : `pythonw.exe de_nuit_chaine.py` dans `egalite`), une étape réussie (« code 0 ») n'est pas refaite ; (3) Bramble rend (s1e01 espagnol, 5 reprises en file) : aucune recette de jour ; (4) quand le reste est vert : QCM des gestes de RT (J4 : relier, publier PC puis iPhone, programmer ; J12 : 2e session par l'assistant, vidéo pilote) ; (5) la recette d'installation de cette nuit joue pour la première fois le point « programme abîmé » (ci-dessous) : s'il est rouge, la construction l'est aussi et la 0.11.1 ne part pas.
 
 ## 23/11/2026, 13 h (horloge du PC) — tour court : rien de lourd possible (Bramble rend)
