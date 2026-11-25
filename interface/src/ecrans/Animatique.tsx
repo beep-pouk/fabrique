@@ -4,8 +4,8 @@ import * as Infobulle from "@radix-ui/react-tooltip";
 import { Clapperboard, Loader2, MessageSquarePlus, Pause, Play, RotateCcw, SkipBack, SkipForward, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { agir, fichier, useLire, type Animatique as EtatAnimatique } from "../api";
-import { duree, horloge, MAX_IMAGE_S, nomLangue, type PlanLu } from "../outils";
-import { Bouton, cx, Erreur, Image, Pastille, Squelette, Vide } from "../ui";
+import { duree, horloge, MAX_IMAGE_S, nomLangue, VALEURS, type PlanLu } from "../outils";
+import { Bouton, cx, Erreur, Image, Pastille, recadrer, Squelette, Vide } from "../ui";
 
 export function Animatique({ session, code, langue, plans, imageDe }: { session: string; code: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined }) {
   const chemin = `/sessions/${encodeURIComponent(session)}/scripts/${encodeURIComponent(code)}/animatique`;
@@ -81,6 +81,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const champ = useRef<HTMLInputElement>(null);
+  const racine = useRef<HTMLDivElement>(null);
   const [t, setT] = useState(0);
   const [joue, setJoue] = useState(false);
   const [note, setNote] = useState("");
@@ -99,7 +100,14 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
   useEffect(() => {
     setJoue(false); // nouvelle vidéo (remontée, autre langue) : l'ancien élément est parti sans dire « pause »
     setT(0);
+    setNote(""); // une note commencée tombait à la seconde de l'autre vidéo
+    setTNote(null);
   }, [a.video]);
+
+  useEffect(() => {
+    // l'onglet cliqué garde le focus : Espace et les flèches iraient aux onglets (→ ouvrirait Vidéo) au lieu du lecteur
+    if ((document.activeElement as HTMLElement | null)?.closest("[role=tab]")) racine.current?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     if (!joue) return;
@@ -176,8 +184,13 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div ref={racine} tabIndex={-1} className="grid gap-6 outline-none xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0">
+        {a.perimee && (
+          <div className="mb-4 flex items-center gap-2 rounded-[12px] border border-ambre/30 bg-ambre-sombre px-4 py-3 text-[14px] text-ambre-vif">
+            <TriangleAlert className="size-4 shrink-0" /> Le script a changé depuis ce montage : remontez l'animatique pour voir la nouvelle version.
+          </div>
+        )}
         <div className="group relative overflow-hidden rounded-[16px] bg-black ring-1 ring-ligne">
           <video
             ref={video}
@@ -202,7 +215,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
           )}
           {r && (
             <div className="titre-image pointer-events-none absolute top-4 left-5 text-[13px] font-semibold text-white">
-              Plan {r.numero} <span className="font-normal text-white/70">sur {plans.length}</span>
+              Plan {r.numero} <span className="font-normal text-white/70">{VALEURS[r.valeur ?? ""] ? `· ${VALEURS[r.valeur ?? ""]}` : `sur ${plans.length}`}</span>
             </div>
           )}
         </div>
@@ -217,10 +230,10 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
           <span className="ml-auto flex items-center gap-3">
             {longs > 0 ? (
               <Pastille ton="ambre">
-                <TriangleAlert className="size-3.5" /> {longs} image{longs > 1 ? "s restent" : " reste"} plus de {MAX_IMAGE_S} s
+                <TriangleAlert className="size-3.5" /> {longs} plan{longs > 1 ? "s restent" : " reste"} plus de {MAX_IMAGE_S} s
               </Pastille>
             ) : (
-              <Pastille ton="vert">Aucune image plus de {MAX_IMAGE_S} s</Pastille>
+              <Pastille ton="vert">Aucun plan plus de {MAX_IMAGE_S} s</Pastille>
             )}
             {bouton}
           </span>
@@ -241,10 +254,10 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
         <div className="overflow-hidden rounded-carte border border-ligne bg-carte">
           {r?.plan ? (
             <>
-              <Image chemin={imageDe(r.plan)} largeur={640} className="aspect-video" />
+              <Image chemin={imageDe(r.plan)} largeur={1280} cadre={r.cadre} className="aspect-video" />
               <div className="p-4">
                 <div className="mb-1.5 flex items-center justify-between text-[13px]">
-                  <span className="font-medium">Plan {r.numero}</span>
+                  <span className="font-medium">Plan {r.numero}{VALEURS[r.valeur ?? ""] && <span className="font-normal text-doux"> · {VALEURS[r.valeur ?? ""]}</span>}</span>
                   <span className={cx("tabular-nums", r.duree > MAX_IMAGE_S && !r.plan.bramble ? "font-semibold text-ambre-vif" : "text-doux")}>{duree(r.duree)} à l'écran</span>
                 </div>
                 <p className="line-clamp-4 text-[14px] leading-relaxed text-texte/90">{r.plan.texte || <span className="text-pale">Aucun texte dit.</span>}</p>
@@ -292,6 +305,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
                 <div className="copiable min-w-0 flex-1 text-[14px] leading-snug text-texte/90">
                   {n.texte}
                   {n.langue !== langue && <span className="ml-1.5 text-[12px] text-pale">(voix en {nomLangue(n.langue).toLowerCase()})</span>}
+                  {n.ancienne && <span className="ml-1.5 text-[12px] text-pale">(version précédente du script)</span>}
                 </div>
                 <button onClick={() => n.id && retirer(n.id)} disabled={occupe || !n.id} aria-label="Retirer la note" className="shrink-0 rounded-md p-1 text-pale opacity-0 transition-opacity group-hover:opacity-100 hover:text-rouge focus:opacity-100">
                   <Trash2 className="size-3.5" />
@@ -317,26 +331,43 @@ function Frise({ reperes, fin, t, courant, notes, aller, imageDe }: {
     if (b) aller(((e.clientX - b.left) / b.width) * fin);
   };
   const queue = fin - reperes.reduce((s, r) => s + r.duree, 0);
+  const passages: Repere[] = []; // une image par passage (ses plans se suivent dessus) : des vignettes assez larges pour se voir
+  for (const r of reperes) {
+    const d = passages[passages.length - 1];
+    if (d && d.n === r.n && Math.abs(d.debut + d.duree - r.debut) < 0.05) passages[passages.length - 1] = { ...d, duree: d.duree + r.duree };
+    else passages.push(r);
+  }
   return (
     <div className="relative mt-5 pt-3">
       {notes.map((n, i) => (
         <span key={n.id || i} className="absolute top-0 z-10 size-2 -translate-x-1/2 rounded-full bg-ambre-vif shadow-[0_0_0_2px_#0b0d10]" style={{ left: `${Math.min(100, (n.t / fin) * 100)}%` }} />
       ))}
-      <div ref={zone} onClick={cliquer} className="relative flex h-16 cursor-pointer gap-[2px] overflow-hidden rounded-[10px]">
+      <div ref={zone} onClick={cliquer} className="relative flex h-16 cursor-pointer overflow-hidden rounded-[10px] bg-[#2b333f]">
+        {passages.map((p, i) => {
+          const image = p.plan && imageDe(p.plan);
+          return image && p.duree > fin / 120 ? (
+            <img key={i} src={fichier(image, 320)} alt="" style={{ left: `${(p.debut / fin) * 100}%`, width: `${(p.duree / fin) * 100}%` }} className="absolute inset-y-0 h-full object-cover opacity-70" />
+          ) : null;
+        })}
         {reperes.map((r, i) => {
           const long = r.duree > MAX_IMAGE_S && !r.plan?.bramble;
-          const image = r.plan && imageDe(r.plan);
           return (
             <Infobulle.Root key={i}>
               <Infobulle.Trigger asChild>
-                <div style={{ flexGrow: r.duree }} className={cx("relative min-w-[2px] basis-0 overflow-hidden bg-[#2b333f]", long && "bg-ambre", i === courant && "ring-2 ring-white ring-inset")}>
-                  {image && r.duree > fin / 80 && <img src={fichier(image, 320)} alt="" className={cx("absolute inset-0 size-full object-cover", long ? "opacity-40" : "opacity-75")} />}
-                </div>
+                <div style={{ flexGrow: r.duree }} className={cx("relative min-w-px basis-0 border-r border-black/70", long && "bg-ambre/70", i === courant && "bg-white/15 ring-2 ring-white ring-inset")} />
               </Infobulle.Trigger>
               <Infobulle.Portal>
-                <Infobulle.Content sideOffset={6} className="z-50 rounded-lg border border-ligne-forte bg-carte-2 px-3 py-2 text-[12px] shadow-haut">
-                  Plan {r.numero} · {horloge(r.debut)} · {duree(r.duree)}
-                  {long && <span className="text-ambre-vif"> · trop long</span>}
+                <Infobulle.Content sideOffset={6} className="z-50 overflow-hidden rounded-lg border border-ligne-forte bg-carte-2 text-[12px] shadow-haut">
+                  {r.plan && r.cadre && (
+                    <div className="relative aspect-video w-48 overflow-hidden">
+                      <img src={fichier(imageDe(r.plan) ?? "", 640)} alt="" style={recadrer(r.cadre)} className="absolute object-cover" />
+                    </div>
+                  )}
+                  <div className="px-3 py-2">
+                    Plan {r.numero}
+                    {VALEURS[r.valeur ?? ""] && ` · ${VALEURS[r.valeur ?? ""]}`} · {horloge(r.debut)} · {duree(r.duree)}
+                    {long && <span className="text-ambre-vif"> · trop long</span>}
+                  </div>
                 </Infobulle.Content>
               </Infobulle.Portal>
             </Infobulle.Root>

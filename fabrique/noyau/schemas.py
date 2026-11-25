@@ -296,10 +296,13 @@ class ReperePlan(BaseModel):
     n: int  # le plan (id de sa première scène)
     debut: float  # secondes dans l'animatique
     duree: float  # à l'écran (voix + pause + tenue)
+    valeur: str = ""  # large, moyen, gros, bramble (découpage, étape 4) ; vide : animatique d'avant le découpage
+    cadre: list[float] = []  # [cx, cy, taille] dans l'image, au début du plan
 
 
 class NoteAnimatique(BaseModel):
     id: str = ""  # donné par le noyau à la création
+    ancienne: bool = False  # faite sur une version précédente du script : ses secondes ne tombent plus juste
     t: float  # secondes dans l'animatique
     texte: str
     langue: str
@@ -315,6 +318,7 @@ class Animatique(BaseModel):
     video: str  # vide : pas encore montée
     date: str
     fin: float  # durée de la vidéo, fin musicale comprise
+    perimee: bool = False  # montée sur une version précédente du script
     plans: list[ReperePlan]
     notes: list[NoteAnimatique]  # celles de RT sur ce script, toutes langues, dans l'ordre du temps
 
@@ -332,6 +336,7 @@ class Comparaison(BaseModel):
     plans: list[PlanEssai]  # ceux de Fabrique (4 à 8 s)
     bramble: str  # la scène dans la vidéo de Bramble Studio
     fabrique: str  # la même scène animée par Fabrique, même son
+    affiches: list[str] = []  # une image de chacune (Bramble, Fabrique), vide si absente
 
 
 class BrambleEnCours(BaseModel):

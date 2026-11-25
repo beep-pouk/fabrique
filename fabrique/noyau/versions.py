@@ -50,7 +50,7 @@ def raison(v: dict | None) -> str:
         return "en développement, pas de mise à jour"
     if not v:
         return "Fabrique est à jour"
-    return f"{taches.la(o)} est en cours : réessayer quand elle sera finie" if (o := taches.occupe()) else ""
+    return f"{taches.la(o)} est en cours : réessayer quand ce sera fini" if (o := taches.occupe()) else ""
 
 
 def etat() -> dict:

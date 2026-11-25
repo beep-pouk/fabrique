@@ -118,7 +118,12 @@ export interface PlanLu {
   bramble: boolean;
   personnages: string[];
   voix: string[];
+  decoupe?: { valeur?: string; duree: number; cadre?: number[] }[]; // ses plans dans l'animatique (étape 4)
 }
+
+// Règle de RT : aucune image plus de 15 s à l'écran ; une image découpée en plans cadrés compte plan par plan. Bramble parle : jamais trop long.
+export const VALEURS: Record<string, string> = { large: "plan large", moyen: "plan moyen", gros: "gros plan" };
+export const tropLong = (p: PlanLu) => !p.bramble && (p.decoupe?.length ? p.decoupe.some((d) => d.duree > MAX_IMAGE_S) : p.duree > MAX_IMAGE_S);
 
 export function lirePlanche(plans: Plan[], scenes: Scene[], rendus: RendusBramble | undefined, distribution: string[]): PlanLu[] {
   const parId = new Map(scenes.map((s) => [s.id, s]));

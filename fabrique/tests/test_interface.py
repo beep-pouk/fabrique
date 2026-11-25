@@ -1,5 +1,6 @@
 """L'interface de la fenêtre (0.12) : entrée par le jeton de la fenêtre seulement et en local, cookie HttpOnly SameSite=Strict, en-tête exigé
 pour agir, fichiers servis seulement sous les sessions, images réduites, vidéos par morceaux. Noms factices."""
+import os
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,11 @@ def test_rendus_de_bramble_images_videos_et_voix_par_scene(tmp_path, monkeypatch
     assert list(r["images"]) == [2] and [v["langue"] for v in r["videos"]] == ["en"] and r["langues"] == ["en", "zz"]
     assert r["durees"] == {1: 2.5, 2: 1.0} and r["voix"][1].endswith("s001.wav")
     assert bramble.rendus("x1e01", "zz")["durees"] == {1: 3.0}
+    for d in (base, autre):  # Bramble parle : son clip, seulement s'il est fait sur la voix actuelle
+        (d / "bramble").mkdir()
+        (d / "bramble" / "s001.mp4").write_bytes(b"mp4")
+    os.utime(autre / "bramble" / "s001.mp4", (1, 1))
+    assert list(bramble.rendus("x1e01")["levres"]) == [1] and bramble.rendus("x1e01", "zz")["levres"] == {}
     (base / "voix" / "abime.wav").write_bytes(b"RIFF")
     assert bramble.duree_wav(base / "voix" / "abime.wav") == 0.0
     coupe = base / "voix" / "coupe.wav"
@@ -189,7 +195,9 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     video = animatique.faire(s, "x1e01", "en", contenu, avancer=lambda f, t: vus.append((f, t)))
     e = animatique.etat(s, "x1e01", "en")
     assert e["etat"] == "faite" and e["video"] == str(video) and vus[-1] == (3, 4)
-    assert e["plans"] == [{"n": 1, "debut": 0.0, "duree": 1.5}, {"n": 2, "debut": 1.5, "duree": 1.0}, {"n": 1, "debut": 2.5, "duree": 1.0}]
+    large = {"valeur": "large", "cadre": [0.5, 0.5, 1.0]}
+    assert e["plans"] == [{"n": 1, "debut": 0.0, "duree": 1.5, **large}, {"n": 2, "debut": 1.5, "duree": 1.0, "valeur": "bramble", "cadre": [0.5, 0.5, 1.0]},
+                          {"n": 1, "debut": 2.5, "duree": 1.0, **large}]
     assert abs(e["fin"] - 3.5) < 0.2 and not (video.parent / "_travail").exists()
     animatique.noter_a(s, "x1e01", 2.04, "  le chat   arrive trop tôt ", "en")
     animatique.noter_a(s, "x1e01", 0.5, "début", "zz")
@@ -208,23 +216,69 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     with pytest.raises(Refus, match="langue"):
         animatique.verifier_langue("../x")
     (base / "voix" / "s003.wav").unlink()
-    with pytest.raises(Refus, match="voix en en ne sont pas encore faites pour 1 scène"):
+    with pytest.raises(Refus, match=r"voix de cette langue ne sont pas encore toutes faites \(1 scène sans voix\)"):
         animatique.faire(s, "x1e01", "en", contenu)
 
 
-def test_essai_d_animation_depose_puis_liste(tmp_path):
+def test_decoupage_plans_de_4_a_8_s_cadres_sur_les_personnages(tmp_path):
+    """Étape 4 : un passage d'une même image est coupé en plans de 4 à 8 s (entre scènes, sinon entre phrases), large puis moyen et gros plan
+    sur le personnage que la scène nomme (calques de Bramble), mouvement continu d'une scène à l'autre ; filmé à la bonne durée."""
+    import json
+    import subprocess
+
+    from fabrique import dossiers, garde
+    from fabrique.moteur import decoupage, faux
+    from fabrique.moteur.f1.outils import Lieux, Outils
+
+    img = tmp_path / "images" / "plan_001.png"
+    img.parent.mkdir()
+    subprocess.run([faux.programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x5c8048:s=320x180", "-frames:v", "1", str(img)],
+                   check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    assert decoupage.personnages(img) == []  # sans calques : cadres centrés
+    meta = tmp_path / "calques" / "plan_001" / "meta.json"
+    meta.parent.mkdir(parents=True)
+    meta.write_text(json.dumps({"largeur": 320, "hauteur": 180, "noms": ["Pip", "Moss", "Fern"], "calques": [
+        {"x0": 20, "y0": 40, "x1": 100, "y1": 180}, {"x0": 200, "y0": 20, "x1": 300, "y1": 180, "yeux": True}, {"x0": 0, "y0": 150, "x1": 160, "y1": 180}]}),
+        encoding="utf-8")
+    from PIL import Image
+    yeux = Image.new("L", (100, 160))
+    yeux.paste(255, (40, 60, 60, 70))  # les yeux de Moss, dans sa boîte
+    yeux.save(meta.parent / "yeux_1.png")
+    pip, moss, couche = decoupage.personnages(img)
+    assert (pip["nom"], moss["nom"], couche["visage"]) == ("Pip", "Moss", None)  # couché, sans yeux : visage inconnu
+    assert moss["visage"] == (250 / 320, 85 / 180) and pip["visage"][1] < 0.5
+    sc = [{"id": 1, "_source": str(img), "_duree": 13.0, "_voix": 12.0, "image": "Moss waves at Pip", "narration": "Un. Deux deux. Trois trois trois."},
+          {"id": 2, "_source": str(img), "_duree": 9.0, "_voix": 8.0, "narration": "Quatre."},
+          {"id": 3, "bramble": "pose", "_source": "pose.png", "_duree": 20.0, "_voix": 19.0}, {"id": 4, "_source": str(img), "_duree": 2.0, "_voix": 1.0}]
+    ps = decoupage.decouper(sc)
+    assert all(4 <= p["duree"] <= 8 for p in ps[:-2]) and [p["valeur"] for p in ps] == ["large", "moyen", "gros", "moyen", "bramble", "large"]
+    assert ps[2]["de"][0] > 0.5  # le gros plan sur Moss, que la scène nomme en premier (à droite)
+    assert [round(sum(m["duree"] for m in s["_plans"]), 6) for s in sc] == [13.0, 9.0, 20.0, 2.0]
+    court = [{"id": 5, "_source": "y.png", "_duree": 2.0, "_voix": 1.5}, {"id": 6, "_source": "y.png", "_duree": 9.0, "_voix": 8.0}]
+    assert [p["duree"] for p in decoupage.decouper(court)] == [6.0, 5.0]  # un plan à cheval sur deux scènes : son mouvement continue
+    assert court[0]["_plans"][-1]["a"] == court[1]["_plans"][0]["de"] != court[0]["_plans"][0]["de"]
+    o = Outils(Lieux(garde.studio_bramble() or dossiers.racine().parent, tmp_path))  # comme l'animatique
+    v = decoupage.filmer(o.run, o.ffmpeg, img, sc[1]["_plans"], tmp_path / "s002.mp4", 320, 180, 12)
+    assert abs(o.duree(v) - 9.0) < 0.1
+
+
+def test_essai_d_animation_depose_puis_liste(tmp_path, monkeypatch):
     """Étape 2 : Claude dépose la scène animée et celle de Bramble ; copiées dans la session, listées pour l'écran Épisode ; demande mal formée refusée."""
     from types import SimpleNamespace
 
+    from fabrique import garde
     from fabrique.moteur import comparaison
 
+    monkeypatch.setattr(garde, "studio_bramble", lambda: tmp_path)  # les vidéos viennent du studio, jamais d'ailleurs
     s = SimpleNamespace(id="sx", dossier="comparaison_factice")
     (tmp_path / "b.mp4").write_bytes(b"b")
     (tmp_path / "f.mp4").write_bytes(b"f")
     demande = {"titre": "Scène factice", "bramble": str(tmp_path / "b.mp4"), "fabrique": str(tmp_path / "f.mp4"), "plans": [{"debut": 0, "duree": 4.5}, {"debut": 4.5, "duree": 6}]}
     assert "2 plans" in comparaison.deposer(s, "x1e01", demande)
     (e,) = comparaison.lister(s, "x1e01")
-    assert e["titre"] == "Scène factice" and e["duree"] == 10.5 and Path(e["fabrique"]).read_bytes() == b"f" and Path(e["bramble"]).parent.parent.name == "x1e01"
-    for mauvais in ({**demande, "fabrique": str(tmp_path / "f.txt")}, {**demande, "plans": []}, {**demande, "plans": [{"debut": -1, "duree": 2}]}, {**demande, "titre": ""}):
+    assert e["titre"] == "Scène factice" and e["duree"] == 10.5 and Path(e["fabrique"]).read_bytes() == b"f" and Path(e["bramble"]).parent.parent.name == "x1e01" and e["affiches"] == ["", ""]
+    for mauvais in ({**demande, "fabrique": str(tmp_path / "f.txt")}, {**demande, "plans": []}, {**demande, "plans": [{"debut": -1, "duree": 2}]}, {**demande, "titre": ""},
+                    {**demande, "plans": [{"debut": 0, "duree": float("inf")}]}, {**demande, "plans": [{"debut": True, "duree": 2}]},
+                    {**demande, "plans": [{"debut": 0, "duree": 0}]}, {**demande, "fabrique": r"\\hote\partage\f.mp4"}, {**demande, "fabrique": "f.mp4"}):
         with pytest.raises(ValueError):
             comparaison.deposer(s, "x1e01", mauvais)

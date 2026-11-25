@@ -332,8 +332,8 @@ def animatique_(request, id: str, code: str, langue: str = "en"):
     from fabrique.moteur import animatique
 
     s = session_(id)
-    animatique.contenu_du_script(s, code)  # un script connu : son code entre dans des noms de fichiers
-    return animatique.etat(s, code, animatique.verifier_langue(langue))
+    version = animatique.contenu_du_script(s, code)["_version"]  # un script connu : son code entre dans des noms de fichiers
+    return animatique.etat(s, code, animatique.verifier_langue(langue), version)
 
 
 @api.post("/sessions/{id}/scripts/{code}/animatique", response=schemas.Message)
@@ -353,8 +353,7 @@ def noter_animatique(request, id: str, code: str, note: schemas.NoteAnimatique):
     from fabrique.moteur import animatique
 
     s = session_(id)
-    animatique.contenu_du_script(s, code)
-    animatique.noter_a(s, code, note.t, note.texte, note.langue)
+    animatique.noter_a(s, code, note.t, note.texte, note.langue, animatique.contenu_du_script(s, code)["_version"])
     return {"message": "Note ajoutée."}
 
 
@@ -911,7 +910,7 @@ def restaurer(request, nom: str):
     file.suspendue.set()  # d'abord : la file ne lance plus rien pendant que les bases sont remplacées
     try:
         if o := taches.occupe():
-            raise Refus(f"{taches.la(o)} est en cours : restaurer quand elle sera finie")
+            raise Refus(f"{taches.la(o)} est en cours : restaurer quand ce sera fini")
         message = sauvegarde.restaurer(nom)
     finally:
         file.suspendue.clear()

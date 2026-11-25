@@ -4,8 +4,8 @@ import * as Onglets from "@radix-ui/react-tabs";
 import * as Infobulle from "@radix-ui/react-tooltip";
 import { ArrowLeft, CalendarDays, Check, ChevronDown, Clapperboard, Clock3, Film, Images, Languages, LayoutGrid, Mic, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fichier, useLire, type Comparaison, type Personnage, type RendusBramble, type ScriptDetail } from "../api";
-import { dateLongue, duree, horloge, imageEpisode, lirePlanche, MAX_IMAGE_S, nomLangue, type PlanLu } from "../outils";
+import { fichier, useLire, type Animatique as EtatAnimatique, type Comparaison, type Personnage, type RendusBramble, type ScriptDetail } from "../api";
+import { dateLongue, duree, horloge, imageEpisode, lirePlanche, MAX_IMAGE_S, nomLangue, tropLong, VALEURS, type PlanLu } from "../outils";
 import { useStudio } from "../studio";
 import { Avatar, BoutonEcoute, Bouton, cx, Erreur, Image, Pastille, Squelette, Vide } from "../ui";
 import { Animatique } from "./Animatique";
@@ -26,12 +26,20 @@ export function Episode({ session, code, onglet: demande }: { session: string; c
   }, [onglet, demande, !!script]); // une fois le script lu : la page a sa hauteur
 
   const narrateur = univers?.personnages.find((p) => p.voix.length);
-  const plans = useMemo(
-    () => (script ? lirePlanche(script.plans, script.contenu.scenes ?? [], rendus, distribution) : []),
-    [script, rendus, distribution],
-  );
-  const total = plans.reduce((t, p) => t + p.duree, 0);
-  const longs = plans.filter((p) => p.duree > MAX_IMAGE_S && !p.bramble).length;
+  const { donnees: anim } = useLire<EtatAnimatique>(`/sessions/${encodeURIComponent(session)}/scripts/${encodeURIComponent(code)}/animatique?langue=${encodeURIComponent(voixDe)}`);
+  const plans = useMemo(() => {
+    const lus = script ? lirePlanche(script.plans, script.contenu.scenes ?? [], rendus, distribution) : [];
+    const coupes = new Map<number, NonNullable<EtatAnimatique["plans"]>>(); // l'animatique montée : vraies durées à l'écran (pauses et tenues comprises) et découpage
+    for (const r of anim?.plans ?? []) coupes.set(r.n, [...(coupes.get(r.n) ?? []), r]);
+    return coupes.size
+      ? lus.map((p) => {
+          const c = coupes.get(p.n);
+          return c ? { ...p, debut: c[0].debut, duree: c.reduce((s, r) => s + r.duree, 0), estimee: false, decoupe: c[0].valeur ? c : undefined } : p;
+        })
+      : lus;
+  }, [script, rendus, distribution, anim]);
+  const total = anim?.plans.length ? anim.plans.reduce((t, r) => t + r.duree, 0) : plans.reduce((t, p) => t + p.duree, 0);
+  const longs = plans.filter(tropLong).length;
   const presents = distribution.filter((n) => plans.some((p) => p.personnages.includes(n)) && n !== narrateur?.nom);
   const numero = /e(\d+)$/i.exec(code)?.[1];
 
@@ -104,7 +112,7 @@ export function Episode({ session, code, onglet: demande }: { session: string; c
               { id: "planche", nom: "Planche", icone: LayoutGrid },
               { id: "animatique", nom: "Animatique", icone: Clapperboard },
               { id: "video", nom: "Vidéo", icone: Film },
-            ].map((o) => (
+            ].filter((o) => o.id !== "animatique" || !script || script.plans.length > 0).map((o) => ( // un format sans plans n'a pas d'animatique
               <Onglets.Trigger
                 key={o.id}
                 value={o.id}
@@ -125,7 +133,7 @@ export function Episode({ session, code, onglet: demande }: { session: string; c
               ))}
             </div>
           ) : plans.length ? (
-            <Planche plans={plans} total={total} longs={longs} portraits={portraits} narrateur={narrateur} />
+            <Planche plans={plans} total={total} longs={longs} portraits={portraits} narrateur={narrateur} animatique={!!anim?.plans.length} />
           ) : (
             <Vide icone={<LayoutGrid className="size-5" />} titre="Pas encore de planche" texte="La planche se construit à partir du script : elle apparaîtra dès qu'il sera prêt." />
           )}
@@ -176,7 +184,7 @@ function imagePlan(p: PlanLu, narrateur?: Personnage): string | undefined {
   return pose && portrait ? portrait.replace(/reference\.png$/i, `poses\\${pose}.png`) : portrait;
 }
 
-function Planche({ plans, total, longs, portraits, narrateur }: { plans: PlanLu[]; total: number; longs: number; portraits: Record<string, string>; narrateur?: Personnage }) {
+function Planche({ plans, total, longs, portraits, narrateur, animatique }: { plans: PlanLu[]; total: number; longs: number; portraits: Record<string, string>; narrateur?: Personnage; animatique: boolean }) {
   const [ouvert, setOuvert] = useState<PlanLu | null>(null);
   const estimee = plans.some((p) => p.estimee);
   return (
@@ -184,7 +192,7 @@ function Planche({ plans, total, longs, portraits, narrateur }: { plans: PlanLu[
       <div className="mb-7 rounded-carte border border-ligne bg-carte p-5">
         <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="text-[14px] font-medium">
-            Rythme de l'épisode <span className="ml-2 font-normal text-doux">{estimee ? "durées estimées d'après le texte" : "durées des voix"}</span>
+            Rythme de l'épisode <span className="ml-2 font-normal text-doux">{animatique ? "durées de l'animatique" : estimee ? "durées estimées d'après le texte" : "durées des voix"}</span>
           </div>
           {longs > 0 ? (
             <Pastille ton="ambre">
@@ -205,18 +213,19 @@ function Planche({ plans, total, longs, portraits, narrateur }: { plans: PlanLu[
                   style={{ flexGrow: p.duree }}
                   className={cx(
                     "relative min-w-[3px] basis-0 overflow-hidden transition-[filter] hover:brightness-125",
-                    p.duree > MAX_IMAGE_S && !p.bramble ? "bg-ambre" : p.bramble ? "bg-[#3a4a66]" : "bg-[#2b333f]",
+                    tropLong(p) ? "bg-ambre" : p.bramble ? "bg-[#3a4a66]" : "bg-[#2b333f]",
                   )}
                 >
                   {p.image && !p.bramble && p.duree > total / 60 && (
-                    <img src={fichier(p.image, 320)} alt="" className={cx("absolute inset-0 size-full object-cover", p.duree > MAX_IMAGE_S ? "opacity-35" : "opacity-60")} />
+                    <img src={fichier(p.image, 320)} alt="" className={cx("absolute inset-0 size-full object-cover", tropLong(p) ? "opacity-35" : "opacity-60")} />
                   )}
                 </button>
               </Infobulle.Trigger>
               <Infobulle.Portal>
                 <Infobulle.Content sideOffset={6} className="z-50 rounded-lg border border-ligne-forte bg-carte-2 px-3 py-2 text-[12px] shadow-haut">
                   Plan {p.numero} · {horloge(p.debut)} · {duree(p.duree)}
-                  {p.duree > MAX_IMAGE_S && !p.bramble && <span className="text-ambre-vif"> · trop long</span>}
+                  {p.decoupe && p.decoupe.length > 1 && ` · ${p.decoupe.length} plans cadrés`}
+                  {tropLong(p) && <span className="text-ambre-vif"> · trop long</span>}
                 </Infobulle.Content>
               </Infobulle.Portal>
             </Infobulle.Root>
@@ -261,10 +270,26 @@ function Planche({ plans, total, longs, portraits, narrateur }: { plans: PlanLu[
                       <p className="copiable text-[14px] leading-relaxed text-doux">{ouvert.description}</p>
                     </div>
                   )}
+                  {ouvert.decoupe && ouvert.decoupe.length > 1 && (
+                    <div className="mt-6">
+                      <div className="mb-2.5 text-[12px] font-semibold tracking-[0.1em] text-pale uppercase">Découpage en plans</div>
+                      <div className="flex flex-wrap gap-3">
+                        {ouvert.decoupe.map((d, i) => (
+                          <figure key={i} className="w-[172px]">
+                            <Image chemin={imagePlan(ouvert, narrateur)} largeur={640} cadre={d.cadre} className="aspect-video rounded-[10px] ring-1 ring-ligne" />
+                            <figcaption className="mt-1.5 flex justify-between text-[12px] text-doux">
+                              <span>{VALEURS[d.valeur ?? ""] ?? "plan"}</span>
+                              <span className={cx("tabular-nums", d.duree > MAX_IMAGE_S && "font-semibold text-ambre-vif")}>{duree(d.duree)}</span>
+                            </figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-4 text-[13px]">
                   <Info nom="Début" valeur={horloge(ouvert.debut)} />
-                  <Info nom="Durée" valeur={`${duree(ouvert.duree)}${ouvert.estimee ? " (estimée)" : ""}`} alerte={ouvert.duree > MAX_IMAGE_S && !ouvert.bramble} />
+                  <Info nom="Durée" valeur={`${duree(ouvert.duree)}${ouvert.estimee ? " (estimée)" : ""}`} alerte={tropLong(ouvert)} />
                   <Info nom="Scènes" valeur={ouvert.scenes.map((s) => s.id).join(", ")} />
                   {ouvert.personnages.length > 0 && (
                     <div>
@@ -298,7 +323,7 @@ function Info({ nom, valeur, alerte }: { nom: string; valeur: string; alerte?: b
 }
 
 function CartePlan({ plan: p, image, portraits, ouvrir }: { plan: PlanLu; image?: string; portraits: Record<string, string>; ouvrir(): void }) {
-  const long = p.duree > MAX_IMAGE_S && !p.bramble;
+  const long = tropLong(p);
   return (
     <div id={`plan-${p.n}`} className="group flex scroll-mt-24 flex-col overflow-hidden rounded-carte border border-ligne bg-carte transition-colors hover:border-ligne-forte">
       <button onClick={ouvrir} className="relative block text-left outline-none">
@@ -314,6 +339,7 @@ function CartePlan({ plan: p, image, portraits, ouvrir }: { plan: PlanLu; image?
         >
           {p.estimee && "≈ "}
           {duree(p.duree)}
+          {p.decoupe && p.decoupe.length > 1 && <span className="font-normal opacity-80"> · {p.decoupe.length} plans</span>}
         </span>
       </button>
       <div className="flex flex-1 flex-col p-4">

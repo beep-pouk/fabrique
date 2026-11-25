@@ -52,7 +52,7 @@ function CoteACote({ e }: { e: Essai }) {
       const d = droite.current;
       const g = gauche.current;
       if (d && g) {
-        if (Math.abs(g.currentTime - d.currentTime) > 0.08) g.currentTime = d.currentTime; // une seule horloge : celle de Fabrique (le son)
+        if (!g.seeking && Math.abs(g.currentTime - d.currentTime) > 0.25) g.currentTime = d.currentTime; // une seule horloge : celle de Fabrique (le son) ; un recalage à la fois
         setT(d.currentTime);
       }
       id = requestAnimationFrame(pas);
@@ -84,18 +84,19 @@ function CoteACote({ e }: { e: Essai }) {
         {[
           { ref: gauche, src: e.bramble, nom: "Bramble Studio", sous: "images fixes et calques", muet: true },
           { ref: droite, src: e.fabrique, nom: "Fabrique", sous: "personnages animés", muet: false },
-        ].map((c) => (
+        ].map((c, i) => (
           <figure key={c.nom} className="relative overflow-hidden rounded-[14px] bg-black ring-1 ring-ligne">
             <video
               ref={c.ref}
               src={`${fichier(c.src)}#t=0.1`} // une image dès l'ouverture, avant la lecture
+              poster={e.affiches?.[i] ? fichier(e.affiches[i], 960) : undefined}
               muted={c.muet}
               preload="auto"
               playsInline
               onClick={basculer}
               onPlay={() => !c.muet && setJoue(true)}
               onPause={() => !c.muet && setJoue(false)}
-              onEnded={() => !c.muet && setJoue(false)}
+              onEnded={() => !c.muet && (gauche.current?.pause(), setJoue(false))}
               className="aspect-video w-full cursor-pointer bg-black"
             />
             <figcaption className="titre-image pointer-events-none absolute top-3 left-4 text-[13px] font-semibold text-white">

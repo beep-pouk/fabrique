@@ -185,6 +185,7 @@ export interface Comparaison {
   plans: { debut: number; duree: number }[];
   bramble: string;
   fabrique: string;
+  affiches: string[];
 }
 
 export interface Animatique {
@@ -196,8 +197,9 @@ export interface Animatique {
   video: string;
   date: string;
   fin: number;
-  plans: { n: number; debut: number; duree: number }[];
-  notes: { id: string; t: number; texte: string; langue: string; date: string }[];
+  plans: { n: number; debut: number; duree: number; valeur?: string; cadre?: number[] }[]; // valeur et cadre : découpage (étape 4)
+  notes: { id: string; t: number; texte: string; langue: string; date: string; ancienne?: boolean }[];
+  perimee?: boolean; // montée sur une version précédente du script
 }
 
 export interface Reference {

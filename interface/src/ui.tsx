@@ -53,7 +53,8 @@ export function Pastille({ ton = "neutre", children, className }: { ton?: keyof 
 }
 
 /** Une image du disque, réduite à `largeur` par le noyau ; un reflet pendant le chargement, un repère sobre si elle manque. */
-export function Image({ chemin, largeur = 640, className, alt = "", position }: { chemin?: string; largeur?: number; className?: string; alt?: string; position?: string }) {
+// cadre : [cx, cy, taille] en fractions de l'image (le plan que le découpage y cadre), affiché tel quel
+export function Image({ chemin, largeur = 640, className, alt = "", position, cadre }: { chemin?: string; largeur?: number; className?: string; alt?: string; position?: string; cadre?: number[] }) {
   const [etat, setEtat] = useState<"charge" | "ok" | "erreur">(chemin ? "charge" : "erreur");
   useEffect(() => setEtat(chemin ? "charge" : "erreur"), [chemin]);
   return (
@@ -72,8 +73,8 @@ export function Image({ chemin, largeur = 640, className, alt = "", position }: 
           draggable={false}
           onLoad={() => setEtat("ok")}
           onError={() => setEtat("erreur")}
-          style={position ? { objectPosition: position } : undefined}
-          className={cx("absolute inset-0 size-full object-cover transition-opacity duration-500", etat === "ok" ? "opacity-100" : "opacity-0")}
+          style={cadre?.length === 3 ? recadrer(cadre) : position ? { objectPosition: position } : undefined}
+          className={cx("absolute object-cover transition-opacity duration-500", cadre?.length !== 3 && "inset-0 size-full", etat === "ok" ? "opacity-100" : "opacity-0")}
         />
       )}
     </div>
@@ -213,3 +214,5 @@ export function Avatar({ chemin, nom, taille = 28, className }: { chemin?: strin
     </span>
   );
 }
+
+export const recadrer = ([cx, cy, s]: number[]) => ({ width: `${100 / s}%`, height: `${100 / s}%`, left: `${(-(cx - s / 2) / s) * 100}%`, top: `${(-(cy - s / 2) / s) * 100}%` });

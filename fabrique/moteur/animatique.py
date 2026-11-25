@@ -36,42 +36,55 @@ def dossier(s) -> Path:
 
 def verifier_langue(langue: str) -> str:
     if not LANGUE.fullmatch(langue):
-        raise Refus(f"langue inconnue : {langue[:20]}")
+        raise Refus("langue inconnue")
     return langue
 
 
 def contenu_du_script(s, code: str) -> dict:
-    """Le contenu de la dernière version du script `code` ; refus si le code n'a pas la forme d'un code de script ou s'il est inconnu."""
+    """Le contenu de la dernière version du script `code` (son numéro en `_version`) ; refus si le code n'a pas la forme d'un code de script ou
+    s'il est inconnu."""
     from fabrique.noyau import routeur
     from fabrique.session import models as m
 
     if not CODE.fullmatch(code):
-        raise Refus(f"script inconnu : {code[:40]}")
+        raise Refus("script inconnu")
     with routeur.session(s):
         sc = m.Script.objects.filter(code=code).first()
         v = sc.versions.order_by("-numero").first() if sc else None
     if v is None:
-        raise Refus(f"script inconnu : {code}")
-    return v.contenu
+        raise Refus("script inconnu")
+    return {**v.contenu, "_version": v.numero}
 
 
-def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: None) -> Path:
-    """Monte l'animatique de `code` en `langue` ; rend la vidéo. Refus si une voix manque ou si aucune image n'est rendue."""
-    from fabrique.moteur.f1 import montage
-    from fabrique.moteur.f1.outils import Lieux, Outils, ids_entiers
-    from fabrique.moteur.f1.refaire import planche
+def pret(code: str, langue: str, contenu: dict) -> tuple[list[dict], dict]:
+    """Les scènes (ids entiers) et les rendus de Bramble ; refus en clair si les voix ou les images manquent (avant de lancer la tâche)."""
+    from fabrique.moteur.f1.outils import ids_entiers
     from fabrique.session import bramble
 
     scenes = [dict(sc) for sc in contenu.get("scenes", [])]
     if not scenes:
         raise Refus("ce script n'a pas encore de scènes")
-    ids_entiers(scenes, code)
+    try:
+        ids_entiers(scenes, code)
+    except ValueError:
+        raise Refus("les scènes de ce script sont mal numérotées") from None
     r = bramble.rendus(code, langue)
     if manque := [sc["id"] for sc in scenes if sc["id"] not in r["voix"]]:
-        raise Refus(f"les voix en {langue} ne sont pas encore faites pour {len(manque)} scène(s) (la première : {manque[0]})")
-    images = {int(n): Path(f) for n, f in r["images"].items()}
-    if not images:
+        raise Refus(f"les voix de cette langue ne sont pas encore toutes faites ({len(manque)} scène{'s' if len(manque) > 1 else ''} sans voix)")
+    if not r["images"]:
         raise Refus("aucune image n'est encore rendue pour ce script")
+    return scenes, r
+
+
+def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: None) -> Path:
+    """Monte l'animatique de `code` en `langue` ; rend la vidéo. Refus si une voix manque ou si aucune image n'est rendue."""
+    from fabrique.moteur import decoupage
+    from fabrique.moteur.f1 import montage
+    from fabrique.moteur.f1.outils import Lieux, Outils
+    from fabrique.moteur.f1.refaire import planche
+
+    scenes, r = pret(code, langue, contenu)
+    images = {int(n): Path(f) for n, f in r["images"].items()}
     session = settings.SESSIONS / s.dossier
     sortie = dossier(s) / f"{code}.{langue}"
     travail = sortie / "_travail"
@@ -92,32 +105,38 @@ def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: N
         for i, sc in enumerate(scenes):  # une scène sans image rendue garde celle d'avant, comme la planche ; une scène de Bramble : sa pose
             precedente = par_scene.get(sc["id"], precedente)
             pose = o.poses / f"{sc['bramble']}.png" if sc.get("bramble") else None
-            sc["_source"] = str(pose if pose and pose.is_file() else precedente)
+            levres = r["levres"].get(sc["id"]) if sc.get("bramble") else None  # Bramble parle : ses lèvres, sinon sa pose
+            sc["_source"] = str(levres or (pose if pose and pose.is_file() else precedente))
             sc["_ep_debut"], sc["_ep_fin"] = i == 0, i == len(scenes) - 1
         cfg = json.loads((session / "reglages" / "config.json").read_text(encoding="utf-8"))
         cfg = {**cfg, "sortie": {**cfg["sortie"], **APERCU}, "montage": {}}  # ni étalonnage ni grain : un aperçu
         m = montage.Montage(travail, cfg, o)
         total = m.durees(scenes)
+        decoupes = decoupage.decouper(scenes)  # plans de 4 à 8 s cadrés dans l'image : jamais une image tenue plus de 15 s
+        (travail / "plans").mkdir()
+        so = cfg["sortie"]
         for k, sc in enumerate(scenes):
+            if not sc.get("bramble") and any(p["de"] != p["a"] or p["de"][2] < 1 for p in sc["_plans"]):
+                sc["_source"] = str(decoupage.filmer(o.run, o.ffmpeg, Path(sc["_source"]), sc["_plans"], travail / "plans" / f"s{sc['id']:03d}.mp4",
+                                                     so["largeur"], so["hauteur"], so["fps"]))
             segment = travail / "montage" / f"s{sc['id']:03d}.mp4"
             m.segment(sc, segment)
             sc["_reel"] = o.duree(segment)  # les images entières et le son arrondissent : la frise suit la vidéo, pas la théorie
             avancer(k + 1, len(scenes) + 1)
         fini = m.monter({"title": "animatique"}, scenes)
         plan_de = {i: p["n"] for p in plans for i in p["scenes"]}
-        reperes, t = [], 0.0  # dans l'ordre des scènes : un plan coupé par une réplique de Bramble fait deux passages à l'écran
+        bornes, th, re_ = [], 0.0, 0.0  # temps du découpage (théorique) → temps de la vidéo (segments mesurés)
         for sc in scenes:
-            n = plan_de.get(sc["id"], sc["id"])
-            if reperes and reperes[-1]["n"] == n:
-                reperes[-1]["duree"] += sc["_reel"]
-            else:
-                reperes.append({"n": n, "debut": t, "duree": sc["_reel"]})
-            t += sc["_reel"]
-        reperes = [{**r, "debut": round(r["debut"], 3), "duree": round(r["duree"], 3)} for r in reperes]
+            bornes.append((th, re_, sc["_duree"], sc["_reel"]))
+            th, re_ = th + sc["_duree"], re_ + sc["_reel"]
+        reel = lambda x: next((r0 + min(max(x - t0, 0.0), r) for t0, r0, d, r in bornes if x < t0 + d - 1e-6), re_)  # noqa: E731
+        reperes = [{"n": plan_de.get(p["scene"], p["scene"]), "debut": round(reel(p["debut"]), 3), "duree": round(reel(p["debut"] + p["duree"]) - reel(p["debut"]), 3),
+                    "valeur": p["valeur"], "cadre": p["de"]} for p in decoupes]
         video = sortie / f"animatique_{datetime.now():%Y%m%d_%H%M%S}.mp4"  # un nom neuf : l'ancienne peut être en lecture dans la fenêtre
         os.replace(fini, video)
         (sortie / "plans.json").write_text(json.dumps({"video": video.name, "date": datetime.now().isoformat(timespec="minutes"), "total": round(total, 3),
-                                                       "fin": round(o.duree(video), 3), "plans": reperes}, ensure_ascii=False), encoding="utf-8")
+                                                       "fin": round(o.duree(video), 3), "plans": reperes,
+                                                       "version": contenu.get("_version", 0)}, ensure_ascii=False), encoding="utf-8")
     finally:
         shutil.rmtree(travail, ignore_errors=True)  # le montage ne reprend rien : rien à garder, même après un échec
     for f in sortie.glob("animatique_*.mp4"):
@@ -135,8 +154,15 @@ def lancer(s, code: str, langue: str, acteur: str) -> str:
 
     if taches.occupe(TACHE):
         raise Refus("une animatique est déjà en train de se monter : relancer celle-ci quand elle sera finie")
-    taches.ecrire(TACHE, {"etat": "en_cours", "pid": 0, "lancee": datetime.now().isoformat(timespec="seconds"), "session": s.id, "code": code, "langue": langue})
-    programme.lancer_detache("executer", TACHE, s.id, code, langue, journal=dossiers.donnees() / "journaux" / "sortie_animatique.log")
+    pret(code, langue, contenu_du_script(s, code))  # voix ou images qui manquent : dit tout de suite, sans lancer la tâche
+    e = {"etat": "en_cours", "pid": 0, "lancee": datetime.now().isoformat(timespec="seconds"), "session": s.id, "code": code, "langue": langue}
+    taches.ecrire(TACHE, e)
+    try:
+        programme.lancer_detache("executer", TACHE, s.id, code, langue, journal=dossiers.donnees() / "journaux" / "sortie_animatique.log")
+    except Exception:  # noqa: BLE001 — sinon la tâche resterait « en cours » une minute (mise à jour et restauration refusées)
+        log.exception("animatique non lancée")
+        taches.ecrire(TACHE, {**e, "etat": "erreur", "message": "le montage n'a pas pu démarrer (détail dans le journal de Fabrique)"})
+        raise Refus("le montage n'a pas pu démarrer : réessayer dans un instant") from None
     noter(acteur, TACHE, session=s.id, code=code, langue=langue)
     return "L'animatique se monte : quelques minutes."
 
@@ -154,18 +180,20 @@ def executer(session_id: str = "", code: str = "", langue: str = "") -> int:
     taches.ecrire(TACHE, e)
     try:
         s = Session.objects.get(id=session_id)
+        for w in dossier(s).glob("*/_travail"):  # un montage tué (PC éteint) laisse le sien ; une seule animatique à la fois
+            shutil.rmtree(w, ignore_errors=True)
         video = faire(s, code, verifier_langue(langue), contenu_du_script(s, code), avancer=lambda f, t: taches.ecrire(TACHE, {**e, "fait": f, "tout": t}))
     except Exception as x:  # noqa: BLE001 — dite à RT (écran Épisode), le détail dans le journal
         log.exception("animatique ratée")
         taches.ecrire(TACHE, {**e, "etat": "erreur", "fin": datetime.now().isoformat(timespec="seconds"),
-                              "message": str(x)[:300] if isinstance(x, (Refus, ValueError)) else "le montage a échoué (détail dans le journal de Fabrique)"})
+                              "message": str(x)[:300] if isinstance(x, Refus) else "le montage a échoué (détail dans le journal de Fabrique)"})
         return 1
     taches.ecrire(TACHE, {**e, "etat": "faite", "fin": datetime.now().isoformat(timespec="seconds")})
     print(f"animatique faite : {video}")
     return 0
 
 
-def etat(s, code: str, langue: str) -> dict:
+def etat(s, code: str, langue: str, version: int = 0) -> dict:
     """Pour l'écran Épisode : où en est l'animatique de `code` en `langue`, sa vidéo et ses repères s'il y en a une, les notes de RT."""
     from fabrique.noyau import taches
 
@@ -183,7 +211,8 @@ def etat(s, code: str, langue: str) -> dict:
     return {"etat": "en_cours" if en_cours else "erreur" if ici and (morte or t.get("etat") == "erreur") else "faite" if p else "absente",
             "message": message, "fait": t.get("fait", 0) if en_cours else 0, "tout": t.get("tout", 0) if en_cours else 0,
             "autre": bool(vivante and not ici), "video": str(sortie / p["video"]) if p else "", "date": p.get("date", ""),
-            "fin": p.get("fin", 0.0), "plans": p.get("plans", []), "notes": lire_notes(s, code)}
+            "fin": p.get("fin", 0.0), "plans": p.get("plans", []), "perimee": bool(p) and p.get("version", 0) != version,
+            "notes": [{**n, "ancienne": n.get("version", 0) != version} for n in lire_notes(s, code)]}
 
 
 def _fichier_notes(s, code: str) -> Path:
@@ -193,16 +222,22 @@ def _fichier_notes(s, code: str) -> Path:
 def lire_notes(s, code: str, strict: bool = False) -> list[dict]:
     """Les notes du script ; `strict` (avant d'écrire) : un fichier illisible est refusé au lieu d'être pris pour vide (il serait écrasé)."""
     try:
-        return json.loads(_fichier_notes(s, code).read_text(encoding="utf-8"))
+        notes = json.loads(_fichier_notes(s, code).read_text(encoding="utf-8"))
+        if not isinstance(notes, list) or not all(isinstance(n, dict) and isinstance(n.get("t"), (int, float)) and isinstance(n.get("texte"), str)
+                                                  and isinstance(n.get("langue"), str) for n in notes):
+            raise ValueError("forme inattendue")
+        return notes
     except FileNotFoundError:
         return []
     except (OSError, ValueError):
         if strict:
-            raise Refus("les notes de ce script sont illisibles : rien n'est écrit (fichier .notes.json des animatiques)") from None
+            raise Refus("les notes de ce script sont illisibles : rien n'est écrit") from None
         return []
 
 
-def noter_a(s, code: str, t: float, texte: str, langue: str) -> list[dict]:
+def noter_a(s, code: str, t: float, texte: str, langue: str, version: int = 0) -> list[dict]:
+    """Une note à la seconde `t` de l'animatique en `langue`, faite sur la version `version` du script (une note d'une version précédente est
+    signalée : ses secondes ne tombent plus juste)."""
     texte = " ".join(texte.split())
     if not texte:
         raise Refus("la note est vide")
@@ -213,7 +248,7 @@ def noter_a(s, code: str, t: float, texte: str, langue: str) -> list[dict]:
     with _notes:
         notes = lire_notes(s, code, strict=True)
         notes.append({"id": uuid.uuid4().hex[:12], "t": round(t, 1), "texte": texte, "langue": verifier_langue(langue),
-                      "date": datetime.now().isoformat(timespec="minutes")})
+                      "version": version, "date": datetime.now().isoformat(timespec="minutes")})
         notes.sort(key=lambda n: n["t"])
         _ecrire_notes(s, code, notes)
     return notes

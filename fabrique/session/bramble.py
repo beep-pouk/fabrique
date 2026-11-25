@@ -281,7 +281,7 @@ def duree_wav(f: Path) -> float:
 
 def rendus(code: str, langue: str = "en") -> dict:
     """Ce que Bramble a rendu pour ce script, toutes langues et reprises : images des plans, vidéos finies, et la voix de `langue` scène par
-    scène. Image du plan n : plan_NNN.png (n = première scène du plan), la plus récente ; vidéo : la plus récente de final par langue ;
+    scène ; levres : les clips où Bramble parle (bramble\\sNNN.mp4) de `langue`, faits sur sa voix actuelle. Image du plan n : plan_NNN.png (n = première scène du plan), la plus récente ; vidéo : la plus récente de final par langue ;
     voix : voix\\sNNN.wav la plus récente, et sa durée (le vrai rythme des plans) ; langues : celles qui ont des voix ; musique : musique.wav la plus récente
     (commune aux langues)."""
     r = rendus_bramble()
@@ -289,6 +289,7 @@ def rendus(code: str, langue: str = "en") -> dict:
     images: dict[int, Path] = {}
     videos: dict[str, Path] = {}
     voix: dict[int, Path] = {}
+    levres: dict[int, Path] = {}
     langues: set[str] = set()
     musique: Path | None = None
     plus_recent = lambda f, g: g is None or f.stat().st_mtime > g.stat().st_mtime  # noqa: E731
@@ -306,9 +307,13 @@ def rendus(code: str, langue: str = "en") -> dict:
             langues.add(l)
             if l == langue and plus_recent(f, voix.get(n := int(f.stem[1:]))):
                 voix[n] = f
+        for f in (d / "bramble").glob("s[0-9][0-9][0-9].mp4") if l == langue else ():
+            if plus_recent(f, levres.get(n := int(f.stem[1:]))):
+                levres[n] = f
+    levres = {n: f for n, f in levres.items() if n in voix and f.stat().st_mtime >= voix[n].stat().st_mtime}  # fait sur une voix refaite depuis : faux
     return {"images": {n: str(f) for n, f in sorted(images.items())}, "videos": [{"langue": l, "chemin": str(f)} for l, f in sorted(videos.items())],
             "langues": sorted(langues), "voix": {n: str(f) for n, f in sorted(voix.items())}, "durees": {n: duree_wav(f) for n, f in sorted(voix.items())},
-            "musique": str(musique) if musique else ""}
+            "musique": str(musique) if musique else "", "levres": {n: str(f) for n, f in sorted(levres.items())}}
 
 
 def en_cours(maintenant: datetime | None = None) -> dict | None:

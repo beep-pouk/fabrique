@@ -59,9 +59,12 @@ def occupe(*noms: str) -> str:
     return next((nom for nom in noms or TACHES if vivante(lire(nom))), "")
 
 
+NOMS = {"releve": "le relevé des statistiques", "paquets": "la préparation des paquets à poster", "installation": "l'installation d'un outil"}
+
+
 def la(nom: str) -> str:
     """« la sauvegarde », « l'animatique » : pour les messages à RT."""
-    return f"l'{nom}" if nom[0] in "aeiou" else f"la {nom}"
+    return NOMS.get(nom) or (f"l'{nom}" if nom[0] in "aeiou" else f"la {nom}")
 
 
 def lancer(nom: str, acteur: str) -> str:
