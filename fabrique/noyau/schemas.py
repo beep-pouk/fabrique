@@ -298,6 +298,8 @@ class ReperePlan(BaseModel):
     duree: float  # à l'écran (voix + pause + tenue)
     valeur: str = ""  # large, moyen, gros, bramble (découpage, étape 4) ; vide : animatique d'avant le découpage
     cadre: list[float] = []  # [cx, cy, taille] dans l'image, au début du plan
+    cle: str = ""  # « <scène>.<rang> » : le plan pour ses essais d'animation (étape 5)
+    anime: bool = False  # monté avec son essai d'animation gardé
 
 
 class NoteAnimatique(BaseModel):
@@ -321,6 +323,39 @@ class Animatique(BaseModel):
     perimee: bool = False  # montée sur une version précédente du script
     plans: list[ReperePlan]
     notes: list[NoteAnimatique]  # celles de RT sur ce script, toutes langues, dans l'ordre du temps
+
+
+class EssaiAnimation(BaseModel):
+    n: int
+    consigne: str
+    etat: str  # attente, en_cours, fait, erreur
+    message: str = ""  # pourquoi il a échoué
+    simule: bool = False  # fait en mode simulation : la caméra glisse sur l'image, sans carte
+    video: str = ""  # vide tant qu'il n'est pas fait
+    date: str = ""
+    duree: float = 0.0
+
+
+class PlanAnimation(BaseModel):
+    essais: list[EssaiAnimation]
+    garde: int  # l'essai gardé (0 : aucun, le plan garde son mouvement de caméra)
+
+
+class Animation(BaseModel):
+    plans: dict[str, PlanAnimation]  # par clé de plan (ReperePlan.cle)
+    occupe: bool  # un essai tourne (un à la fois)
+    ici: bool  # … et c'est un essai de ce script
+
+
+class DemandeEssai(BaseModel):
+    cle: str
+    consigne: str = ""  # vide : le mouvement que le script donne à la scène
+    langue: str = "en"  # l'animatique où le plan est pris
+
+
+class GarderEssai(BaseModel):
+    cle: str
+    n: int  # 0 : aucun
 
 
 class PlanEssai(BaseModel):

@@ -368,6 +368,34 @@ def retirer_note_animatique(request, id: str, code: str, note: str):
     return {"message": "Note retirée."}
 
 
+@api.get("/sessions/{id}/scripts/{code}/animation", response=schemas.Animation)
+@droit("voir")
+def animation_(request, id: str, code: str):
+    """Les essais d'animation des plans de ce script (moteur/animation.py) : vidéos, consignes, le gardé de chaque plan, l'essai qui tourne."""
+    from fabrique.moteur import animatique, animation
+
+    s = session_(id)
+    animatique.contenu_du_script(s, code)
+    return animation.etat(s, code)
+
+
+@api.post("/sessions/{id}/scripts/{code}/animation", response=schemas.Message)
+@droit("animatique")
+def animer_plan(request, id: str, code: str, demande: schemas.DemandeEssai):
+    """Un nouvel essai d'animation d'un plan de l'animatique, avec une consigne ; sur la carte seulement si elle est libre (5 à 8 min)."""
+    from fabrique.moteur import animation
+
+    return {"message": animation.demander(session_(id), code, demande.langue, demande.cle, demande.consigne, ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/scripts/{code}/animation/garder", response=schemas.Message)
+@droit("animatique")
+def garder_essai(request, id: str, code: str, choix: schemas.GarderEssai):
+    from fabrique.moteur import animation
+
+    return {"message": animation.garder(session_(id), code, choix.cle, choix.n, ACTEURS[request.auth])}
+
+
 @api.get("/sessions/{id}/scripts/{code}/comparaisons", response=list[schemas.Comparaison])
 @droit("voir")
 def comparaisons(request, id: str, code: str):

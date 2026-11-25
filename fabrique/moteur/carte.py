@@ -53,4 +53,4 @@ def autre_programme() -> str:
 
 
 def occupee(maintenant: datetime | None = None) -> str:
-    return ("une fabrication est déjà en cours" if taches.occupe("fabrication") else "") or ("un outil s'installe" if taches.occupe("installation") else "") or bramble(maintenant or datetime.now()) or autre_programme()
+    return ("une fabrication est déjà en cours" if taches.occupe("fabrication") else "") or ("un essai d'animation est en cours" if taches.occupe("animation") else "") or ("un outil s'installe" if taches.occupe("installation") else "") or bramble(maintenant or datetime.now()) or autre_programme()

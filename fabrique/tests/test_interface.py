@@ -196,9 +196,11 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     e = animatique.etat(s, "x1e01", "en")
     assert e["etat"] == "faite" and e["video"] == str(video) and vus[-1] == (3, 4)
     large = {"valeur": "large", "cadre": [0.5, 0.5, 1.0]}
-    assert e["plans"] == [{"n": 1, "debut": 0.0, "duree": 1.5, **large}, {"n": 2, "debut": 1.5, "duree": 1.0, "valeur": "bramble", "cadre": [0.5, 0.5, 1.0]},
-                          {"n": 1, "debut": 2.5, "duree": 1.0, **large}]
+    assert [{k: p[k] for k in ("n", "debut", "duree", "valeur", "cadre")} for p in e["plans"]] == [
+        {"n": 1, "debut": 0.0, "duree": 1.5, **large}, {"n": 2, "debut": 1.5, "duree": 1.0, "valeur": "bramble", "cadre": [0.5, 0.5, 1.0]}, {"n": 1, "debut": 2.5, "duree": 1.0, **large}]
+    assert [p["cle"] for p in e["plans"]] == ["1.0", "2.0", "3.0"] and not any(p["anime"] for p in e["plans"])
     assert abs(e["fin"] - 3.5) < 0.2 and not (video.parent / "_travail").exists()
+
     animatique.noter_a(s, "x1e01", 2.04, "  le chat   arrive trop tôt ", "en")
     animatique.noter_a(s, "x1e01", 0.5, "début", "zz")
     assert [(n["t"], n["texte"]) for n in animatique.etat(s, "x1e01", "en")["notes"]] == [(0.5, "début"), (2.0, "le chat arrive trop tôt")]
@@ -215,6 +217,37 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
         animatique.contenu_du_script(s, "s1e01.x\\..\\..\\y")
     with pytest.raises(Refus, match="langue"):
         animatique.verifier_langue("../x")
+    # étape 5 : un essai d'animation du plan 1 (simulé : sans carte), gardé, monté par l'animatique à la place du mouvement de caméra
+    from fabrique import programme
+    from fabrique.moteur import animation
+    from fabrique.noyau import models, taches
+
+    monkeypatch.setattr(animatique, "contenu_du_script", lambda s_, code: contenu)
+    monkeypatch.setattr(models, "noter", lambda *a, **k: None)
+    lances = []
+    monkeypatch.setattr(programme, "lancer_detache", lambda *a, journal: lances.append(a))
+    with pytest.raises(Refus, match="lèvres"):
+        animation.demander(s, "x1e01", "en", "2.0", "", "RT")
+    with pytest.raises(Refus, match="ce qui doit bouger"):  # ni consigne ni mouvement dans le script
+        animation.demander(s, "x1e01", "en", "1.0", "  ", "RT")
+    with pytest.raises(Refus, match="pas dans l'animatique"):
+        animation.demander(s, "x1e01", "en", "9.0", "bouge", "RT")
+    assert "Simulation" in animation.demander(s, "x1e01", "en", "1.0", "  le chat   cligne ", "RT")
+    assert lances == [("executer", "animation", "sx", "x1e01", "1.0", "1")]
+    with pytest.raises(Refus, match="déjà en cours"):
+        animation.demander(s, "x1e01", "en", "3.0", "bouge", "RT")
+    with pytest.raises(Refus, match="pas encore fini"):
+        animation.garder(s, "x1e01", "1.0", 1, "RT")
+    clip = animation.faire(s, "x1e01", "1.0", 1)
+    taches.ecrire(animation.TACHE, {})
+    (essai,) = animation.etat(s, "x1e01")["plans"]["1.0"]["essais"]
+    assert essai["etat"] == "fait" and essai["consigne"] == "le chat cligne" and essai["simule"] and essai["video"] == str(clip) and abs(animation._outils(s).duree(clip) - 1.5) < 0.1
+    assert "remontez" in animation.garder(s, "x1e01", "1.0", 1, "RT") and animation.gardes(s, "x1e01") == {"1.0": str(clip)}
+    animatique.faire(s, "x1e01", "en", contenu)
+    e = animatique.etat(s, "x1e01", "en")
+    assert [p["anime"] for p in e["plans"]] == [True, False, False] and abs(e["fin"] - 3.5) < 0.2
+    animation.garder(s, "x1e01", "1.0", 0, "RT")
+    assert animation.gardes(s, "x1e01") == {}
     (base / "voix" / "s003.wav").unlink()
     with pytest.raises(Refus, match=r"voix de cette langue ne sont pas encore toutes faites \(1 scène sans voix\)"):
         animatique.faire(s, "x1e01", "en", contenu)

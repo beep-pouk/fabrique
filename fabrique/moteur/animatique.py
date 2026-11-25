@@ -78,7 +78,7 @@ def pret(code: str, langue: str, contenu: dict) -> tuple[list[dict], dict]:
 
 def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: None) -> Path:
     """Monte l'animatique de `code` en `langue` ; rend la vidéo. Refus si une voix manque ou si aucune image n'est rendue."""
-    from fabrique.moteur import decoupage
+    from fabrique.moteur import animation, decoupage
     from fabrique.moteur.f1 import montage
     from fabrique.moteur.f1.outils import Lieux, Outils
     from fabrique.moteur.f1.refaire import planche
@@ -113,10 +113,15 @@ def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: N
         m = montage.Montage(travail, cfg, o)
         total = m.durees(scenes)
         decoupes = decoupage.decouper(scenes)  # plans de 4 à 8 s cadrés dans l'image : jamais une image tenue plus de 15 s
+        gardes = animation.gardes(s, code)  # étape 5 : l'essai d'animation gardé d'un plan remplace le mouvement de caméra
+        for sc in scenes:
+            for p in sc["_plans"]:
+                if p["cle"] in gardes:
+                    p["clip"] = gardes[p["cle"]]
         (travail / "plans").mkdir()
         so = cfg["sortie"]
         for k, sc in enumerate(scenes):
-            if not sc.get("bramble") and any(p["de"] != p["a"] or p["de"][2] < 1 for p in sc["_plans"]):
+            if not sc.get("bramble") and any(p["de"] != p["a"] or p["de"][2] < 1 or p.get("clip") for p in sc["_plans"]):
                 sc["_source"] = str(decoupage.filmer(o.run, o.ffmpeg, Path(sc["_source"]), sc["_plans"], travail / "plans" / f"s{sc['id']:03d}.mp4",
                                                      so["largeur"], so["hauteur"], so["fps"]))
             segment = travail / "montage" / f"s{sc['id']:03d}.mp4"
@@ -131,7 +136,8 @@ def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: N
             th, re_ = th + sc["_duree"], re_ + sc["_reel"]
         reel = lambda x: next((r0 + min(max(x - t0, 0.0), r) for t0, r0, d, r in bornes if x < t0 + d - 1e-6), re_)  # noqa: E731
         reperes = [{"n": plan_de.get(p["scene"], p["scene"]), "debut": round(reel(p["debut"]), 3), "duree": round(reel(p["debut"] + p["duree"]) - reel(p["debut"]), 3),
-                    "valeur": p["valeur"], "cadre": p["de"]} for p in decoupes]
+                    "valeur": p["valeur"], "cadre": p["de"], "cle": p["cle"], "scene": p["scene"], "source": p["source"], "anime": p["cle"] in gardes}
+                   for p in decoupes]
         video = sortie / f"animatique_{datetime.now():%Y%m%d_%H%M%S}.mp4"  # un nom neuf : l'ancienne peut être en lecture dans la fenêtre
         os.replace(fini, video)
         (sortie / "plans.json").write_text(json.dumps({"video": video.name, "date": datetime.now().isoformat(timespec="minutes"), "total": round(total, 3),
@@ -266,10 +272,14 @@ def retirer_note(s, code: str, note: str) -> list[dict]:
 
 
 def _ecrire_notes(s, code: str, notes: list[dict]):
-    f = _fichier_notes(s, code)
+    ecrire_json(_fichier_notes(s, code), notes)
+
+
+def ecrire_json(f: Path, donnees):
+    """`donnees` écrites d'un coup dans `f` : un lecteur ne voit jamais un fichier à moitié écrit."""
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(notes, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.write_text(json.dumps(donnees, ensure_ascii=False, indent=1), encoding="utf-8")
     for i in range(10):  # Windows : un lecteur (sauvegarde du soir) tient le fichier un instant
         try:
             tmp.replace(f)

@@ -91,9 +91,10 @@ def cadres(persos: list[dict], vise: str, rang: int, suit: bool = False) -> dict
 
 
 def decouper(scenes: list[dict]) -> list[dict]:
-    """Les plans de l'épisode, dans l'ordre. Chaque scène a `_source` (son image), `_duree` (à l'écran), `_voix` (durée de sa voix) ; une
-    scène de Bramble (`bramble`) reste un seul plan sur sa pose. Pose aussi sur chaque scène `_plans` : ses morceaux de plans {t, duree,
-    valeur, de, a}, un plan coupé par la fin de la scène continuant son mouvement dans la suivante."""
+    """Les plans de l'épisode, dans l'ordre ; `cle` (« <scène où il commence>.<rang> ») le nomme pour ses essais d'animation (étape 5),
+    `source` est son image. Chaque scène a `_source` (son image), `_duree` (à l'écran), `_voix` (durée de sa voix) ; une scène de Bramble
+    (`bramble`) reste un seul plan sur sa pose. Pose aussi sur chaque scène `_plans` : ses morceaux de plans {t, duree, valeur, de, a, cle, dans
+    (où le morceau commence dans son plan)}, un plan coupé par la fin de la scène continuant son mouvement dans la suivante."""
     plans, t, i = [], 0.0, 0
     while i < len(scenes):
         j = i + 1
@@ -129,7 +130,8 @@ def decouper(scenes: list[dict]) -> list[dict]:
                 if u <= a + 1e-6:
                     ou = sc["id"]
                 u += sc["_duree"]
-            plans.append({"debut": round(a, 3), "duree": round(b - a, 3), "scene": ou, **c})
+            rang = sum(q["scene"] == ou for q in plans)
+            plans.append({"debut": round(a, 3), "duree": round(b - a, 3), "scene": ou, "cle": f"{ou}.{rang}", "source": passage[0]["_source"], **c})
         u = debut
         for sc in passage:  # les morceaux de chaque scène
             sc["_plans"] = []
@@ -137,7 +139,8 @@ def decouper(scenes: list[dict]) -> list[dict]:
                 a, b = max(p["debut"], u), min(p["debut"] + p["duree"], u + sc["_duree"])
                 if b - a > 1e-3:
                     f = lambda x: [round(d + (e - d) * (x - p["debut"]) / p["duree"], 4) for d, e in zip(p["de"], p["a"])]  # noqa: E731
-                    sc["_plans"].append({"t": round(a - u, 3), "duree": round(b - a, 3), "valeur": p["valeur"], "de": f(a), "a": f(b)})
+                    sc["_plans"].append({"t": round(a - u, 3), "duree": round(b - a, 3), "valeur": p["valeur"], "de": f(a), "a": f(b), "cle": p["cle"],
+                                         "dans": round(a - p["debut"], 3)})
             u += sc["_duree"]
         t, i = fin, j
     return plans
@@ -145,9 +148,10 @@ def decouper(scenes: list[dict]) -> list[dict]:
 
 def filmer(run, ffmpeg: str, source: Path, morceaux: list[dict], sortie: Path, W: int, H: int, fps: int) -> Path:
     """Les morceaux de plans d'une scène filmés dans son image, sans son : chaque cadre glisse de `de` à `a` (zoompan de ffmpeg sur l'image
-    agrandie deux fois et mise en 16:9 une seule fois, pour un mouvement sans à-coups), puis collés."""
+    agrandie deux fois et mise en 16:9 une seule fois, pour un mouvement sans à-coups), puis collés ; un morceau qui a un `clip` (l'essai
+    d'animation gardé pour son plan) en prend le passage à partir de `dans`, la dernière image tenue si le clip est court."""
     grande = sortie.parent / f"_{hashlib.sha1(str(source).encode()).hexdigest()[:12]}_{W}.png"
-    if not grande.is_file():
+    if not grande.is_file() and not all(m.get("clip") for m in morceaux):
         with Image.open(source) as im:
             k = max(2 * W / im.width, 2 * H / im.height)
             im = im.convert("RGB").resize((math.ceil(im.width * k), math.ceil(im.height * k)), Image.LANCZOS)
@@ -156,6 +160,11 @@ def filmer(run, ffmpeg: str, source: Path, morceaux: list[dict], sortie: Path, W
     cmd, fc = [ffmpeg, "-y", "-v", "error"], []
     for k, m in enumerate(morceaux):
         n = max(1, round(m["duree"] * fps))
+        if m.get("clip"):
+            fc.append(f"[{k}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={fps},tpad=stop_mode=clone:stop_duration={m['duree']:.3f},"
+                      f"trim=end_frame={n},setpts=PTS-STARTPTS[v{k}]")
+            cmd += ["-ss", f"{m.get('dans', 0):.3f}", "-i", str(m["clip"])]
+            continue
         p = f"(on/{max(1, n - 1)})"
         (x0, y0, s0), (x1, y1, s1) = m["de"], m["a"]
         fc.append(f"[{k}:v]zoompan=z='1/({s0}+({s1 - s0:.4f})*{p})':x='({x0}+({x1 - x0:.4f})*{p})*iw-iw/zoom/2':y='({y0}+({y1 - y0:.4f})*{p})*ih-ih/zoom/2'"
