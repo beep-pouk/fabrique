@@ -62,9 +62,10 @@ def _cadre(boite: tuple, taille: float, haut: float = 0.5) -> list[float]:
     return [round(cx, 4), round(cy, 4), round(taille, 4)]
 
 
-def cadres(persos: list[dict], vise: str, rang: int) -> dict:
+def cadres(persos: list[dict], vise: str, rang: int, suit: bool = False) -> dict:
     """Valeur et mouvement du plan n° `rang` d'un passage : large d'abord, puis moyen et gros plan en alternance (gros plan sur `vise`, le
-    personnage nommé en premier par la scène, sinon le plus grand) ; sans personnages connus : large et moyen centré."""
+    personnage nommé en premier par la scène, sinon le plus grand, puis les autres à tour de rôle ; `suit` : le texte dit pendant le plan
+    nomme `vise`, la caméra reste sur lui) ; sans personnages connus : large et moyen centré."""
     large = [0.5, 0.5, 1.0]
     if rang == 0:
         return {"valeur": "large", "de": large, "a": [0.5, 0.5, 0.92]}  # lente approche
@@ -72,7 +73,7 @@ def cadres(persos: list[dict], vise: str, rang: int) -> dict:
         return ({"valeur": "moyen", "de": [0.47, 0.55, 0.72], "a": [0.53, 0.55, 0.72]} if rang % 2 else {"valeur": "large", "de": [0.5, 0.5, 0.9], "a": [0.5, 0.5, 0.98]})
     taille = lambda p: (p["boite"][2] - p["boite"][0]) * (p["boite"][3] - p["boite"][1])  # noqa: E731
     ordre = sorted(persos, key=lambda p: (not (p["nom"] and p["nom"].lower() == vise.lower()), -taille(p)))
-    p = ordre[((rang + 1) // 2 - 1) % len(ordre)]  # le personnage visé, puis les autres à tour de rôle
+    p = ordre[0] if suit else ordre[((rang + 1) // 2 - 1) % len(ordre)]  # le personnage visé, puis les autres à tour de rôle
     h = p["boite"][3] - p["boite"][1]
     if rang % 2:  # moyen : le groupe s'il tient dans un cadre plus serré que l'image, sinon le personnage en pied ; approche puis recul
         tous = (min(q["boite"][0] for q in persos), min(q["boite"][1] for q in persos), max(q["boite"][2] for q in persos), max(q["boite"][3] for q in persos))
@@ -99,14 +100,17 @@ def decouper(scenes: list[dict]) -> list[dict]:
         while j < len(scenes) and not scenes[i].get("bramble") and not scenes[j].get("bramble") and scenes[j]["_source"] == scenes[i]["_source"]:
             j += 1
         passage, debut = scenes[i:j], t
-        coupes, u = [], t
+        coupes, dites, u = [], [], t
         for k, sc in enumerate(passage):
             phrases = [p for p in PHRASE.split(str(sc.get("narration", "")).strip()) if p]
             n = sum(len(p) for p in phrases) or 1
             fait = 0
-            for p in phrases[:-1]:  # dans la voix, au prorata des lettres
+            for q, p in enumerate(phrases):  # (début, fin, phrase) dans la voix, au prorata des lettres
+                d0 = u + sc["_voix"] * fait / n
                 fait += len(p)
-                coupes.append((u + sc["_voix"] * fait / n, 1))
+                dites.append((d0, u + sc["_voix"] * fait / n, p))
+                if q < len(phrases) - 1:
+                    coupes.append((dites[-1][1], 1))
             u += sc["_duree"]
             if k < len(passage) - 1:
                 coupes.append((u, 0))
@@ -116,7 +120,10 @@ def decouper(scenes: list[dict]) -> list[dict]:
         persos = [] if passage[0].get("bramble") else personnages(Path(passage[0]["_source"]))
         vise = next((n for n in noms if any(p["nom"].lower() == n.lower() for p in persos)), "")
         for r, (a, b) in enumerate(zip(bornes, bornes[1:])):
-            c = {"valeur": "bramble", "de": [0.5, 0.5, 1.0], "a": [0.5, 0.5, 1.0]} if passage[0].get("bramble") else cadres(persos, vise, r)
+            dit = " ".join(p for d0, d1, p in dites if d0 < b and d1 > a)  # l'action suit le texte : le premier personnage nommé pendant le plan
+            cite = min(((m.start(), q["nom"]) for q in persos if q["nom"] and (m := re.search(rf"\b{re.escape(q['nom'])}\b", dit, re.I))), default=None)
+            c = ({"valeur": "bramble", "de": [0.5, 0.5, 1.0], "a": [0.5, 0.5, 1.0]} if passage[0].get("bramble")
+                 else cadres(persos, cite[1] if cite else vise, r, suit=bool(cite)))
             u, ou = debut, passage[0]["id"]  # la scène où le plan commence (la planche le range sous son plan)
             for sc in passage:
                 if u <= a + 1e-6:

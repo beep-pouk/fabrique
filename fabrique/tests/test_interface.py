@@ -253,6 +253,8 @@ def test_decoupage_plans_de_4_a_8_s_cadres_sur_les_personnages(tmp_path):
     ps = decoupage.decouper(sc)
     assert all(4 <= p["duree"] <= 8 for p in ps[:-2]) and [p["valeur"] for p in ps] == ["large", "moyen", "gros", "moyen", "bramble", "large"]
     assert ps[2]["de"][0] > 0.5  # le gros plan sur Moss, que la scène nomme en premier (à droite)
+    sc[1]["narration"] = "Le vent passe, Pip dort."
+    assert decoupage.decouper(sc)[2]["de"][0] < 0.5  # l'action suit le texte : le texte dit pendant le gros plan nomme Pip (à gauche)
     assert [round(sum(m["duree"] for m in s["_plans"]), 6) for s in sc] == [13.0, 9.0, 20.0, 2.0]
     court = [{"id": 5, "_source": "y.png", "_duree": 2.0, "_voix": 1.5}, {"id": 6, "_source": "y.png", "_duree": 9.0, "_voix": 8.0}]
     assert [p["duree"] for p in decoupage.decouper(court)] == [6.0, 5.0]  # un plan à cheval sur deux scènes : son mouvement continue
