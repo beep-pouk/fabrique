@@ -126,7 +126,8 @@ def externes(pid: int, prog: Path) -> list[str]:
     le runtime C de Visual Studio pris dans Windows compte comme externe : le programme livre le sien (contrôle du banc d'interface)."""
     p = os.path.normcase(str(prog)) + os.sep
     charges, temoin = bibliotheques(pid)
-    return [m for m in charges if not (c := os.path.normcase(m)).startswith(p) and c not in temoin and WEBVIEW2 not in c
+    # chemin de périphérique (GLOBALROOT\Device\…) : posée par un pilote noyau (crochet de l'antivirus, vu le 25/11), jamais par le programme
+    return [m for m in charges if not (c := os.path.normcase(m)).startswith(p) and c not in temoin and WEBVIEW2 not in c and not c.startswith("globalroot\\device\\")
             and (not c.startswith(WINDOWS) or re.search(r"\\(msvcp|vcruntime|vcomp|concrt)\d", c))]
 
 
