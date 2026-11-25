@@ -87,7 +87,7 @@ def test_prise_f1_lie_les_sorties_de_l_etape(essais, tmp_path, monkeypatch):
 BRAMBLE = Path(r"D:\StudioKids\OUTILS\app\studio\moteur")  # le code de Bramble Studio (lu seulement), sur le PC
 ECARTS = {  # fichier → (lignes retirées, ajoutées) face à Bramble Studio, importations mises à part ; tout le reste est son code, à l'identique
     "__init__.py": (0, 2), "anim.py": (5, 6), "copies.py": (39, 5), "etape.py": (4, 4), "images.py": (2, 2), "outils.py": (11, 46), "langue.py": (9, 8),
-    "production_copie/calques.py": (1, 1), "bramble.py": (0, 0), "montage.py": (0, 0), "musique.py": (0, 0), "voix.py": (0, 0),
+    "production_copie/calques.py": (1, 1), "bramble.py": (0, 0), "montage.py": (1, 3), "musique.py": (0, 0), "voix.py": (0, 0),
     "production_copie/anime_calques.py": (0, 32), "production_copie/lipsync_batch.py": (0, 0), "production_copie/offload.py": (0, 0),
     "langue_texte.py": (0, 0), "tts_chatterbox_mtl.py": (0, 0), "tts_cosyvoice3.py": (0, 0), "tts_qwen.py": (0, 0), "tts_voxcpm_wsl.py": (0, 0),
     "vc_chatterbox.py": (0, 0), "whisper_langue_wsl.py": (0, 0),

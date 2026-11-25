@@ -1,4 +1,9 @@
 {
+ "0.13.0": [
+  "Animatique : l'épisode entier en images fixes, avec les voix et la musique, monté en quelques minutes sans prendre la carte graphique (onglet Animatique d'un épisode). La frise montre chaque plan avec sa vraie durée à l'écran ; chaque image qui reste plus de 15 s est en ambre.",
+  "Notes à la seconde : mettez l'animatique en pause au bon moment, écrivez ce qui ne va pas (touche N) ; la note garde le moment, un clic y revient. Espace pour lire, flèches pour passer d'un plan à l'autre.",
+  "Essai d'animation : une scène de l'épisode animée par Fabrique, à côté de la même scène par Bramble Studio, lues ensemble (onglet Vidéo)."
+ ],
  "0.12.0": [
   "Nouvelle interface : une vraie application de studio, sombre et en images. Accueil avec le prochain épisode et ce qui se fabrique en direct ; épisodes en vignettes ; personnages en fiches illustrées, avec la voix du narrateur à écouter dans chaque langue.",
   "Épisode : planche illustrée plan par plan (image, texte dit, durée réelle de la voix, personnages), rythme de tout l'épisode d'un coup d'œil, et chaque image qui reste plus de 15 s signalée ; la vidéo de Bramble Studio à regarder dans chaque langue.",

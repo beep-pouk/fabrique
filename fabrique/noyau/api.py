@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 GESTES = {"fabriquer", "approuver", "publier"}
 DROITS = {
     "fenetre": {"voir", "sauvegarder", "restaurer", "mettre_a_jour", "cles", "arreter", "file", "refaire", "importer", "demander", "destinations", "relier",
-                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", "temps", "assistant", *GESTES},
+                "retoucher", "paquets", "telephone", "sessions", "mode", "univers", "outils", "bancs", "voter", "temps", "assistant", "animatique", *GESTES},
     "iphone": {"voir", "destinations", "approuver", "publier", "paquets"},  # J4 : Tailscale + code à 6 chiffres
     "claude": {"voir", "importer", "deposer", "veille", "bancs"},  # « Fabrique.exe commande … » ; un banc : session « Essais » seulement (file.mettre)
     "assistant": {"voir", "estimer", "brouillon"},  # J11 : interne au noyau
@@ -323,6 +323,61 @@ def rendus_bramble(request, id: str, code: str, langue: str = "en"):
 
     session_(id)
     return bramble.rendus(code, langue)
+
+
+@api.get("/sessions/{id}/scripts/{code}/animatique", response=schemas.Animatique)
+@droit("voir")
+def animatique_(request, id: str, code: str, langue: str = "en"):
+    """L'animatique de ce script en `langue` (moteur/animatique.py) : où en est son montage, sa vidéo, les repères des plans, les notes de RT."""
+    from fabrique.moteur import animatique
+
+    s = session_(id)
+    animatique.contenu_du_script(s, code)  # un script connu : son code entre dans des noms de fichiers
+    return animatique.etat(s, code, animatique.verifier_langue(langue))
+
+
+@api.post("/sessions/{id}/scripts/{code}/animatique", response=schemas.Message)
+@droit("animatique")
+def monter_animatique(request, id: str, code: str, langue: str = "en"):
+    """Monte l'animatique (images fixes de Bramble, voix de `langue`, musique) sur le processeur, en tâche détachée : quelques minutes."""
+    from fabrique.moteur import animatique
+
+    s = session_(id)
+    animatique.contenu_du_script(s, code)
+    return {"message": animatique.lancer(s, code, animatique.verifier_langue(langue), ACTEURS[request.auth])}
+
+
+@api.post("/sessions/{id}/scripts/{code}/animatique/notes", response=schemas.Message)
+@droit("animatique")
+def noter_animatique(request, id: str, code: str, note: schemas.NoteAnimatique):
+    from fabrique.moteur import animatique
+
+    s = session_(id)
+    animatique.contenu_du_script(s, code)
+    animatique.noter_a(s, code, note.t, note.texte, note.langue)
+    return {"message": "Note ajoutée."}
+
+
+@api.post("/sessions/{id}/scripts/{code}/animatique/notes/{note}/retirer", response=schemas.Message)
+@droit("animatique")
+def retirer_note_animatique(request, id: str, code: str, note: str):
+    from fabrique.moteur import animatique
+
+    s = session_(id)
+    animatique.contenu_du_script(s, code)
+    animatique.retirer_note(s, code, note)
+    return {"message": "Note retirée."}
+
+
+@api.get("/sessions/{id}/scripts/{code}/comparaisons", response=list[schemas.Comparaison])
+@droit("voir")
+def comparaisons(request, id: str, code: str):
+    """Les essais d'animation de ce script (étape 2), à côté de la même scène par Bramble Studio, le plus récent d'abord."""
+    from fabrique.moteur import animatique, comparaison
+
+    s = session_(id)
+    animatique.contenu_du_script(s, code)
+    return comparaison.lister(s, code)
 
 
 @api.get("/bramble/en-cours", response=schemas.BrambleEnCours)
@@ -856,7 +911,7 @@ def restaurer(request, nom: str):
     file.suspendue.set()  # d'abord : la file ne lance plus rien pendant que les bases sont remplacées
     try:
         if o := taches.occupe():
-            raise Refus(f"la {o} est en cours : restaurer quand elle sera finie")
+            raise Refus(f"{taches.la(o)} est en cours : restaurer quand elle sera finie")
         message = sauvegarde.restaurer(nom)
     finally:
         file.suspendue.clear()

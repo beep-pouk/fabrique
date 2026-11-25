@@ -62,7 +62,7 @@ export function App() {
   }, []);
 
   let contenu: ReactNode;
-  if (ecran === "episode" && adresse[1] && adresse[2]) contenu = <Episode session={adresse[1]} code={adresse[2]} />;
+  if (ecran === "episode" && adresse[1] && adresse[2]) contenu = <Episode session={adresse[1]} code={adresse[2]} onglet={adresse[3]} />;
   else if (ecran === "episodes") contenu = <Episodes />;
   else if (ecran === "personnages") contenu = <Personnages />;
   else if (ecran === "file") contenu = <File />;

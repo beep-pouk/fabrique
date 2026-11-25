@@ -159,3 +159,72 @@ def test_ce_que_bramble_fabrique_en_ce_moment(tmp_path, monkeypatch):
     etat("2026-01-01T21:55", "montage")
     assert bramble.en_cours(maintenant)["image"].endswith("plan_009.png")  # la plus récente
     assert bramble.en_cours(maintenant + timedelta(minutes=20)) is None  # état vieux : Bramble est arrêté
+
+
+def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeypatch):
+    """Étape 3 : l'épisode en images fixes par le montage de F1 (vrai ffmpeg), repères dans l'ordre des scènes (une réplique de Bramble coupe un
+    plan en deux passages), notes à la seconde ; une voix qui manque : refus en clair."""
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    from fabrique.garde import Refus
+    from fabrique.moteur import animatique, faux
+    from fabrique.session import bramble
+
+    monkeypatch.setattr(bramble, "rendus_bramble", lambda: tmp_path)
+    base = tmp_path / "2026-01-01-x1e01"
+    (base / "images").mkdir(parents=True)
+    subprocess.run([faux.programme("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x5c8048:s=320x180", "-frames:v", "1",
+                    str(base / "images" / "plan_001.png")], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    for i, d in ((1, 1.0), (2, 0.5), (3, 0.5)):
+        wav(base / "voix" / f"s{i:03d}.wav", d)
+    wav(base / "musique.wav", 4.0)
+    s = SimpleNamespace(id="sx", dossier="anim_factice")
+    (settings.SESSIONS / s.dossier / "reglages").mkdir(parents=True)
+    cfg = {"pause_apres_phrase_s": 0.5, "fondu_s": 0.2, "musique_volume_db": -20, "sortie": {"largeur": 1920, "hauteur": 1080, "fps": 12, "lufs": -14}}
+    (settings.SESSIONS / s.dossier / "reglages" / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    contenu = {"title": "Essai", "scenes": [{"id": 1, "image": "une clairière"}, {"id": 2, "bramble": "pose_factice"}, {"id": 3, "image": "same"}]}
+    vus = []
+    video = animatique.faire(s, "x1e01", "en", contenu, avancer=lambda f, t: vus.append((f, t)))
+    e = animatique.etat(s, "x1e01", "en")
+    assert e["etat"] == "faite" and e["video"] == str(video) and vus[-1] == (3, 4)
+    assert e["plans"] == [{"n": 1, "debut": 0.0, "duree": 1.5}, {"n": 2, "debut": 1.5, "duree": 1.0}, {"n": 1, "debut": 2.5, "duree": 1.0}]
+    assert abs(e["fin"] - 3.5) < 0.2 and not (video.parent / "_travail").exists()
+    animatique.noter_a(s, "x1e01", 2.04, "  le chat   arrive trop tôt ", "en")
+    animatique.noter_a(s, "x1e01", 0.5, "début", "zz")
+    assert [(n["t"], n["texte"]) for n in animatique.etat(s, "x1e01", "en")["notes"]] == [(0.5, "début"), (2.0, "le chat arrive trop tôt")]
+    premiere = animatique.lire_notes(s, "x1e01")[0]["id"]
+    assert [n["texte"] for n in animatique.retirer_note(s, "x1e01", premiere)] == ["le chat arrive trop tôt"]
+    with pytest.raises(Refus, match="déjà retirée"):  # un double clic ne retire pas la voisine
+        animatique.retirer_note(s, "x1e01", premiere)
+    with pytest.raises(Refus, match="vide"):
+        animatique.noter_a(s, "x1e01", 1, "   ", "en")
+    animatique._fichier_notes(s, "x1e01").write_text("[{,", encoding="utf-8")  # retouché à la main et abîmé : jamais écrasé
+    with pytest.raises(Refus, match="illisibles"):
+        animatique.noter_a(s, "x1e01", 1, "encore", "en")
+    with pytest.raises(Refus, match="script inconnu"):
+        animatique.contenu_du_script(s, "s1e01.x\\..\\..\\y")
+    with pytest.raises(Refus, match="langue"):
+        animatique.verifier_langue("../x")
+    (base / "voix" / "s003.wav").unlink()
+    with pytest.raises(Refus, match="voix en en ne sont pas encore faites pour 1 scène"):
+        animatique.faire(s, "x1e01", "en", contenu)
+
+
+def test_essai_d_animation_depose_puis_liste(tmp_path):
+    """Étape 2 : Claude dépose la scène animée et celle de Bramble ; copiées dans la session, listées pour l'écran Épisode ; demande mal formée refusée."""
+    from types import SimpleNamespace
+
+    from fabrique.moteur import comparaison
+
+    s = SimpleNamespace(id="sx", dossier="comparaison_factice")
+    (tmp_path / "b.mp4").write_bytes(b"b")
+    (tmp_path / "f.mp4").write_bytes(b"f")
+    demande = {"titre": "Scène factice", "bramble": str(tmp_path / "b.mp4"), "fabrique": str(tmp_path / "f.mp4"), "plans": [{"debut": 0, "duree": 4.5}, {"debut": 4.5, "duree": 6}]}
+    assert "2 plans" in comparaison.deposer(s, "x1e01", demande)
+    (e,) = comparaison.lister(s, "x1e01")
+    assert e["titre"] == "Scène factice" and e["duree"] == 10.5 and Path(e["fabrique"]).read_bytes() == b"f" and Path(e["bramble"]).parent.parent.name == "x1e01"
+    for mauvais in ({**demande, "fabrique": str(tmp_path / "f.txt")}, {**demande, "plans": []}, {**demande, "plans": [{"debut": -1, "duree": 2}]}, {**demande, "titre": ""}):
+        with pytest.raises(ValueError):
+            comparaison.deposer(s, "x1e01", mauvais)

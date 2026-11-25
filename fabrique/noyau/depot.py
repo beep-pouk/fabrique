@@ -3,6 +3,8 @@
 accusé d'erreur, jamais exécuté. Seulement ce que Claude a le droit de faire (§ 3.3) — jamais l'un des trois gestes de RT :
   {"action": "script", "session": "<nom ou id>", "code": "s1e05", "contenu": {…}}  → une version de plus du script (règles comprises)
   {"action": "essai", "recette": "essai", "script": {…}}                           → un essai dans la file de la session « Essais »
+  {"action": "comparaison", "session": …, "code": "s1e01", "titre": …, "bramble": "<.mp4>", "fabrique": "<.mp4>", "plans": [{"debut", "duree"}…]}
+                                                                                   → un essai d'animation à comparer (moteur/comparaison.py)
 Dans l'autre sens, ce que RT demande à Claude (bouton de l'écran Script) : a_ecrire\\<code>.json, a_traduire\\<code>.<langue>.json."""
 import json
 import logging
@@ -18,7 +20,7 @@ from fabrique.noyau.models import Session, noter
 from fabrique.session import models as m
 
 log = logging.getLogger(__name__)
-ACTIONS = ("script", "essai")
+ACTIONS = ("script", "essai", "comparaison")
 
 
 def session_(cle) -> Session:
@@ -45,6 +47,12 @@ def executer(demande: dict) -> str:
         v = execution.preparer(s, recettes.lire(str(demande.get("recette", "essai"))), demande["script"], nom=str(demande.get("nom", "")))
         t = file.mettre(s, v.id, v.titre, "claude")
         return f"« {v.titre} » dans la file de la session {s.nom} (tâche {t.id})"
+    if demande["action"] == "comparaison":
+        from fabrique.moteur import animatique, comparaison
+
+        s = session_(demande.get("session"))
+        animatique.contenu_du_script(s, str(demande.get("code")))  # un script connu : son code entre dans un nom de dossier
+        return comparaison.deposer(s, str(demande["code"]), demande)
     raise ValueError(f"action inconnue : {demande['action']} (connues : {', '.join(ACTIONS)})")
 
 

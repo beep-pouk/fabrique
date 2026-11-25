@@ -2,21 +2,28 @@ import * as Dialogue from "@radix-ui/react-dialog";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import * as Onglets from "@radix-ui/react-tabs";
 import * as Infobulle from "@radix-ui/react-tooltip";
-import { ArrowLeft, CalendarDays, Check, ChevronDown, Clock3, Film, Images, Languages, LayoutGrid, Mic, TriangleAlert, X } from "lucide-react";
-import { useMemo, useState } from "react";
-import { fichier, useLire, type Personnage, type RendusBramble, type ScriptDetail } from "../api";
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Clapperboard, Clock3, Film, Images, Languages, LayoutGrid, Mic, TriangleAlert, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { fichier, useLire, type Comparaison, type Personnage, type RendusBramble, type ScriptDetail } from "../api";
 import { dateLongue, duree, horloge, imageEpisode, lirePlanche, MAX_IMAGE_S, nomLangue, type PlanLu } from "../outils";
 import { useStudio } from "../studio";
 import { Avatar, BoutonEcoute, Bouton, cx, Erreur, Image, Pastille, Squelette, Vide } from "../ui";
+import { Animatique } from "./Animatique";
+import { Comparaisons } from "./Comparaison";
 
-export function Episode({ session, code }: { session: string; code: string }) {
+export function Episode({ session, code, onglet: demande }: { session: string; code: string; onglet?: string }) {
   const { univers, portraits, distribution } = useStudio();
   const { donnees: script, erreur } = useLire<ScriptDetail>(`/sessions/${session}/scripts/${code}`);
   const base = script?.contenu.language ?? "en";
   const [langue, setLangue] = useState<string | null>(null);
   const voixDe = langue ?? base;
   const { donnees: rendus } = useLire<RendusBramble>(`/sessions/${session}/scripts/${code}/bramble?langue=${encodeURIComponent(voixDe)}`);
-  const [onglet, setOnglet] = useState("planche");
+  const { donnees: essais } = useLire<Comparaison[]>(`/sessions/${session}/scripts/${code}/comparaisons`);
+  const [onglet, setOnglet] = useState(demande ?? "planche");
+  const barre = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (onglet !== "planche") barre.current?.scrollIntoView({ block: "start", behavior: demande === onglet ? "instant" : "smooth" }); // les lecteurs dans la fenêtre
+  }, [onglet, demande, !!script]); // une fois le script lu : la page a sa hauteur
 
   const narrateur = univers?.personnages.find((p) => p.voix.length);
   const plans = useMemo(
@@ -91,10 +98,11 @@ export function Episode({ session, code }: { session: string; code: string }) {
       </section>
 
       <Onglets.Root value={onglet} onValueChange={setOnglet}>
-        <div className="sticky top-0 z-20 -mx-10 mb-6 flex items-center justify-between gap-6 border-b border-ligne bg-fond/90 px-10 backdrop-blur-xl 2xl:-mx-14 2xl:px-14">
+        <div ref={barre} className="sticky top-0 z-20 -mx-10 mb-6 flex items-center justify-between gap-6 border-b border-ligne bg-fond/90 px-10 backdrop-blur-xl 2xl:-mx-14 2xl:px-14">
           <Onglets.List className="flex gap-1">
             {[
               { id: "planche", nom: "Planche", icone: LayoutGrid },
+              { id: "animatique", nom: "Animatique", icone: Clapperboard },
               { id: "video", nom: "Vidéo", icone: Film },
             ].map((o) => (
               <Onglets.Trigger
@@ -106,7 +114,7 @@ export function Episode({ session, code }: { session: string; code: string }) {
               </Onglets.Trigger>
             ))}
           </Onglets.List>
-          {onglet === "planche" && rendus && rendus.langues.length > 0 && <ChoixLangue langues={rendus.langues} valeur={voixDe} changer={setLangue} />}
+          {onglet !== "video" && rendus && rendus.langues.length > 0 && <ChoixLangue langues={rendus.langues} valeur={voixDe} changer={setLangue} />}
         </div>
 
         <Onglets.Content value="planche" className="outline-none">
@@ -123,8 +131,13 @@ export function Episode({ session, code }: { session: string; code: string }) {
           )}
         </Onglets.Content>
 
+        <Onglets.Content value="animatique" className="outline-none">
+          {script && <Animatique session={session} code={code} langue={voixDe} plans={plans} imageDe={(p) => imagePlan(p, narrateur)} />}
+        </Onglets.Content>
+
         <Onglets.Content value="video" className="outline-none">
-          <Videos rendus={rendus} titre={script?.titre ?? ""} />
+          <Comparaisons essais={essais ?? []} />
+          <Videos rendus={rendus} titre={script?.titre ?? ""} affiche={imageEpisode(rendus, script?.contenu.thumbnail_scene ?? 0)} />
         </Onglets.Content>
       </Onglets.Root>
     </>
@@ -318,7 +331,7 @@ function CartePlan({ plan: p, image, portraits, ouvrir }: { plan: PlanLu; image?
   );
 }
 
-function Videos({ rendus, titre }: { rendus?: RendusBramble; titre: string }) {
+function Videos({ rendus, titre, affiche }: { rendus?: RendusBramble; titre: string; affiche?: string }) {
   const [choisie, setChoisie] = useState(0);
   if (!rendus) return <Squelette className="aspect-video w-full" />;
   if (!rendus.videos.length)
@@ -327,7 +340,7 @@ function Videos({ rendus, titre }: { rendus?: RendusBramble; titre: string }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
       <div className="overflow-hidden rounded-[16px] bg-black ring-1 ring-ligne">
-        <video key={v.chemin} src={fichier(v.chemin)} controls preload="metadata" className="aspect-video w-full bg-black" controlsList="nodownload noplaybackrate" />
+        <video key={v.chemin} src={fichier(v.chemin)} poster={affiche ? fichier(affiche, 1280) : undefined} controls preload="metadata" className="aspect-video w-full bg-black" controlsList="nodownload noplaybackrate" />
       </div>
       <div>
         <div className="mb-1 text-[15px] font-medium">{titre}</div>

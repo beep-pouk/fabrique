@@ -292,6 +292,48 @@ class RendusBramble(BaseModel):
     durees: dict[int, float] = {}  # scène -> secondes de sa voix
 
 
+class ReperePlan(BaseModel):
+    n: int  # le plan (id de sa première scène)
+    debut: float  # secondes dans l'animatique
+    duree: float  # à l'écran (voix + pause + tenue)
+
+
+class NoteAnimatique(BaseModel):
+    id: str = ""  # donné par le noyau à la création
+    t: float  # secondes dans l'animatique
+    texte: str
+    langue: str
+    date: str = ""
+
+
+class Animatique(BaseModel):
+    etat: str  # absente, en_cours, faite, erreur
+    message: str  # pourquoi elle a échoué
+    fait: int  # pendant le montage : scènes montées sur `tout`
+    tout: int
+    autre: bool  # une autre animatique se monte (une à la fois)
+    video: str  # vide : pas encore montée
+    date: str
+    fin: float  # durée de la vidéo, fin musicale comprise
+    plans: list[ReperePlan]
+    notes: list[NoteAnimatique]  # celles de RT sur ce script, toutes langues, dans l'ordre du temps
+
+
+class PlanEssai(BaseModel):
+    debut: float
+    duree: float
+
+
+class Comparaison(BaseModel):
+    dossier: str
+    titre: str
+    date: str
+    duree: float
+    plans: list[PlanEssai]  # ceux de Fabrique (4 à 8 s)
+    bramble: str  # la scène dans la vidéo de Bramble Studio
+    fabrique: str  # la même scène animée par Fabrique, même son
+
+
 class BrambleEnCours(BaseModel):
     actif: bool  # faux : Bramble Studio ne fabrique rien
     code: str = ""  # le script

@@ -282,13 +282,15 @@ def duree_wav(f: Path) -> float:
 def rendus(code: str, langue: str = "en") -> dict:
     """Ce que Bramble a rendu pour ce script, toutes langues et reprises : images des plans, vidéos finies, et la voix de `langue` scène par
     scène. Image du plan n : plan_NNN.png (n = première scène du plan), la plus récente ; vidéo : la plus récente de final par langue ;
-    voix : voix\\sNNN.wav la plus récente, et sa durée (le vrai rythme des plans) ; langues : celles qui ont des voix."""
+    voix : voix\\sNNN.wav la plus récente, et sa durée (le vrai rythme des plans) ; langues : celles qui ont des voix ; musique : musique.wav la plus récente
+    (commune aux langues)."""
     r = rendus_bramble()
     dossiers_ = [d for d in r.iterdir() if d.is_dir() and re.fullmatch(rf"\d{{4}}-\d\d-\d\d-{re.escape(code)}([._].+)?", d.name)] if r else []
     images: dict[int, Path] = {}
     videos: dict[str, Path] = {}
     voix: dict[int, Path] = {}
     langues: set[str] = set()
+    musique: Path | None = None
     plus_recent = lambda f, g: g is None or f.stat().st_mtime > g.stat().st_mtime  # noqa: E731
     for d in dossiers_:
         for f in (d / "images").glob("plan_[0-9][0-9][0-9].png"):
@@ -298,16 +300,19 @@ def rendus(code: str, langue: str = "en") -> dict:
         for f in (d / "final").glob("*.mp4"):
             if plus_recent(f, videos.get(l)):
                 videos[l] = f
+        if (f := d / "musique.wav").is_file() and plus_recent(f, musique):
+            musique = f
         for f in (d / "voix").glob("s[0-9][0-9][0-9].wav"):
             langues.add(l)
             if l == langue and plus_recent(f, voix.get(n := int(f.stem[1:]))):
                 voix[n] = f
     return {"images": {n: str(f) for n, f in sorted(images.items())}, "videos": [{"langue": l, "chemin": str(f)} for l, f in sorted(videos.items())],
-            "langues": sorted(langues), "voix": {n: str(f) for n, f in sorted(voix.items())}, "durees": {n: duree_wav(f) for n, f in sorted(voix.items())}}
+            "langues": sorted(langues), "voix": {n: str(f) for n, f in sorted(voix.items())}, "durees": {n: duree_wav(f) for n, f in sorted(voix.items())},
+            "musique": str(musique) if musique else ""}
 
 
 def en_cours(maintenant: datetime | None = None) -> dict | None:
-    """Ce que Bramble Studio fabrique en ce moment (son DONNEES\etat.json, lu seulement ; plus de 15 min : arrêté) : script, langue, étape,
+    """Ce que Bramble Studio fabrique en ce moment (son DONNEES\\etat.json, lu seulement ; plus de 15 min : arrêté) : script, langue, étape,
     minutes restantes en tout (son total_min ; son reste_min n'est que celui de l'étape), avancée de l'étape (plans faits / tous, s'il les
     compte) et l'image du plan qu'il traite (celle que nomme la dernière ligne de son journal, sinon la plus récente)."""
     s = garde.studio_bramble()

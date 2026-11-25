@@ -1,6 +1,6 @@
 """Les tâches détachées du noyau (« executer <tâche> ») : la sauvegarde (le soir à 23 h 30, ou au clic de RT), la publication (les envois
 lancés par « Publier », publication/publication.py), les paquets prêts à poster (publication/paquets.py) et le relevé quotidien des statistiques
-(publication/statistiques.py), tâches légères, la fabrication d'une vidéo ou un banc de la file (moteur/file.py), tâche lourde, et
+(publication/statistiques.py) et l'animatique d'un script (moteur/animatique.py, sur le processeur), tâches légères, la fabrication d'une vidéo ou un banc de la file (moteur/file.py), tâche lourde, et
 l'installation d'un outil (moteur/installation.py), jamais pendant une fabrication. L'état de chacune est un fichier (donnees\\taches\\<tâche>.json) : lu par le noyau, par
 « libre » (installateur) et par Claude, sans la base. Sans Django en tête de module : « libre » le lit sans le démarrer."""
 import json
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from fabrique import dossiers, programme
 
 log = logging.getLogger(__name__)
-TACHES = ("sauvegarde", "fabrication", "publication", "releve", "paquets", "installation")
+TACHES = ("sauvegarde", "fabrication", "publication", "releve", "paquets", "installation", "animatique")
 DEMARRAGE_S = 60  # lancée, pas encore de pid (le relais démarre l'exécuteur) : comptée comme en cours
 HEURE_SAUVEGARDE = (23, 30)
 
@@ -57,6 +57,11 @@ def vivante(e: dict) -> bool:
 def occupe(*noms: str) -> str:
     """Ce qui tourne parmi `noms` (toutes par défaut ; vide : rien) ; une tâche « en cours » dont le processus est mort ne compte pas."""
     return next((nom for nom in noms or TACHES if vivante(lire(nom))), "")
+
+
+def la(nom: str) -> str:
+    """« la sauvegarde », « l'animatique » : pour les messages à RT."""
+    return f"l'{nom}" if nom[0] in "aeiou" else f"la {nom}"
 
 
 def lancer(nom: str, acteur: str) -> str:
@@ -114,6 +119,10 @@ def executer(nom: str = "", *args) -> int:
         from fabrique.moteur import installation
 
         return installation.executer(*args)
+    if nom == "animatique":
+        from fabrique.moteur import animatique
+
+        return animatique.executer(*args)
     if occupe(nom):
         print(f"la {nom} est déjà en cours")
         return 3

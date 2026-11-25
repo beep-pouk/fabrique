@@ -177,6 +177,29 @@ export interface RendusBramble {
   durees: Record<string, number>;
 }
 
+export interface Comparaison {
+  dossier: string;
+  titre: string;
+  date: string;
+  duree: number;
+  plans: { debut: number; duree: number }[];
+  bramble: string;
+  fabrique: string;
+}
+
+export interface Animatique {
+  etat: "absente" | "en_cours" | "faite" | "erreur";
+  message: string;
+  fait: number;
+  tout: number;
+  autre: boolean;
+  video: string;
+  date: string;
+  fin: number;
+  plans: { n: number; debut: number; duree: number }[];
+  notes: { id: string; t: number; texte: string; langue: string; date: string }[];
+}
+
 export interface Reference {
   id: number;
   chemin: string;

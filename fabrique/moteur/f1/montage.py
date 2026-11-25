@@ -61,7 +61,9 @@ class Montage:
         so = self.cfg["sortie"]; W, H, FPS = so["largeur"], so["hauteur"], so["fps"]
         D = s["_duree"]; f = self.cfg["fondu_s"]
         voix = self.dossier / "voix" / f"s{s['id']:03d}.wav"
-        if s.get("bramble"):
+        if s.get("_source"):  # Fabrique, animatique (moteur/animatique.py) : l'image fixe du plan, sans clip
+            src, vf = Path(s["_source"]), f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},fps={FPS},tpad=stop_mode=clone:stop_duration={D}"
+        elif s.get("bramble"):
             src = self.dossier / "bramble" / f"s{s['id']:03d}.mp4"
             if not src.exists():  # plan sans parole (ou LongCat absent) : pose fixe
                 src = self.o.poses / f"{s['bramble']}.png"
