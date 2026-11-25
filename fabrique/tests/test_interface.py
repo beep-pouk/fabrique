@@ -237,7 +237,7 @@ def test_decoupage_plans_de_4_a_8_s_cadres_sur_les_personnages(tmp_path):
     assert decoupage.personnages(img) == []  # sans calques : cadres centrés
     meta = tmp_path / "calques" / "plan_001" / "meta.json"
     meta.parent.mkdir(parents=True)
-    meta.write_text(json.dumps({"largeur": 320, "hauteur": 180, "noms": ["Pip", "Moss", "Fern"], "calques": [
+    meta.write_text(json.dumps({"largeur": 320, "hauteur": 180, "noms": ["Pip", "Moss", "Wren"], "calques": [
         {"x0": 20, "y0": 40, "x1": 100, "y1": 180}, {"x0": 200, "y0": 20, "x1": 300, "y1": 180, "yeux": True}, {"x0": 0, "y0": 150, "x1": 160, "y1": 180}]}),
         encoding="utf-8")
     from PIL import Image
