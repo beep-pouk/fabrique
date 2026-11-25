@@ -210,10 +210,15 @@ def jouer(assemble: Path, bac: Path, dire=print, preuve: Path | None = None) -> 
         script.write_text(json.dumps({"titre": "Essai installé", "scenes": [{"id": "s1", "plans": [{"id": "p1", "texte": "Bonjour."}]}]}), encoding="utf-8")
         r = lancer(exe, "moteur", "essai", script, env={**env, **BRAMBLE})
         assert r.returncode == 0 and "dans la file" in r.stdout, f"moteur : {r.returncode} {r.stdout} {r.stderr}"
-        t = banc.attendre(lambda: next((t for t in client.appeler("file") if t["titre"] == "Essai installé" and t["etat"] in ("finie", "erreur")), None), 180,
+        # réponse A de la supervision (25/11) : quand Bramble Studio a la carte, la file lui cède ; l'étape est notée non jouée au lieu de bloquer la version
+        t = banc.attendre(lambda: next((t for t in client.appeler("file") if t["titre"] == "Essai installé" and (t["etat"] in ("finie", "erreur")
+                                        or t["etat"] == "attente" and t["raison"].startswith("Bramble Studio"))), None), 180,
                           f"l'essai est fabriqué ({client.appeler('file')})", pas=1)
-        assert t["etat"] == "finie" and t["progression"] == "15/15", t
-        point(f"essai de recette par le programme installé : « moteur essai » puis le noyau et son exécuteur (Fabrique.exe), faux outils, {t['progression']} morceaux")
+        if t["etat"] == "attente":
+            point(f"essai de recette par le programme installé : « moteur essai » l'a mis dans la file ; non joué : carte prise par Bramble Studio (la file attend : « {t['raison']} »)")
+        else:
+            assert t["etat"] == "finie" and t["progression"] == "15/15", t
+            point(f"essai de recette par le programme installé : « moteur essai » puis le noyau et son exécuteur (Fabrique.exe), faux outils, {t['progression']} morceaux")
         hors_guet.set()
         try:
             r = lancer(prog / "runtime" / "python.exe", "-B", "-c", LECTURE, env=env, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW)
