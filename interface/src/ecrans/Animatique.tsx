@@ -8,7 +8,8 @@ import { duree, horloge, MAX_IMAGE_S, nomLangue, VALEURS, type PlanLu } from "..
 import { Bouton, cx, Erreur, Image, Pastille, recadrer, Squelette, Vide } from "../ui";
 import { AnimationPlan } from "./AnimationPlan";
 
-export function Animatique({ session, code, langue, plans, imageDe }: { session: string; code: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined }) {
+// depart : la seconde où ouvrir le lecteur (#/episode/<session>/<code>/animatique/<secondes>)
+export function Animatique({ session, code, langue, plans, imageDe, depart }: { session: string; code: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined; depart?: number }) {
   const chemin = `/sessions/${encodeURIComponent(session)}/scripts/${encodeURIComponent(code)}/animatique`;
   const [suivre, setSuivre] = useState(false);
   const { donnees: a, erreur, relire } = useLire<EtatAnimatique>(`${chemin}?langue=${encodeURIComponent(langue)}`, suivre ? 2000 : 0);
@@ -43,7 +44,7 @@ export function Animatique({ session, code, langue, plans, imageDe }: { session:
       {a.etat === "erreur" && <Erreur texte={`L'animatique n'a pas pu être montée : ${a.message}`} />}
       {message && <Erreur texte={message} />}
       {a.video ? (
-        <Lecteur a={a} chemin={chemin} langue={langue} plans={plans} imageDe={imageDe} relire={relire} bouton={bouton} animation={chemin.replace(/animatique$/, "animation")} />
+        <Lecteur a={a} chemin={chemin} langue={langue} plans={plans} imageDe={imageDe} relire={relire} bouton={bouton} animation={chemin.replace(/animatique$/, "animation")} depart={depart} />
       ) : (
         !enCours && (
           <Vide
@@ -77,13 +78,13 @@ function Avancee({ fait, tout, autre }: { fait: number; tout: number; autre: boo
   );
 }
 
-function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation }: {
-  a: EtatAnimatique; chemin: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined; relire(): Promise<void>; bouton: React.ReactNode; animation: string;
+function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation, depart }: {
+  a: EtatAnimatique; chemin: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined; relire(): Promise<void>; bouton: React.ReactNode; animation: string; depart?: number;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const champ = useRef<HTMLInputElement>(null);
   const racine = useRef<HTMLDivElement>(null);
-  const [t, setT] = useState(0);
+  const [t, setT] = useState(depart ?? 0);
   const [joue, setJoue] = useState(false);
   const [note, setNote] = useState("");
   const [tNote, setTNote] = useState<number | null>(null);
@@ -94,13 +95,15 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation 
   const fin = a.fin || reperes.reduce((s, r) => s + r.duree, 0) || 1;
   const courant = reperes.findIndex((r) => t >= r.debut && t < r.debut + r.duree);
   const r = reperes[courant];
+  const freres = r ? reperes.filter((x) => x.n === r.n) : []; // les plans découpés dans la même image : 12a, 12b…
+  const etiquette = r ? `${r.numero}${freres.length > 1 ? "abcdefghijklmnopqrstuvwxyz"[freres.indexOf(r)] ?? `.${freres.indexOf(r) + 1}` : ""}` : "";
   const longs = reperes.filter((x) => x.duree > MAX_IMAGE_S && !x.plan?.bramble).length;
   const affiche = reperes[0]?.plan && imageDe(reperes[0].plan);
   const ici = a.notes.filter((n) => n.langue === langue); // une seconde ne vaut que dans sa langue (voix de longueurs différentes)
 
   useEffect(() => {
     setJoue(false); // nouvelle vidéo (remontée, autre langue) : l'ancien élément est parti sans dire « pause »
-    setT(0);
+    setT(depart ?? 0); // le plan de la seconde demandée s'affiche avant que la vidéo soit chargée
     setNote(""); // une note commencée tombait à la seconde de l'autre vidéo
     setTNote(null);
   }, [a.video]);
@@ -205,6 +208,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation 
             onPause={() => setJoue(false)}
             onEnded={() => setJoue(false)}
             onSeeked={(e) => setT(e.currentTarget.currentTime)}
+            onLoadedMetadata={(e) => depart && (e.currentTarget.currentTime = Math.min(depart, e.currentTarget.duration - 0.05))}
             onTimeUpdate={(e) => !joue && setT(e.currentTarget.currentTime)}
           />
           {!joue && (
@@ -216,7 +220,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation 
           )}
           {r && (
             <div className="titre-image pointer-events-none absolute top-4 left-5 text-[13px] font-semibold text-white">
-              Plan {r.numero} <span className="font-normal text-white/70">{VALEURS[r.valeur ?? ""] ? `· ${VALEURS[r.valeur ?? ""]}` : `sur ${plans.length}`}</span>
+              Plan {etiquette} <span className="font-normal text-white/70">{VALEURS[r.valeur ?? ""] ? `· ${VALEURS[r.valeur ?? ""]}` : `sur ${plans.length}`}</span>
             </div>
           )}
         </div>
@@ -258,7 +262,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation 
               <Image chemin={imageDe(r.plan)} largeur={1280} cadre={r.cadre} className="aspect-video" />
               <div className="p-4">
                 <div className="mb-1.5 flex items-center justify-between text-[13px]">
-                  <span className="font-medium">Plan {r.numero}{VALEURS[r.valeur ?? ""] && <span className="font-normal text-doux"> · {VALEURS[r.valeur ?? ""]}</span>}</span>
+                  <span className="font-medium">Plan {etiquette}{VALEURS[r.valeur ?? ""] && <span className="font-normal text-doux"> · {VALEURS[r.valeur ?? ""]}</span>}</span>
                   <span className={cx("tabular-nums", r.duree > MAX_IMAGE_S && !r.plan.bramble ? "font-semibold text-ambre-vif" : "text-doux")}>{duree(r.duree)} à l'écran</span>
                 </div>
                 <p className="line-clamp-4 text-[14px] leading-relaxed text-texte/90">{r.plan.texte || <span className="text-pale">Aucun texte dit.</span>}</p>
@@ -270,7 +274,7 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation 
         </div>
 
         {r?.cle && r.valeur !== "bramble" && !r.plan?.bramble && (
-          <AnimationPlan chemin={animation} langue={langue} cle={r.cle} numero={r.numero} pause={() => video.current?.pause()} />
+          <AnimationPlan chemin={animation} langue={langue} cle={r.cle} etiquette={etiquette} cadre={r.cadre} pause={() => video.current?.pause()} />
         )}
 
         <div className="flex min-h-0 flex-1 flex-col rounded-carte border border-ligne bg-carte">
@@ -367,7 +371,7 @@ function Frise({ reperes, fin, t, courant, notes, aller, imageDe }: {
                 <Infobulle.Content sideOffset={6} className="z-50 overflow-hidden rounded-lg border border-ligne-forte bg-carte-2 text-[12px] shadow-haut">
                   {r.plan && r.cadre && (
                     <div className="relative aspect-video w-48 overflow-hidden">
-                      <img src={fichier(imageDe(r.plan) ?? "", 640)} alt="" style={recadrer(r.cadre)} className="absolute object-cover" />
+                      <img src={fichier(imageDe(r.plan) ?? "", 640)} alt="" style={recadrer(r.cadre)} className="absolute max-w-none object-cover" />
                     </div>
                   )}
                   <div className="px-3 py-2">

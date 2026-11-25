@@ -113,11 +113,12 @@ def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: N
         m = montage.Montage(travail, cfg, o)
         total = m.durees(scenes)
         decoupes = decoupage.decouper(scenes)  # plans de 4 à 8 s cadrés dans l'image : jamais une image tenue plus de 15 s
-        gardes = animation.gardes(s, code)  # étape 5 : l'essai d'animation gardé d'un plan remplace le mouvement de caméra
+        gardes = animation.gardes(s, code)  # étape 5 : l'essai gardé d'un plan remplace le mouvement de caméra, s'il a été fait sur ce cadre-là
+        animes = {p["cle"]: g for p in decoupes if (g := gardes.get(p["cle"])) and g.get("source") == p["source"] and g.get("cadre") == p["de"]}
         for sc in scenes:
             for p in sc["_plans"]:
-                if p["cle"] in gardes:
-                    p["clip"] = gardes[p["cle"]]
+                if (g := animes.get(p["cle"])) and p["dans"] < g["duree"] - 0.1:  # un clip plus court que le plan : sa dernière image tenue
+                    p["clip"] = g["video"]
         (travail / "plans").mkdir()
         so = cfg["sortie"]
         for k, sc in enumerate(scenes):
@@ -136,7 +137,7 @@ def faire(s, code: str, langue: str, contenu: dict, avancer=lambda fait, tout: N
             th, re_ = th + sc["_duree"], re_ + sc["_reel"]
         reel = lambda x: next((r0 + min(max(x - t0, 0.0), r) for t0, r0, d, r in bornes if x < t0 + d - 1e-6), re_)  # noqa: E731
         reperes = [{"n": plan_de.get(p["scene"], p["scene"]), "debut": round(reel(p["debut"]), 3), "duree": round(reel(p["debut"] + p["duree"]) - reel(p["debut"]), 3),
-                    "valeur": p["valeur"], "cadre": p["de"], "cle": p["cle"], "scene": p["scene"], "source": p["source"], "anime": p["cle"] in gardes}
+                    "valeur": p["valeur"], "cadre": p["de"], "cle": p["cle"], "scene": p["scene"], "source": p["source"], "anime": p["cle"] in animes}
                    for p in decoupes]
         video = sortie / f"animatique_{datetime.now():%Y%m%d_%H%M%S}.mp4"  # un nom neuf : l'ancienne peut être en lecture dans la fenêtre
         os.replace(fini, video)

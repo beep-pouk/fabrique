@@ -11,7 +11,7 @@ import { Avatar, BoutonEcoute, Bouton, cx, Erreur, Image, Pastille, Squelette, V
 import { Animatique } from "./Animatique";
 import { Comparaisons } from "./Comparaison";
 
-export function Episode({ session, code, onglet: demande }: { session: string; code: string; onglet?: string }) {
+export function Episode({ session, code, onglet: demande, depart }: { session: string; code: string; onglet?: string; depart?: number }) {
   const { univers, portraits, distribution } = useStudio();
   const { donnees: script, erreur } = useLire<ScriptDetail>(`/sessions/${session}/scripts/${code}`);
   const base = script?.contenu.language ?? "en";
@@ -140,7 +140,7 @@ export function Episode({ session, code, onglet: demande }: { session: string; c
         </Onglets.Content>
 
         <Onglets.Content value="animatique" className="outline-none">
-          {script && <Animatique session={session} code={code} langue={voixDe} plans={plans} imageDe={(p) => imagePlan(p, narrateur)} />}
+          {script && <Animatique session={session} code={code} langue={voixDe} plans={plans} imageDe={(p) => imagePlan(p, narrateur)} depart={depart} />}
         </Onglets.Content>
 
         <Onglets.Content value="video" className="outline-none">

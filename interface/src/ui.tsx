@@ -74,7 +74,7 @@ export function Image({ chemin, largeur = 640, className, alt = "", position, ca
           onLoad={() => setEtat("ok")}
           onError={() => setEtat("erreur")}
           style={cadre?.length === 3 ? recadrer(cadre) : position ? { objectPosition: position } : undefined}
-          className={cx("absolute object-cover transition-opacity duration-500", cadre?.length !== 3 && "inset-0 size-full", etat === "ok" ? "opacity-100" : "opacity-0")}
+          className={cx("absolute object-cover transition-opacity duration-500", cadre?.length === 3 ? "max-w-none" : "inset-0 size-full", etat === "ok" ? "opacity-100" : "opacity-0")}
         />
       )}
     </div>

@@ -246,10 +246,15 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     taches.ecrire(animation.TACHE, {})
     (essai,) = animation.etat(s, "x1e01")["plans"]["1.0"]["essais"]
     assert essai["etat"] == "fait" and essai["consigne"] == "le chat cligne" and essai["simule"] and essai["video"] == str(clip) and abs(animation._outils(s).duree(clip) - 1.5) < 0.1
-    assert "remontez" in animation.garder(s, "x1e01", "1.0", 1, "RT") and animation.gardes(s, "x1e01") == {"1.0": str(clip)}
+    assert "remontez" in animation.garder(s, "x1e01", "1.0", 1, "RT") and animation.gardes(s, "x1e01")["1.0"]["video"] == str(clip)
     animatique.faire(s, "x1e01", "en", contenu)
     e = animatique.etat(s, "x1e01", "en")
     assert [p["anime"] for p in e["plans"]] == [True, False, False] and abs(e["fin"] - 3.5) < 0.2
+    d = animation.lire(s, "x1e01")
+    d["1.0"]["essais"][0]["cadre"] = [0.4, 0.5, 0.8]  # fait sur un autre cadre (autre langue, autre version du script) : jamais monté ici
+    animatique.ecrire_json(animation.dossier(s, "x1e01") / "essais.json", d)
+    animatique.faire(s, "x1e01", "en", contenu)
+    assert not any(p["anime"] for p in animatique.etat(s, "x1e01", "en")["plans"])
     animation.garder(s, "x1e01", "1.0", 0, "RT")
     assert animation.gardes(s, "x1e01") == {}
     (base / "voix" / "s003.wav").unlink()

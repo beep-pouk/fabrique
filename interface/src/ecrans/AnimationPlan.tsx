@@ -6,9 +6,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { agir, fichier, useLire, type Animation, type EssaiAnimation } from "../api";
 import { Bouton, cx, Pastille } from "../ui";
 
-export function AnimationPlan({ chemin, langue, cle, numero, pause }: { chemin: string; langue: string; cle: string; numero: number; pause(): void }) {
+// etiquette : le nom du plan découpé (« 12b ») ; cadre : le sien (un essai fait sur un autre découpage, autre langue ou version, n'est pas montré)
+export function AnimationPlan({ chemin, langue, cle, etiquette, cadre, pause }: { chemin: string; langue: string; cle: string; etiquette: string; cadre?: number[]; pause(): void }) {
   const [suivre, setSuivre] = useState(false);
-  const { donnees: a, relire } = useLire<Animation>(chemin, suivre ? 3000 : 0);
+  const { donnees: a, erreur: lecture, relire } = useLire<Animation>(chemin, suivre ? 3000 : 0);
   const [consigne, setConsigne] = useState("");
   const [message, setMessage] = useState("");
   const [erreur, setErreur] = useState("");
@@ -18,10 +19,11 @@ export function AnimationPlan({ chemin, langue, cle, numero, pause }: { chemin: 
   useEffect(() => {
     setMessage("");
     setErreur("");
+    setConsigne(""); // une consigne commencée ne part jamais sur le plan suivant
   }, [cle]);
   const plan = a?.plans[cle];
-  const garde = plan?.garde ?? 0;
-  const essais = [...(plan?.essais ?? [])].reverse();
+  const essais = (plan?.essais ?? []).filter((e) => !cadre || JSON.stringify(e.cadre) === JSON.stringify(cadre)).reverse();
+  const garde = essais.some((e) => e.n === plan?.garde) ? (plan?.garde ?? 0) : 0;
   const faits = essais.filter((e) => e.etat === "fait");
 
   async function faire(action: () => Promise<{ message: string }>) {
@@ -51,7 +53,7 @@ export function AnimationPlan({ chemin, langue, cle, numero, pause }: { chemin: 
   return (
     <div className="rounded-carte border border-ligne bg-carte">
       <div className="flex items-center justify-between gap-2 border-b border-ligne px-4 py-3">
-        <span className="text-[14px] font-medium">Animation du plan {numero}</span>
+        <span className="text-[14px] font-medium">Animation du plan {etiquette}</span>
         {garde ? (
           <Pastille ton="vert">
             <Check className="size-3.5" /> essai {garde} gardé
@@ -94,16 +96,16 @@ export function AnimationPlan({ chemin, langue, cle, numero, pause }: { chemin: 
           </Bouton>
         </div>
         {message && <p className="mt-2 text-[13px] text-vert">{message}</p>}
-        {erreur && <p className="mt-2 text-[13px] text-rouge">{erreur}</p>}
+        {(erreur || (!a && lecture)) && <p className="mt-2 text-[13px] text-rouge">{erreur || `Les essais ne se lisent pas : ${lecture}`}</p>}
       </form>
-      <Comparer ouvert={comparer} fermer={() => setComparer(false)} essais={faits} garde={garde} garder={garder} numero={numero} />
+      <Comparer ouvert={comparer} fermer={() => setComparer(false)} essais={faits} garde={garde} garder={garder} etiquette={etiquette} />
     </div>
   );
 }
 
 function Essai({ e, garde, garder, occupe }: { e: EssaiAnimation; garde: boolean; garder(n: number): void; occupe: boolean }) {
   return (
-    <li className={cx("overflow-hidden rounded-[12px] border bg-carte-2/60", garde ? "border-vert/50" : "border-ligne")}>
+    <li className={cx("shrink-0 overflow-hidden rounded-[12px] border bg-carte-2/60", garde ? "border-vert/50" : "border-ligne")}>
       {e.etat === "fait" ? (
         <video src={fichier(e.video)} controls muted loop playsInline preload="metadata" className="aspect-video w-full bg-black" />
       ) : (
@@ -139,8 +141,8 @@ function Essai({ e, garde, garder, occupe }: { e: EssaiAnimation; garde: boolean
   );
 }
 
-function Comparer({ ouvert, fermer, essais, garde, garder, numero }: {
-  ouvert: boolean; fermer(): void; essais: EssaiAnimation[]; garde: number; garder(n: number): void; numero: number;
+function Comparer({ ouvert, fermer, essais, garde, garder, etiquette }: {
+  ouvert: boolean; fermer(): void; essais: EssaiAnimation[]; garde: number; garder(n: number): void; etiquette: string;
 }) {
   const videos = useRef<(HTMLVideoElement | null)[]>([]);
   const ensemble = () =>
@@ -156,7 +158,7 @@ function Comparer({ ouvert, fermer, essais, garde, garder, numero }: {
         <Dialogue.Content className="animate-entree fixed top-1/2 left-1/2 z-50 flex max-h-[92vh] w-[min(1560px,94vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[18px] border border-ligne-forte bg-carte shadow-haut outline-none">
           <div className="flex items-center justify-between gap-4 border-b border-ligne px-6 py-4">
             <div>
-              <Dialogue.Title className="text-[20px] font-semibold tracking-[-0.01em]">Plan {numero} : les essais côte à côte</Dialogue.Title>
+              <Dialogue.Title className="text-[20px] font-semibold tracking-[-0.01em]">Plan {etiquette} : les essais côte à côte</Dialogue.Title>
               <Dialogue.Description className="mt-0.5 text-[13px] text-doux">Lus ensemble, sans son : gardez celui qui ressemble le plus à un vrai dessin animé.</Dialogue.Description>
             </div>
             <div className="flex items-center gap-2">

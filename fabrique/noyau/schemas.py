@@ -334,6 +334,7 @@ class EssaiAnimation(BaseModel):
     video: str = ""  # vide tant qu'il n'est pas fait
     date: str = ""
     duree: float = 0.0
+    cadre: list[float] = []  # le cadre du plan quand l'essai a été demandé : un autre découpage (langue, version) ne le montre pas
 
 
 class PlanAnimation(BaseModel):

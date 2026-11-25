@@ -211,6 +211,7 @@ export interface EssaiAnimation {
   video: string;
   date: string;
   duree: number;
+  cadre: number[];
 }
 
 export interface Animation {
