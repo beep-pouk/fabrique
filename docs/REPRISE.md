@@ -3,6 +3,13 @@
 *Dernière section d'abord. La tâche suivante est dans `docs/TACHE.md` (écrite par la supervision) ; le plan dans `PROJET\notes\plateforme\04_plan_technique.md`.
 Aucun nom, texte ou réglage réel du projet dans un fichier suivi (tests et docs : noms factices).*
 
+## 26/11/2026, 0 h → 1 h 15 — 0.13 publiée ; étape 2 jugée ; étape 4 finie ; étape 5 (plan par plan) faite, 0.14
+
+- **0.13.0 publiée** (la construction de la veille butait sur une bibliothèque de l'antivirus posée par son pilote : `banc.externes` ignore les chemins `GLOBALROOT\Device\…`). **Étape 2** : juge local à l'aveugle (Qwen, `OUTILS\analyse\qwen_video.py` par WSL avec `MSYS_NO_PATHCONV=1`) : 9/10 sans défaut, comme Bramble au même endroit (`essais_anim\JOURNAL.md`). **Étape 4** : le gros plan suit le personnage nommé dans le texte dit pendant le plan.
+- **Étape 5** (`moteur\animation.py`, API `…/animation`, écran `AnimationPlan.tsx` dans l'onglet Animatique) : essais LTX d'un plan découpé (clé « scène.rang »), consigne de RT ou mouvement du script sans ses phrases de caméra, comparer côte à côte, garder ; l'animatique monte l'essai gardé (même image et même cadre seulement). ComfyUI à soi (port 8197, `donnees\comfy_animation`), arrêté par taskkill ; carte libre et < 2 Go ; arrêt si Bramble fabrique (vu 2 fois) ou à 14 min ; verrou de fichier sur `essais.json`. Deux vrais essais en dev (6 min 43 et 6 min 12 de carte), fidèles à la consigne. Relecture à froid : 9 points, tous corrigés.
+- **Pièges** : la construction copie l'arbre de travail (`fabrique\` suivi, interface) : ne rien modifier pendant qu'elle tourne ; dans un script d'édition Python, `\b` d'une chaîne non brute devient un retour arrière (chaînes `r'''…'''`) ; Tailwind met `max-width: 100%` aux images (recadrage : `max-w-none`) ; un nom factice de test était celui d'un personnage du vrai projet (le crochet de push le refuse) : choisir hors de la liste des dossiers de `PROJET\personnages`.
+- **À reprendre** : 0.14.0 publiée et annoncée dans QUESTIONS ; une fois la 0.13/0.14 installée chez RT : déposer l'essai d'animation de l'étape 2 dans sa session (`essais_anim\deposer.py`) ; étape 6 (personnages fidèles : contrôle sur chaque essai ; son fini).
+
 ## 25/11/2026, 15 h 40 → — étape 2 montée, étape 4 commencée (découpage en plans), 0.13
 
 - **Étape 2** : p4 → p7 faits ce matin (≈ 8/10 à mon avis, `essais_anim\JOURNAL.md`), scène montée et déposée en dev ; images d'attente des deux vidéos (`comparaison.affiche`). Juge à l'aveugle : à demander à la supervision (carte prise).
