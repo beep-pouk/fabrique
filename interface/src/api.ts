@@ -197,9 +197,26 @@ export interface Animatique {
   video: string;
   date: string;
   fin: number;
-  plans: { n: number; debut: number; duree: number; valeur?: string; cadre?: number[] }[]; // valeur et cadre : découpage (étape 4)
+  plans: { n: number; debut: number; duree: number; valeur?: string; cadre?: number[]; cle?: string; anime?: boolean }[]; // valeur et cadre : découpage (étape 4) ; cle, anime : essais (étape 5)
   notes: { id: string; t: number; texte: string; langue: string; date: string; ancienne?: boolean }[];
   perimee?: boolean; // montée sur une version précédente du script
+}
+
+export interface EssaiAnimation {
+  n: number;
+  consigne: string;
+  etat: "attente" | "en_cours" | "fait" | "erreur";
+  message: string;
+  simule: boolean; // mode simulation : la caméra glisse sur l'image, sans carte
+  video: string;
+  date: string;
+  duree: number;
+}
+
+export interface Animation {
+  plans: Record<string, { essais: EssaiAnimation[]; garde: number }>; // par clé de plan (repère de l'animatique)
+  occupe: boolean; // un essai tourne (un à la fois)
+  ici: boolean; // … de ce script
 }
 
 export interface Reference {

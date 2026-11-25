@@ -28,6 +28,8 @@ TACHE = "animation"
 LIMITE_S = 14 * 60  # règle de RT (24/11) : 15 min de carte au plus par test, marge pour rendre la carte
 CLE = re.compile(r"\d{1,5}\.\d{1,3}")
 CONSIGNE_MAX = 600
+PHRASE = re.compile(r"(?<=[.!?])\s+")
+CAMERA = re.compile(r"\bcam[eé]ra\b", re.I)
 FIXE = "The camera stays completely still, a locked-off shot."  # la caméra est celle du découpage, jamais celle de LTX
 _verrou = threading.Lock()
 
@@ -109,7 +111,8 @@ def _plan(s, code: str, langue: str, cle: str) -> dict:
 
 
 def demander(s, code: str, langue: str, cle: str, consigne: str, acteur: str) -> str:
-    """Un nouvel essai du plan `cle` (consigne vide : le mouvement que le script donne à sa scène), lancé tout de suite si la carte est libre."""
+    """Un nouvel essai du plan `cle` (consigne vide : le mouvement que le script donne à sa scène, sans ses phrases de caméra : la caméra est
+    celle du découpage), lancé tout de suite si la carte est libre."""
     from fabrique.moteur import animatique, carte
     from fabrique.noyau import etat as etat_noyau
     from fabrique.noyau import taches
@@ -119,8 +122,8 @@ def demander(s, code: str, langue: str, cle: str, consigne: str, acteur: str) ->
         raise Refus("plan inconnu")
     contenu = animatique.contenu_du_script(s, code)
     r = _plan(s, code, animatique.verifier_langue(langue), cle)
-    consigne = " ".join(consigne.split()) or next((" ".join(str(sc.get("motion", "")).split()) for sc in contenu.get("scenes", [])
-                                                   if str(sc.get("id")) == str(r.get("scene"))), "")
+    mouvement = next((str(sc.get("motion", "")) for sc in contenu.get("scenes", []) if str(sc.get("id")) == str(r.get("scene"))), "")
+    consigne = " ".join(consigne.split()) or " ".join(p for p in PHRASE.split(" ".join(mouvement.split())) if not CAMERA.search(p))
     if not consigne:
         raise Refus("dites ce qui doit bouger dans ce plan")
     if len(consigne) > CONSIGNE_MAX:

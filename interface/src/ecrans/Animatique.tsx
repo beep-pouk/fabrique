@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { agir, fichier, useLire, type Animatique as EtatAnimatique } from "../api";
 import { duree, horloge, MAX_IMAGE_S, nomLangue, VALEURS, type PlanLu } from "../outils";
 import { Bouton, cx, Erreur, Image, Pastille, recadrer, Squelette, Vide } from "../ui";
+import { AnimationPlan } from "./AnimationPlan";
 
 export function Animatique({ session, code, langue, plans, imageDe }: { session: string; code: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined }) {
   const chemin = `/sessions/${encodeURIComponent(session)}/scripts/${encodeURIComponent(code)}/animatique`;
@@ -42,7 +43,7 @@ export function Animatique({ session, code, langue, plans, imageDe }: { session:
       {a.etat === "erreur" && <Erreur texte={`L'animatique n'a pas pu être montée : ${a.message}`} />}
       {message && <Erreur texte={message} />}
       {a.video ? (
-        <Lecteur a={a} chemin={chemin} langue={langue} plans={plans} imageDe={imageDe} relire={relire} bouton={bouton} />
+        <Lecteur a={a} chemin={chemin} langue={langue} plans={plans} imageDe={imageDe} relire={relire} bouton={bouton} animation={chemin.replace(/animatique$/, "animation")} />
       ) : (
         !enCours && (
           <Vide
@@ -76,8 +77,8 @@ function Avancee({ fait, tout, autre }: { fait: number; tout: number; autre: boo
   );
 }
 
-function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
-  a: EtatAnimatique; chemin: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined; relire(): Promise<void>; bouton: React.ReactNode;
+function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton, animation }: {
+  a: EtatAnimatique; chemin: string; langue: string; plans: PlanLu[]; imageDe(p: PlanLu): string | undefined; relire(): Promise<void>; bouton: React.ReactNode; animation: string;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const champ = useRef<HTMLInputElement>(null);
@@ -268,6 +269,10 @@ function Lecteur({ a, chemin, langue, plans, imageDe, relire, bouton }: {
           )}
         </div>
 
+        {r?.cle && r.valeur !== "bramble" && !r.plan?.bramble && (
+          <AnimationPlan chemin={animation} langue={langue} cle={r.cle} numero={r.numero} pause={() => video.current?.pause()} />
+        )}
+
         <div className="flex min-h-0 flex-1 flex-col rounded-carte border border-ligne bg-carte">
           <div className="flex items-center justify-between border-b border-ligne px-4 py-3">
             <span className="text-[14px] font-medium">Notes</span>
@@ -354,7 +359,9 @@ function Frise({ reperes, fin, t, courant, notes, aller, imageDe }: {
           return (
             <Infobulle.Root key={i}>
               <Infobulle.Trigger asChild>
-                <div style={{ flexGrow: r.duree }} className={cx("relative min-w-px basis-0 border-r border-black/70", long && "bg-ambre/70", i === courant && "bg-white/15 ring-2 ring-white ring-inset")} />
+                <div style={{ flexGrow: r.duree }} className={cx("relative min-w-px basis-0 border-r border-black/70", long && "bg-ambre/70", i === courant && "bg-white/15 ring-2 ring-white ring-inset")}>
+                  {r.anime && <span className="absolute inset-x-0 bottom-0 h-1 bg-vert" />}
+                </div>
               </Infobulle.Trigger>
               <Infobulle.Portal>
                 <Infobulle.Content sideOffset={6} className="z-50 overflow-hidden rounded-lg border border-ligne-forte bg-carte-2 text-[12px] shadow-haut">
@@ -367,6 +374,7 @@ function Frise({ reperes, fin, t, courant, notes, aller, imageDe }: {
                     Plan {r.numero}
                     {VALEURS[r.valeur ?? ""] && ` · ${VALEURS[r.valeur ?? ""]}`} · {horloge(r.debut)} · {duree(r.duree)}
                     {long && <span className="text-ambre-vif"> · trop long</span>}
+                    {r.anime && <span className="text-vert"> · animé</span>}
                   </div>
                 </Infobulle.Content>
               </Infobulle.Portal>

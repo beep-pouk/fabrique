@@ -190,7 +190,8 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     (settings.SESSIONS / s.dossier / "reglages").mkdir(parents=True)
     cfg = {"pause_apres_phrase_s": 0.5, "fondu_s": 0.2, "musique_volume_db": -20, "sortie": {"largeur": 1920, "hauteur": 1080, "fps": 12, "lufs": -14}}
     (settings.SESSIONS / s.dossier / "reglages" / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
-    contenu = {"title": "Essai", "scenes": [{"id": 1, "image": "une clairière"}, {"id": 2, "bramble": "pose_factice"}, {"id": 3, "image": "same"}]}
+    contenu = {"title": "Essai", "scenes": [{"id": 1, "image": "une clairière", "motion": "The camera pushes in."}, {"id": 2, "bramble": "pose_factice"},
+                                            {"id": 3, "image": "same", "motion": "A leaf  falls. The camera holds."}]}
     vus = []
     video = animatique.faire(s, "x1e01", "en", contenu, avancer=lambda f, t: vus.append((f, t)))
     e = animatique.etat(s, "x1e01", "en")
@@ -228,7 +229,7 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     monkeypatch.setattr(programme, "lancer_detache", lambda *a, journal: lances.append(a))
     with pytest.raises(Refus, match="lèvres"):
         animation.demander(s, "x1e01", "en", "2.0", "", "RT")
-    with pytest.raises(Refus, match="ce qui doit bouger"):  # ni consigne ni mouvement dans le script
+    with pytest.raises(Refus, match="ce qui doit bouger"):  # ni consigne ni mouvement dans le script (sa phrase de caméra ne compte pas)
         animation.demander(s, "x1e01", "en", "1.0", "  ", "RT")
     with pytest.raises(Refus, match="pas dans l'animatique"):
         animation.demander(s, "x1e01", "en", "9.0", "bouge", "RT")
@@ -239,6 +240,9 @@ def test_animatique_images_fixes_voix_musique_reperes_et_notes(tmp_path, monkeyp
     with pytest.raises(Refus, match="pas encore fini"):
         animation.garder(s, "x1e01", "1.0", 1, "RT")
     clip = animation.faire(s, "x1e01", "1.0", 1)
+    taches.ecrire(animation.TACHE, {})
+    animation.demander(s, "x1e01", "en", "3.0", "", "RT")
+    assert animation.lire(s, "x1e01")["3.0"]["essais"][0]["consigne"] == "A leaf falls."  # le mouvement du script, sans la caméra
     taches.ecrire(animation.TACHE, {})
     (essai,) = animation.etat(s, "x1e01")["plans"]["1.0"]["essais"]
     assert essai["etat"] == "fait" and essai["consigne"] == "le chat cligne" and essai["simule"] and essai["video"] == str(clip) and abs(animation._outils(s).duree(clip) - 1.5) < 0.1
